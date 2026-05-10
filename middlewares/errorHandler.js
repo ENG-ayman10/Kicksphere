@@ -3,14 +3,13 @@ const logger = require('../utils/logger');
 const errorHandler = (err, req, res, next) => {
   logger.error(`${err.message}\n${err.stack}`);
 
-  // Don't expose internal error details in production
-  const message = process.env.NODE_ENV === 'production'
-    ? "Internal Server Error"
-    : err.message || "Server Error";
+  const message = err.message || "Server Error";
+  const stack = err.stack;
 
   res.status(err.statusCode || 500).json({
     success: false,
-    message
+    message,
+    stack
   });
 };
 
