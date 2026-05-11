@@ -21,4 +21,17 @@ router.get('/leagues', getLeaguesStandings); // Leagues overview
 router.get('/matches/:id/timeline', getMatchTimeline);  // Match events
 router.get('/matches/:id/lineups', getMatchLineups);    // Team lineups
 
+// ==========================================
+// 🚀 DEEP STATS (RAPIDAPI)
+// ==========================================
+const {
+  getDeepTeamDetails,
+  getDeepPlayerDetails,
+  getAllCompetitions,
+} = require('../controllers/statsController');
+
+router.get('/deep/team/:id', getDeepTeamDetails);
+router.get('/deep/player/:id', getDeepPlayerDetails);
+router.get('/deep/competitions', getAllCompetitions);
+
 module.exports = router;

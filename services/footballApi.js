@@ -19,7 +19,7 @@ const headers = {
 // ==========================================
 // 🔄 SMART CACHE SYSTEM
 // ==========================================
-const cache = new Map();
+const { getCached, setCache } = require('./cacheService');
 
 const TTL = {
   LIVE: 2 * 60 * 1000,         // 2 min for live matches
@@ -28,21 +28,6 @@ const TTL = {
   SCORERS: 60 * 60 * 1000,     // 1 hour for top scorers
   DETAILS: 5 * 60 * 1000,      // 5 min for match details
 };
-
-function getCached(key, ttl) {
-  const entry = cache.get(key);
-  if (entry && Date.now() - entry.ts < ttl) return entry.data;
-  return null;
-}
-
-function setCache(key, data) {
-  cache.set(key, { data, ts: Date.now() });
-  // Evict oldest if cache too large
-  if (cache.size > 300) {
-    const oldest = cache.keys().next().value;
-    cache.delete(oldest);
-  }
-}
 
 // Rate limiter — max 10 requests per minute
 let requestTimestamps = [];

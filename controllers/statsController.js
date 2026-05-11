@@ -9,6 +9,7 @@ const {
   fetchMatchDetails,
   COMPETITIONS,
 } = require('../services/footballApi');
+const rapidApiService = require('../services/rapidApiService');
 const logger = require('../utils/logger');
 
 // ==========================================
@@ -175,5 +176,64 @@ exports.getMatchLineups = async (req, res) => {
   } catch (error) {
     logger.error(`❌ LINEUPS ERROR: ${error.message}`);
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==========================================
+// 🚀 DEEP STATS (RAPIDAPI)
+// ==========================================
+
+exports.getDeepTeamDetails = async (req, res) => {
+  try {
+    const teamId = req.params.id;
+    const teamDetails = await rapidApiService.getTeamDetails(teamId);
+    const teamStandings = await rapidApiService.getTeamStandings(teamId);
+    
+    if (!teamDetails) {
+      return res.status(404).json({ success: false, message: 'Team details not found' });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        info: teamDetails,
+        standing: teamStandings,
+      }
+    });
+  } catch (error) {
+    logger.error(`getDeepTeamDetails Error: ${error.message}`);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+exports.getDeepPlayerDetails = async (req, res) => {
+  try {
+    const playerId = req.params.id;
+    const playerDetails = await rapidApiService.getPlayerDetails(playerId);
+    
+    if (!playerDetails) {
+      return res.status(404).json({ success: false, message: 'Player details not found' });
+    }
+
+    return res.json({
+      success: true,
+      data: playerDetails
+    });
+  } catch (error) {
+    logger.error(`getDeepPlayerDetails Error: ${error.message}`);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+exports.getAllCompetitions = async (req, res) => {
+  try {
+    const competitions = await rapidApiService.getAllLeagues();
+    return res.json({
+      success: true,
+      data: competitions
+    });
+  } catch (error) {
+    logger.error(`getAllCompetitions Error: ${error.message}`);
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
