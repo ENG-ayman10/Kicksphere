@@ -245,3 +245,31 @@ exports.getAllCompetitions = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
+
+exports.getMatchDeepStats = async (req, res) => {
+  try {
+    const matchId = req.params.id;
+    // Mocking deep stats (Heatmap, Shot map, advanced metrics) to match the Sofascore UI design requirements
+    return res.json({
+      success: true,
+      data: {
+        statistics: {
+          ballPossession: { home: 61, away: 39 },
+          expectedGoals: { home: 0.82, away: 0.14 },
+          totalShots: { home: 10, away: 3 },
+          cornerKicks: { home: 6, away: 1 },
+          passes: { home: 203, away: 135 },
+          tackles: { home: 15, away: 13 },
+          defending: {
+            tacklesWon: { home: 53, away: 62 }
+          }
+        },
+        attackHeatmap: "Available",
+        shotMap: "Available"
+      }
+    });
+  } catch (error) {
+    logger.error(`getMatchDeepStats Error: ${error.message}`);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};

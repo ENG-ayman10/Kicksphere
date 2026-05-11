@@ -28,10 +28,12 @@ const {
   getDeepTeamDetails,
   getDeepPlayerDetails,
   getAllCompetitions,
+  getMatchDeepStats,
 } = require('../controllers/statsController');
 
 router.get('/deep/team/:id', getDeepTeamDetails);
 router.get('/deep/player/:id', getDeepPlayerDetails);
 router.get('/deep/competitions', getAllCompetitions);
+router.get('/deep/match/:id', getMatchDeepStats);
 
 module.exports = router;
