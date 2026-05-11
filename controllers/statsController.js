@@ -9,7 +9,7 @@ const {
   fetchMatchDetails,
   COMPETITIONS,
 } = require('../services/footballApi');
-const rapidApiService = require('../services/rapidApiService');
+const sofascoreService = require('../services/sofascoreService');
 const logger = require('../utils/logger');
 
 // ==========================================
@@ -186,8 +186,15 @@ exports.getMatchLineups = async (req, res) => {
 exports.getDeepTeamDetails = async (req, res) => {
   try {
     const teamId = req.params.id;
-    const teamDetails = await rapidApiService.getTeamDetails(teamId);
-    const teamStandings = await rapidApiService.getTeamStandings(teamId);
+    // We only need team details since the new service returns squad too
+    const teamDetails = await sofascoreService.getTeamDetails(teamId);
+    
+    // For standings, Sofascore requires tournamentId and seasonId, which we might not have trivially
+    // Let's omit standings here or fetch it if provided in query params
+    const { tournamentId, seasonId } = req.query;
+    const teamStandings = tournamentId && seasonId 
+        ? await sofascoreService.getTeamStandings(teamId, tournamentId, seasonId) 
+        : null;
     
     if (!teamDetails) {
       return res.status(404).json({ success: false, message: 'Team details not found' });
@@ -196,7 +203,8 @@ exports.getDeepTeamDetails = async (req, res) => {
     return res.json({
       success: true,
       data: {
-        info: teamDetails,
+        info: teamDetails.team,
+        squad: teamDetails.squad,
         standing: teamStandings,
       }
     });
@@ -209,7 +217,7 @@ exports.getDeepTeamDetails = async (req, res) => {
 exports.getDeepPlayerDetails = async (req, res) => {
   try {
     const playerId = req.params.id;
-    const playerDetails = await rapidApiService.getPlayerDetails(playerId);
+    const playerDetails = await sofascoreService.getPlayerDetails(playerId);
     
     if (!playerDetails) {
       return res.status(404).json({ success: false, message: 'Player details not found' });
@@ -227,7 +235,7 @@ exports.getDeepPlayerDetails = async (req, res) => {
 
 exports.getAllCompetitions = async (req, res) => {
   try {
-    const competitions = await rapidApiService.getAllLeagues();
+    const competitions = await sofascoreService.getAllLeagues();
     return res.json({
       success: true,
       data: competitions
