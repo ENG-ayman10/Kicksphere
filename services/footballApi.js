@@ -93,26 +93,56 @@ exports.fetchMatchesByDate = async (date = 'TODAY') => {
   try {
     let params = {};
     
+    // If the frontend passes today's date in YYYY-MM-DD, convert to TODAY
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (date === todayStr) {
+      date = 'TODAY';
+    }
+    
     if (date === 'TODAY') {
-      // default — returns today
+      // default — returns today's matches reliably
     } else if (date === 'YESTERDAY') {
       const d = new Date();
       d.setDate(d.getDate() - 1);
       const ds = d.toISOString().split('T')[0];
-      params = { dateFrom: ds, dateTo: ds };
+      
+      const dTo = new Date();
+      // Use a 2-day window to ensure matches are caught regardless of timezone
+      const dsTo = dTo.toISOString().split('T')[0];
+      params = { dateFrom: ds, dateTo: dsTo };
     } else if (date === 'TOMORROW') {
       const d = new Date();
       d.setDate(d.getDate() + 1);
       const ds = d.toISOString().split('T')[0];
-      params = { dateFrom: ds, dateTo: ds };
+      
+      const dTo = new Date();
+      dTo.setDate(dTo.getDate() + 2);
+      const dsTo = dTo.toISOString().split('T')[0];
+      params = { dateFrom: ds, dateTo: dsTo };
     } else {
       // Specific date: YYYY-MM-DD
-      params = { dateFrom: date, dateTo: date };
+      const dTo = new Date(date);
+      dTo.setDate(dTo.getDate() + 1); // +1 day window
+      const dsTo = dTo.toISOString().split('T')[0];
+      
+      params = { dateFrom: date, dateTo: dsTo };
     }
 
     const data = await rateLimitedFetch(`${BASE_URL}/matches`, params);
     
-    const result = _formatMatchList(data.matches || []);
+    // Filter out matches that don't match the exact date if we used a wider window
+    let matches = data.matches || [];
+    if (date !== 'TODAY' && date !== 'YESTERDAY' && date !== 'TOMORROW') {
+       matches = matches.filter(m => m.utcDate.startsWith(date));
+    } else if (date === 'YESTERDAY') {
+       const ds = new Date(new Date().setDate(new Date().getDate() - 1)).toISOString().split('T')[0];
+       matches = matches.filter(m => m.utcDate.startsWith(ds));
+    } else if (date === 'TOMORROW') {
+       const ds = new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split('T')[0];
+       matches = matches.filter(m => m.utcDate.startsWith(ds));
+    }
+
+    const result = _formatMatchList(matches);
     setCache(cacheKey, result);
     logger.info(`✅ API: ${result.length} matches for ${date}`);
     return result;
