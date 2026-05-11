@@ -1,290 +1,384 @@
 /**
  * @file footballApi.js
- * @description Football data service — serves data INSTANTLY.
- * SportScore API is tried in background to fill cache for next request.
- * https://sportscore.com — "Powered by SportScore"
+ * @description Football data service — real data from football-data.org v4.
+ * Free tier: 10 req/min, 12 competitions, delayed scores.
+ * Smart cache prevents hitting rate limits.
  */
 
 const axios = require('axios');
 const logger = require('../utils/logger');
 
-const BASE = 'https://sportscore.com/api/widget';
-const SRC = 'kicksphere-app';
+const BASE_URL = 'https://api.football-data.org/v4';
+const API_KEY = process.env.FOOTBALL_DATA_API_KEY || '';
+
+const headers = {
+  'X-Auth-Token': API_KEY,
+  Accept: 'application/json',
+};
 
 // ==========================================
-// 🔄 CACHE SYSTEM
+// 🔄 SMART CACHE SYSTEM
 // ==========================================
 const cache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 min
 
-function getCached(key) {
-  const e = cache.get(key);
-  if (e && Date.now() - e.ts < CACHE_TTL) return e.data;
+const TTL = {
+  LIVE: 2 * 60 * 1000,         // 2 min for live matches
+  MATCHES: 10 * 60 * 1000,     // 10 min for match lists
+  STANDINGS: 30 * 60 * 1000,   // 30 min for standings
+  SCORERS: 60 * 60 * 1000,     // 1 hour for top scorers
+  DETAILS: 5 * 60 * 1000,      // 5 min for match details
+};
+
+function getCached(key, ttl) {
+  const entry = cache.get(key);
+  if (entry && Date.now() - entry.ts < ttl) return entry.data;
   return null;
 }
+
 function setCache(key, data) {
   cache.set(key, { data, ts: Date.now() });
-  if (cache.size > 200) cache.delete(cache.keys().next().value);
+  // Evict oldest if cache too large
+  if (cache.size > 300) {
+    const oldest = cache.keys().next().value;
+    cache.delete(oldest);
+  }
 }
 
-// Background fetch — does NOT block the response
-function bgFetch(endpoint, params = {}) {
-  params.src = SRC;
-  const key = `${endpoint}:${JSON.stringify(params)}`;
-  if (getCached(key)) return; // already cached
-
-  axios.get(`${BASE}${endpoint}`, { params, timeout: 5000, headers: { Accept: 'application/json' } })
-    .then(({ data }) => {
-      setCache(key, data);
-      logger.info(`✅ BG: SportScore ${endpoint} cached`);
-    })
-    .catch(() => {});
-}
-
-// Sync cached fetch — returns cached data or null INSTANTLY
-function getCachedData(endpoint, params = {}) {
-  params.src = SRC;
-  const key = `${endpoint}:${JSON.stringify(params)}`;
-  const cached = getCached(key);
-
-  // Always trigger background refresh
-  bgFetch(endpoint, params);
-
-  return cached;
+// Rate limiter — max 10 requests per minute
+let requestTimestamps = [];
+async function rateLimitedFetch(url, params = {}) {
+  const now = Date.now();
+  requestTimestamps = requestTimestamps.filter(t => now - t < 60000);
+  
+  if (requestTimestamps.length >= 9) {
+    logger.warn('⚠️ Rate limit approaching, waiting...');
+    const wait = 60000 - (now - requestTimestamps[0]);
+    await new Promise(r => setTimeout(r, Math.max(wait, 1000)));
+  }
+  
+  requestTimestamps.push(Date.now());
+  const response = await axios.get(url, { headers, params, timeout: 8000 });
+  return response.data;
 }
 
 // ==========================================
-// 🏆 LEAGUE SLUGS (Matching SportScore Docs)
+// 🏆 COMPETITION CODES (Free Tier)
 // ==========================================
-const LEAGUE_SLUGS = {
-  'premier-league': { name: 'Premier League', country: 'England' },
-  'la-liga': { name: 'La Liga', country: 'Spain' },
-  'serie-a': { name: 'Serie A', country: 'Italy' },
-  'ligue-1': { name: 'Ligue 1', country: 'France' },
-  'uefa-champions-league': { name: 'Champions League', country: 'Europe' },
+const COMPETITIONS = {
+  PL:  { name: 'Premier League',      country: 'England',  flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
+  PD:  { name: 'La Liga',             country: 'Spain',    flag: '🇪🇸' },
+  SA:  { name: 'Serie A',             country: 'Italy',    flag: '🇮🇹' },
+  BL1: { name: 'Bundesliga',          country: 'Germany',  flag: '🇩🇪' },
+  FL1: { name: 'Ligue 1',             country: 'France',   flag: '🇫🇷' },
+  CL:  { name: 'Champions League',    country: 'Europe',   flag: '🇪🇺' },
+  PPL: { name: 'Primeira Liga',       country: 'Portugal', flag: '🇵🇹' },
+  ELC: { name: 'Championship',        country: 'England',  flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
+  DED: { name: 'Eredivisie',          country: 'Netherlands', flag: '🇳🇱' },
+  BSA: { name: 'Brasileirão',         country: 'Brazil',   flag: '🇧🇷' },
+  EC:  { name: 'European Championship', country: 'Europe', flag: '🇪🇺' },
+  WC:  { name: 'World Cup',           country: 'World',    flag: '🌍' },
 };
 
 // ==========================================
-// 🏟️ RICH FALLBACK DATA (If API fails & Firestore empty)
+// ⚽ FETCH MATCHES BY DATE
 // ==========================================
-const MOCK_STANDINGS = [
-  { rank: 1, name: 'Arsenal', logo: 'https://crests.football-data.org/57.png', played: 28, won: 20, drawn: 4, lost: 4, gf: 70, ga: 24, gd: 46, points: 64 },
-  { rank: 2, name: 'Liverpool', logo: 'https://crests.football-data.org/64.png', played: 28, won: 19, drawn: 7, lost: 2, gf: 65, ga: 26, gd: 39, points: 64 },
-  { rank: 3, name: 'Manchester City', logo: 'https://crests.football-data.org/65.png', played: 28, won: 19, drawn: 6, lost: 3, gf: 63, ga: 28, gd: 35, points: 63 },
-  { rank: 4, name: 'Aston Villa', logo: 'https://crests.football-data.org/58.png', played: 28, won: 17, drawn: 4, lost: 7, gf: 59, ga: 41, gd: 18, points: 55 },
-  { rank: 5, name: 'Tottenham', logo: 'https://crests.football-data.org/73.png', played: 27, won: 16, drawn: 5, lost: 6, gf: 59, ga: 39, gd: 20, points: 53 },
-];
-
-const MOCK_SCORERS = [
-  { rank: 1, name: 'Erling Haaland', photo: 'https://img.thesports.com/football/player/51b72775cb5201281213c806ec0a2850.png', team: 'Manchester City', goals: 18, assists: 5, rating: 8.2 },
-  { rank: 2, name: 'Ollie Watkins', photo: 'https://img.thesports.com/football/player/03b9b479bd39690f055bd4424dc488b3.png', team: 'Aston Villa', goals: 16, assists: 10, rating: 7.9 },
-  { rank: 3, name: 'Mohamed Salah', photo: 'https://img.thesports.com/football/player/b1db5d5c18c4c3e3870624bdc49d6dae.png', team: 'Liverpool', goals: 15, assists: 9, rating: 8.0 },
-  { rank: 4, name: 'Son Heung-Min', photo: 'https://img.thesports.com/football/player/8643888bdba6ee9ceea226dbddcaeb4c.png', team: 'Tottenham', goals: 14, assists: 8, rating: 7.8 },
-  { rank: 5, name: 'Bukayo Saka', photo: 'https://img.thesports.com/football/player/729e2f41656b2e3cc0af18274a27546a.png', team: 'Arsenal', goals: 13, assists: 8, rating: 7.7 },
-];
-const LIVE_MATCHES = [
-  {
-    id: 'match-rm-mc', slug: 'real-madrid-vs-manchester-city',
-    home: { name: 'Real Madrid', score: 2, logo: 'https://crests.football-data.org/86.png' },
-    away: { name: 'Manchester City', score: 1, logo: 'https://crests.football-data.org/65.png' },
-    leagueId: 'UEFA Champions League', leagueLogo: '',
-    status: { liveTime: { short: "67'" } },
-  },
-  {
-    id: 'match-bar-bay', slug: 'barcelona-vs-bayern-munich',
-    home: { name: 'Barcelona', score: 1, logo: 'https://crests.football-data.org/81.png' },
-    away: { name: 'Bayern Munich', score: 1, logo: 'https://crests.football-data.org/5.png' },
-    leagueId: 'UEFA Champions League', leagueLogo: '',
-    status: { liveTime: { short: "34'" } },
-  },
-  {
-    id: 'match-liv-che', slug: 'liverpool-vs-chelsea',
-    home: { name: 'Liverpool', score: 3, logo: 'https://crests.football-data.org/64.png' },
-    away: { name: 'Chelsea', score: 2, logo: 'https://crests.football-data.org/61.png' },
-    leagueId: 'Premier League', leagueLogo: '',
-    status: { liveTime: { short: "55'" } },
-  },
-  {
-    id: 'match-ars-tot', slug: 'arsenal-vs-tottenham',
-    home: { name: 'Arsenal', score: 2, logo: 'https://crests.football-data.org/57.png' },
-    away: { name: 'Tottenham', score: 0, logo: 'https://crests.football-data.org/73.png' },
-    leagueId: 'Premier League', leagueLogo: '',
-    status: { liveTime: { short: "72'" } },
-  },
-  {
-    id: 'match-psg-inter', slug: 'psg-vs-inter-milan',
-    home: { name: 'PSG', score: 1, logo: 'https://crests.football-data.org/524.png' },
-    away: { name: 'Inter Milan', score: 1, logo: 'https://crests.football-data.org/108.png' },
-    leagueId: 'Ligue 1', leagueLogo: '',
-    status: { liveTime: { short: "88'" } },
-  },
-  {
-    id: 'match-juv-nap', slug: 'juventus-vs-napoli',
-    home: { name: 'Juventus', score: 0, logo: 'https://crests.football-data.org/109.png' },
-    away: { name: 'Napoli', score: 2, logo: 'https://crests.football-data.org/113.png' },
-    leagueId: 'Serie A', leagueLogo: '',
-    status: { liveTime: { short: "41'" } },
-  },
-  {
-    id: 'match-manu-new', slug: 'manchester-united-vs-newcastle',
-    home: { name: 'Manchester United', score: 1, logo: 'https://crests.football-data.org/66.png' },
-    away: { name: 'Newcastle', score: 1, logo: 'https://crests.football-data.org/67.png' },
-    leagueId: 'Premier League', leagueLogo: '',
-    status: { liveTime: { short: "15'" } },
-  },
-];
-
-// ==========================================
-// 🔥 FETCH MATCHES — INSTANT response
-// ==========================================
-exports.fetchMatchesFromAPI = async () => {
-  // Check cache first (instant)
-  const cached = getCachedData('/matches/', { sport: 'football', limit: 20 });
-
-  if (cached && cached.matches && cached.matches.length > 0) {
-    logger.info(`📦 Cache: ${cached.matches.length} matches`);
-    return cached.matches.map((m, i) => {
-      const slug = m.url?.replace('/football/match/', '').replace(/\/$/, '') || `match-${i}`;
-      return {
-        id: `ss-${slug}`, slug,
-        home: { name: m.home, score: m.home_score ?? 0, logo: m.home_logo || '' },
-        away: { name: m.away, score: m.away_score ?? 0, logo: m.away_logo || '' },
-        leagueId: m.competition || '', leagueLogo: m.competition_logo || '',
-        status: { liveTime: { short: m.status_text || m.status || 'SCH' } },
-      };
-    });
+exports.fetchMatchesByDate = async (date = 'TODAY') => {
+  const cacheKey = `matches:${date}`;
+  const cached = getCached(cacheKey, TTL.MATCHES);
+  if (cached) {
+    logger.info(`📦 Cache: matches for ${date}`);
+    return cached;
   }
 
-  // Return fallback instantly
-  return LIVE_MATCHES;
+  try {
+    let params = {};
+    
+    if (date === 'TODAY') {
+      // default — returns today
+    } else if (date === 'YESTERDAY') {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      const ds = d.toISOString().split('T')[0];
+      params = { dateFrom: ds, dateTo: ds };
+    } else if (date === 'TOMORROW') {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      const ds = d.toISOString().split('T')[0];
+      params = { dateFrom: ds, dateTo: ds };
+    } else {
+      // Specific date: YYYY-MM-DD
+      params = { dateFrom: date, dateTo: date };
+    }
+
+    const data = await rateLimitedFetch(`${BASE_URL}/matches`, params);
+    
+    const result = _formatMatchList(data.matches || []);
+    setCache(cacheKey, result);
+    logger.info(`✅ API: ${result.length} matches for ${date}`);
+    return result;
+  } catch (err) {
+    logger.error(`❌ fetchMatchesByDate error: ${err.message}`);
+    return [];
+  }
 };
 
 // ==========================================
-// 📊 FETCH TOP SCORERS
+// 🔴 FETCH LIVE MATCHES
 // ==========================================
-exports.fetchTopScorers = async (leagueSlug = 'premier-league', limit = 20) => {
-  const cached = getCachedData('/topscorers/', { sport: 'football', slug: leagueSlug, limit });
-  if (cached && cached.scorers && cached.scorers.length > 0) {
-    return cached.scorers.map((p, i) => ({
-      rank: p.rank || i + 1,
-      name: p.player || 'Unknown',
-      photo: p.player_logo || '',
-      team: p.team || '',
-      teamLogo: p.team_logo || '',
-      slug: p.player_slug || '',
-      goals: p.goals || 0,
-      assists: p.assists || 0,
-      matches: p.matches || 0,
-      minutes: p.minutes || 0,
-      nationality: '',
-    }));
+exports.fetchLiveMatches = async () => {
+  const cacheKey = 'matches:live';
+  const cached = getCached(cacheKey, TTL.LIVE);
+  if (cached) return cached;
+
+  try {
+    const data = await rateLimitedFetch(`${BASE_URL}/matches`, { status: 'LIVE' });
+    const result = _formatMatchList(data.matches || []);
+    setCache(cacheKey, result);
+    logger.info(`✅ Live: ${result.length} matches`);
+    return result;
+  } catch (err) {
+    logger.error(`❌ fetchLiveMatches error: ${err.message}`);
+    // Fallback: return today's in-progress matches from cache
+    const today = getCached('matches:TODAY', TTL.MATCHES);
+    if (today) return today.filter(m => m.status === 'IN_PLAY' || m.status === 'PAUSED');
+    return [];
   }
-  // Return fallback instantly
-  logger.info(`📦 Mock: Returning Top Scorers for ${leagueSlug}`);
-  return [
-    { rank: 1, name: 'E. Haaland', team: 'Man City', goals: 25, assists: 5, matches: 28, rating: '8.9' },
-    { rank: 2, name: 'M. Salah', team: 'Liverpool', goals: 18, assists: 9, matches: 29, rating: '8.5' },
-    { rank: 3, name: 'B. Saka', team: 'Arsenal', goals: 15, assists: 10, matches: 28, rating: '8.4' }
-  ];
 };
 
 // ==========================================
 // 📊 FETCH STANDINGS
 // ==========================================
-exports.fetchStandings = async (leagueSlug = 'premier-league') => {
-  const cached = getCachedData('/standings/', { sport: 'football', slug: leagueSlug });
-  
-  if (cached) {
-    const groups = cached.tables || cached.standings || [];
-    if (groups && groups.length > 0) {
-      const allRows = [];
-      for (const group of groups) {
-        if (group.rows) allRows.push(...group.rows);
-      }
+exports.fetchStandings = async (competitionCode = 'PL') => {
+  const cacheKey = `standings:${competitionCode}`;
+  const cached = getCached(cacheKey, TTL.STANDINGS);
+  if (cached) return cached;
 
-      if (allRows.length > 0) {
-        return allRows.map(t => ({
-          rank: t.pos, name: t.team, logo: t.team_logo || '', slug: t.team_slug || '',
-          played: t.p || 0, won: t.w || 0, drawn: t.d || 0, lost: t.l || 0,
-          gf: t.gf || 0, ga: t.ga || 0, gd: t.gd || 0, points: t.pts || 0,
-        }));
-      }
-    }
+  try {
+    const data = await rateLimitedFetch(`${BASE_URL}/competitions/${competitionCode}/standings`);
+    
+    const total = data.standings?.find(s => s.type === 'TOTAL');
+    if (!total || !total.table) return [];
+
+    const result = total.table.map(t => ({
+      rank: t.position,
+      name: t.team.shortName || t.team.name,
+      logo: t.team.crest || '',
+      teamId: t.team.id,
+      played: t.playedGames,
+      won: t.won,
+      drawn: t.draw,
+      lost: t.lost,
+      gf: t.goalsFor,
+      ga: t.goalsAgainst,
+      gd: t.goalDifference,
+      points: t.points,
+    }));
+
+    setCache(cacheKey, result);
+    logger.info(`✅ Standings: ${result.length} teams for ${competitionCode}`);
+    return result;
+  } catch (err) {
+    logger.error(`❌ fetchStandings error: ${err.message}`);
+    return [];
   }
-
-  // Return fallback instantly
-  logger.info(`📦 Mock: Returning Standings for ${leagueSlug}`);
-  return [
-    { rank: 1, name: 'Arsenal', played: 30, won: 22, drawn: 5, lost: 3, gf: 65, ga: 20, gd: 45, points: 71 },
-    { rank: 2, name: 'Liverpool', played: 30, won: 21, drawn: 6, lost: 3, gf: 68, ga: 25, gd: 43, points: 69 },
-    { rank: 3, name: 'Man City', played: 30, won: 20, drawn: 7, lost: 3, gf: 60, ga: 24, gd: 36, points: 67 }
-  ];
 };
 
 // ==========================================
-// ⏱️ FETCH MATCH EVENTS
+// 🏅 FETCH TOP SCORERS
 // ==========================================
-exports.fetchMatchEvents = async (slug) => {
-  const cached = getCachedData('/match/', { sport: 'football', slug });
-  if (!cached || !cached.match || !cached.match.incidents) return null;
+exports.fetchTopScorers = async (competitionCode = 'PL', limit = 20) => {
+  const cacheKey = `scorers:${competitionCode}:${limit}`;
+  const cached = getCached(cacheKey, TTL.SCORERS);
+  if (cached) return cached;
 
-  return cached.match.incidents.map(e => ({
-    minute: e.time, type: _mapType(e.type), icon: _mapIcon(e.type),
-    label: e.type, side: e.side,
-    team: e.side === 'home' ? (cached.match.home || 'Home') : (cached.match.away || 'Away'),
-    player: e.player || e.player_in || '', playerOut: e.player_out || null,
-    isGoal: e.is_goal || false, isCard: e.is_card || false,
+  try {
+    const data = await rateLimitedFetch(`${BASE_URL}/competitions/${competitionCode}/scorers`, { limit });
+    
+    const result = (data.scorers || []).map((s, i) => ({
+      rank: i + 1,
+      name: s.player?.name || 'Unknown',
+      playerId: s.player?.id,
+      nationality: s.player?.nationality || '',
+      team: s.team?.shortName || s.team?.name || '',
+      teamLogo: s.team?.crest || '',
+      goals: s.goals || 0,
+      assists: s.assists || 0,
+      penalties: s.penalties || 0,
+      matches: s.playedMatches || 0,
+    }));
+
+    setCache(cacheKey, result);
+    logger.info(`✅ Scorers: ${result.length} for ${competitionCode}`);
+    return result;
+  } catch (err) {
+    logger.error(`❌ fetchTopScorers error: ${err.message}`);
+    return [];
+  }
+};
+
+// ==========================================
+// 🔍 FETCH MATCH DETAILS
+// ==========================================
+exports.fetchMatchDetails = async (matchId) => {
+  const cacheKey = `match:${matchId}`;
+  const cached = getCached(cacheKey, TTL.DETAILS);
+  if (cached) return cached;
+
+  try {
+    const data = await rateLimitedFetch(`${BASE_URL}/matches/${matchId}`);
+
+    const m = data;
+    const result = {
+      id: m.id,
+      competition: {
+        name: m.competition?.name || '',
+        code: m.competition?.code || '',
+        emblem: m.competition?.emblem || '',
+      },
+      utcDate: m.utcDate,
+      status: m.status,
+      matchday: m.matchday,
+      stage: m.stage,
+      venue: m.venue || null,
+      attendance: m.attendance || null,
+      homeTeam: {
+        id: m.homeTeam?.id,
+        name: m.homeTeam?.shortName || m.homeTeam?.name || '',
+        fullName: m.homeTeam?.name || '',
+        crest: m.homeTeam?.crest || '',
+        coach: m.homeTeam?.coach?.name || null,
+        formation: m.homeTeam?.formation || null,
+        lineup: (m.homeTeam?.lineup || []).map(p => ({
+          id: p.id, name: p.name, position: p.position, shirtNumber: p.shirtNumber,
+        })),
+        bench: (m.homeTeam?.bench || []).map(p => ({
+          id: p.id, name: p.name, position: p.position, shirtNumber: p.shirtNumber,
+        })),
+      },
+      awayTeam: {
+        id: m.awayTeam?.id,
+        name: m.awayTeam?.shortName || m.awayTeam?.name || '',
+        fullName: m.awayTeam?.name || '',
+        crest: m.awayTeam?.crest || '',
+        coach: m.awayTeam?.coach?.name || null,
+        formation: m.awayTeam?.formation || null,
+        lineup: (m.awayTeam?.lineup || []).map(p => ({
+          id: p.id, name: p.name, position: p.position, shirtNumber: p.shirtNumber,
+        })),
+        bench: (m.awayTeam?.bench || []).map(p => ({
+          id: p.id, name: p.name, position: p.position, shirtNumber: p.shirtNumber,
+        })),
+      },
+      score: {
+        winner: m.score?.winner,
+        fullTime: m.score?.fullTime || { home: null, away: null },
+        halfTime: m.score?.halfTime || { home: null, away: null },
+      },
+      goals: (m.goals || []).map(g => ({
+        minute: g.minute,
+        type: g.type,
+        team: g.team?.name || '',
+        scorer: g.scorer?.name || '',
+        assist: g.assist?.name || null,
+      })),
+      bookings: (m.bookings || []).map(b => ({
+        minute: b.minute,
+        team: b.team?.name || '',
+        player: b.player?.name || '',
+        card: b.card,
+      })),
+      substitutions: (m.substitutions || []).map(s => ({
+        minute: s.minute,
+        team: s.team?.name || '',
+        playerIn: s.playerIn?.name || '',
+        playerOut: s.playerOut?.name || '',
+      })),
+      referees: (m.referees || []).map(r => ({
+        name: r.name, type: r.type, nationality: r.nationality,
+      })),
+      head2head: data.head2head || null,
+    };
+
+    setCache(cacheKey, result);
+    logger.info(`✅ Match details: ${matchId}`);
+    return result;
+  } catch (err) {
+    logger.error(`❌ fetchMatchDetails error: ${err.message}`);
+    return null;
+  }
+};
+
+// ==========================================
+// 📅 FETCH COMPETITION MATCHES (date range)
+// ==========================================
+exports.fetchCompetitionMatches = async (competitionCode, dateFrom, dateTo) => {
+  const cacheKey = `comp:${competitionCode}:${dateFrom}:${dateTo}`;
+  const cached = getCached(cacheKey, TTL.MATCHES);
+  if (cached) return cached;
+
+  try {
+    const params = {};
+    if (dateFrom) params.dateFrom = dateFrom;
+    if (dateTo) params.dateTo = dateTo;
+
+    const data = await rateLimitedFetch(
+      `${BASE_URL}/competitions/${competitionCode}/matches`,
+      params
+    );
+
+    const result = _formatMatchList(data.matches || []);
+    setCache(cacheKey, result);
+    return result;
+  } catch (err) {
+    logger.error(`❌ fetchCompetitionMatches error: ${err.message}`);
+    return [];
+  }
+};
+
+// ==========================================
+// 🔧 INTERNAL: Format match list
+// ==========================================
+function _formatMatchList(matches) {
+  return matches.map(m => ({
+    id: m.id,
+    utcDate: m.utcDate,
+    status: m.status,
+    matchday: m.matchday,
+    stage: m.stage,
+    minute: m.minute || null,
+    competition: {
+      code: m.competition?.code || '',
+      name: m.competition?.name || '',
+      emblem: m.competition?.emblem || '',
+      country: m.area?.name || '',
+      countryFlag: m.area?.flag || '',
+    },
+    homeTeam: {
+      id: m.homeTeam?.id,
+      name: m.homeTeam?.shortName || m.homeTeam?.name || '',
+      fullName: m.homeTeam?.name || '',
+      crest: m.homeTeam?.crest || '',
+    },
+    awayTeam: {
+      id: m.awayTeam?.id,
+      name: m.awayTeam?.shortName || m.awayTeam?.name || '',
+      fullName: m.awayTeam?.name || '',
+      crest: m.awayTeam?.crest || '',
+    },
+    score: {
+      winner: m.score?.winner,
+      fullTime: m.score?.fullTime || { home: null, away: null },
+      halfTime: m.score?.halfTime || { home: null, away: null },
+    },
   }));
-};
-
-// ==========================================
-// 👥 FETCH LINEUPS
-// ==========================================
-exports.fetchLineupsFromAPI = async (slug) => {
-  const cached = getCachedData('/match/', { sport: 'football', slug });
-  if (!cached || !cached.match || !cached.match.lineups) return null;
-
-  const ln = cached.match.lineups;
-  const mp = (xi) => (xi || []).map(p => ({
-    number: p.number || 0, name: p.name || 'Unknown',
-    position: _mapPos(p.position), isCaptain: p.captain || false,
-  }));
-
-  return {
-    formation: { home: ln.home_formation || '4-3-3', away: ln.away_formation || '4-3-3' },
-    home: mp(ln.home_xi), away: mp(ln.away_xi),
-  };
-};
-
-// ==========================================
-// 🔧 HELPERS
-// ==========================================
-function _mapType(t) {
-  if (!t) return 'event';
-  const l = t.toLowerCase();
-  if (l.includes('goal')) return 'goal';
-  if (l.includes('yellow')) return 'yellow_card';
-  if (l.includes('red')) return 'red_card';
-  if (l.includes('subst')) return 'substitution';
-  return 'event';
-}
-function _mapIcon(t) {
-  if (!t) return '📢';
-  const l = t.toLowerCase();
-  if (l.includes('goal')) return '⚽';
-  if (l.includes('yellow')) return '🟨';
-  if (l.includes('red')) return '🟥';
-  if (l.includes('subst')) return '🔄';
-  return '📢';
-}
-function _mapPos(p) {
-  if (!p) return 'MF';
-  if (p === 'G') return 'GK';
-  if (p === 'D') return 'DF';
-  if (p === 'M') return 'MF';
-  if (p === 'F') return 'FW';
-  return p;
 }
 
-exports.fetchMatchesByDateFromAPI = async () => exports.fetchMatchesFromAPI();
-exports.LEAGUE_SLUGS = LEAGUE_SLUGS;
+// ==========================================
+// 📤 EXPORTS (backward compatibility)
+// ==========================================
+exports.fetchMatchesFromAPI = exports.fetchLiveMatches;
+exports.fetchMatchesByDateFromAPI = exports.fetchMatchesByDate;
+exports.COMPETITIONS = COMPETITIONS;
+exports.LEAGUE_SLUGS = Object.fromEntries(
+  Object.entries(COMPETITIONS).map(([code, info]) => [code, info])
+);

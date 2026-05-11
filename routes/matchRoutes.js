@@ -5,30 +5,33 @@ const {
   getMatches,
   getLiveMatches,
   searchMatches,
-  getMatchDetails
+  getMatchDetails,
+  getMatchesByDate,
 } = require('../controllers/matchControllers');
 
 
 // ==========================================
-// 🔥 GET ALL MATCHES (filter + pagination)
+// 📅 MATCHES BY DATE (?date=2024-03-15 or ?date=TODAY)
 // ==========================================
-router.get('/', getMatches);
-
+router.get('/', getMatchesByDate);
 
 // ==========================================
-// 🔥 LIVE MATCHES
+// 📅 EXPLICIT DATE ROUTE
+// ==========================================
+router.get('/date', getMatchesByDate);
+
+// ==========================================
+// 🔴 LIVE MATCHES
 // ==========================================
 router.get('/live', getLiveMatches);
 
-
 // ==========================================
-// 🔥 SEARCH MATCHES
+// 🔍 SEARCH MATCHES
 // ==========================================
 router.get('/search', searchMatches);
 
-
 // ==========================================
-// 🔥 MATCH DETAILS (لازم يكون آخر شيء)
+// 🔍 MATCH DETAILS (must be last — catches :id)
 // ==========================================
 router.get('/:id', getMatchDetails);
 

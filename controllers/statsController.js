@@ -1,55 +1,33 @@
 /**
  * @file statsController.js
- * @description Stats endpoints — SportScore API → Firestore fallback.
- * Data: https://sportscore.com — "Powered by SportScore"
+ * @description Stats endpoints — football-data.org v4 API.
  */
 
-const db = require('../config/firebase');
 const {
   fetchTopScorers,
   fetchStandings,
-  fetchMatchEvents,
-  fetchLineupsFromAPI,
-  LEAGUE_SLUGS,
+  fetchMatchDetails,
+  COMPETITIONS,
 } = require('../services/footballApi');
 const logger = require('../utils/logger');
 
 // ==========================================
-// 📊 GET TOP PLAYERS (SportScore → Firestore)
+// 📊 GET TOP PLAYERS (Scorers)
 // ==========================================
 exports.getTopPlayers = async (req, res) => {
   try {
-    const slug = req.query.league || 'premier-league';
+    const league = req.query.league || 'PL';
     const limit = parseInt(req.query.limit) || 20;
 
-    // Try SportScore
-    const real = await fetchTopScorers(slug, limit);
-    if (real && real.length > 0) {
-      logger.info(`✅ Top Scorers: ${real.length} from SportScore`);
-      return res.json({ success: true, source: 'sportscore', data: real });
+    const data = await fetchTopScorers(league, limit);
+    
+    if (data && data.length > 0) {
+      logger.info(`✅ Top Scorers: ${data.length} from football-data.org`);
+      return res.json({ success: true, source: 'football-data.org', data });
     }
 
-    // Fallback: Firestore
-    logger.info('📦 Top Scorers: Firestore fallback');
-    const snap = await db.collection('players').limit(30).get();
-    const players = snap.docs.map((doc, i) => {
-      const d = doc.data();
-      return {
-        rank: i + 1,
-        name: d.name || 'Unknown',
-        photo: d.photo || '',
-        position: d.position || 'MF',
-        team: d.team || 'Unknown',
-        teamLogo: d.teamLogo || '',
-        nationality: d.nationality || '',
-        goals: d.goals || Math.floor(Math.random() * 25) + 1,
-        assists: d.assists || Math.floor(Math.random() * 15),
-        matches: d.matches || Math.floor(Math.random() * 30) + 10,
-        rating: d.rating || (Math.random() * 2 + 7).toFixed(1),
-      };
-    });
-    players.sort((a, b) => b.goals - a.goals);
-    res.json({ success: true, source: 'firestore', data: players });
+    // Empty fallback
+    res.json({ success: true, source: 'empty', data: [] });
   } catch (error) {
     logger.error(`❌ TOP PLAYERS ERROR: ${error.message}`);
     res.status(500).json({ success: false, message: error.message });
@@ -57,42 +35,20 @@ exports.getTopPlayers = async (req, res) => {
 };
 
 // ==========================================
-// 📊 GET STANDINGS (SportScore → Firestore)
+// 📊 GET STANDINGS
 // ==========================================
 exports.getTopTeams = async (req, res) => {
   try {
-    const slug = req.query.league || 'premier-league';
+    const league = req.query.league || 'PL';
 
-    // Try SportScore
-    const real = await fetchStandings(slug);
-    if (real && real.length > 0) {
-      logger.info(`✅ Standings: ${real.length} from SportScore`);
-      return res.json({ success: true, source: 'sportscore', data: real });
+    const data = await fetchStandings(league);
+    
+    if (data && data.length > 0) {
+      logger.info(`✅ Standings: ${data.length} from football-data.org`);
+      return res.json({ success: true, source: 'football-data.org', data });
     }
 
-    // Fallback: Firestore
-    logger.info('📦 Standings: Firestore fallback');
-    const snap = await db.collection('teams').limit(20).get();
-    const teams = snap.docs.map((doc, i) => {
-      const d = doc.data();
-      const played = d.played || Math.floor(Math.random() * 10) + 25;
-      const won = d.won || Math.floor(played * 0.55);
-      const drawn = d.drawn || Math.floor(played * 0.2);
-      const lost = played - won - drawn;
-      return {
-        rank: i + 1,
-        name: d.name || 'Unknown',
-        logo: d.logo || '',
-        played, won, drawn, lost,
-        gf: d.gf || Math.floor(Math.random() * 40) + 20,
-        ga: d.ga || Math.floor(Math.random() * 30) + 10,
-        gd: 0,
-        points: won * 3 + drawn,
-      };
-    });
-    teams.sort((a, b) => b.points - a.points);
-    teams.forEach((t, i) => (t.rank = i + 1));
-    res.json({ success: true, source: 'firestore', data: teams });
+    res.json({ success: true, source: 'empty', data: [] });
   } catch (error) {
     logger.error(`❌ STANDINGS ERROR: ${error.message}`);
     res.status(500).json({ success: false, message: error.message });
@@ -104,14 +60,12 @@ exports.getTopTeams = async (req, res) => {
 // ==========================================
 exports.getLeaguesStandings = async (req, res) => {
   try {
-    const leagues = Object.entries(LEAGUE_SLUGS).map(([slug, info]) => ({
-      id: slug,
-      slug,
+    const leagues = Object.entries(COMPETITIONS).map(([code, info]) => ({
+      id: code,
+      code,
       name: info.name,
       country: info.country,
-      season: '2024-25',
-      totalTeams: 20,
-      matchesPlayed: 35,
+      flag: info.flag,
     }));
     res.json({ success: true, data: leagues });
   } catch (error) {
@@ -121,35 +75,59 @@ exports.getLeaguesStandings = async (req, res) => {
 };
 
 // ==========================================
-// ⏱️ GET MATCH TIMELINE (SportScore → mock)
+// ⏱️ GET MATCH TIMELINE (goals, cards, subs from match details)
 // ==========================================
 exports.getMatchTimeline = async (req, res) => {
   try {
     const { id } = req.params;
-    const slug = id.replace(/^(ss-|fb-)/, '');
-
-    const events = await fetchMatchEvents(slug);
-    if (events && events.length > 0) {
-      logger.info(`✅ Timeline: ${events.length} events from SportScore`);
-      return res.json({ success: true, source: 'sportscore', data: events });
+    const details = await fetchMatchDetails(id);
+    
+    if (!details) {
+      return res.json({ success: true, source: 'empty', data: [] });
     }
 
-    // Fallback: generate mock
-    logger.info('📦 Timeline: mock fallback');
-    const types = [
-      { type: 'goal', icon: '⚽', label: 'Goal' },
-      { type: 'yellow_card', icon: '🟨', label: 'Yellow Card' },
-      { type: 'substitution', icon: '🔄', label: 'Substitution' },
-    ];
-    const players = ['Mbappé', 'Haaland', 'Salah', 'Bellingham', 'Saka', 'Vinicius Jr', 'De Bruyne'];
-    const count = Math.floor(Math.random() * 6) + 3;
-    const mins = Array.from({ length: count }, () => Math.floor(Math.random() * 90) + 1).sort((a, b) => a - b);
+    // Build timeline from goals + bookings + substitutions
+    const timeline = [];
 
-    const timeline = mins.map(m => {
-      const ev = types[Math.floor(Math.random() * types.length)];
-      return { minute: m, ...ev, team: Math.random() < 0.5 ? 'Home' : 'Away', player: players[Math.floor(Math.random() * players.length)] };
-    });
-    res.json({ success: true, source: 'mock', data: timeline });
+    for (const g of (details.goals || [])) {
+      timeline.push({
+        minute: g.minute,
+        type: 'goal',
+        icon: '⚽',
+        label: g.type === 'PENALTY' ? 'Penalty Goal' : 'Goal',
+        team: g.team,
+        player: g.scorer,
+        assist: g.assist,
+      });
+    }
+
+    for (const b of (details.bookings || [])) {
+      timeline.push({
+        minute: b.minute,
+        type: b.card === 'RED' ? 'red_card' : 'yellow_card',
+        icon: b.card === 'RED' ? '🟥' : '🟨',
+        label: b.card === 'RED' ? 'Red Card' : 'Yellow Card',
+        team: b.team,
+        player: b.player,
+      });
+    }
+
+    for (const s of (details.substitutions || [])) {
+      timeline.push({
+        minute: s.minute,
+        type: 'substitution',
+        icon: '🔄',
+        label: 'Substitution',
+        team: s.team,
+        player: s.playerIn,
+        playerOut: s.playerOut,
+      });
+    }
+
+    // Sort by minute
+    timeline.sort((a, b) => (a.minute || 0) - (b.minute || 0));
+
+    res.json({ success: true, source: 'football-data.org', data: timeline });
   } catch (error) {
     logger.error(`❌ TIMELINE ERROR: ${error.message}`);
     res.status(500).json({ success: false, message: error.message });
@@ -157,29 +135,42 @@ exports.getMatchTimeline = async (req, res) => {
 };
 
 // ==========================================
-// 👥 GET MATCH LINEUPS (SportScore → mock)
+// 👥 GET MATCH LINEUPS
 // ==========================================
 exports.getMatchLineups = async (req, res) => {
   try {
     const { id } = req.params;
-    const slug = id.replace(/^(ss-|fb-)/, '');
+    const details = await fetchMatchDetails(id);
 
-    const lineups = await fetchLineupsFromAPI(slug);
-    if (lineups) {
-      logger.info(`✅ Lineups from SportScore`);
-      return res.json({ success: true, source: 'sportscore', data: lineups });
+    if (!details || (!details.homeTeam.lineup.length && !details.awayTeam.lineup.length)) {
+      // Return empty - lineups not available (free tier limitation)
+      return res.json({
+        success: true,
+        source: 'unavailable',
+        data: {
+          message: 'Lineups not available for this match',
+          formation: { home: details?.homeTeam?.formation || '4-3-3', away: details?.awayTeam?.formation || '4-3-3' },
+          home: details?.homeTeam?.lineup || [],
+          away: details?.awayTeam?.lineup || [],
+        },
+      });
     }
 
-    // Fallback: mock
-    logger.info('📦 Lineups: mock fallback');
-    const pos = ['GK', 'DF', 'DF', 'DF', 'DF', 'MF', 'MF', 'MF', 'FW', 'FW', 'FW'];
-    const home = ['Courtois', 'Carvajal', 'Militão', 'Rüdiger', 'Mendy', 'Valverde', 'Camavinga', 'Bellingham', 'Rodrygo', 'Vinicius Jr', 'Mbappé'];
-    const away = ['Ederson', 'Walker', 'Dias', 'Akanji', 'Gvardiol', 'Rodri', 'De Bruyne', 'Silva', 'Foden', 'Grealish', 'Haaland'];
-    const mk = (names) => pos.map((p, i) => ({ number: i + 1, name: names[i], position: p, isCaptain: i === 5 }));
-
     res.json({
-      success: true, source: 'mock',
-      data: { formation: { home: '4-3-3', away: '4-3-3' }, home: mk(home), away: mk(away) },
+      success: true,
+      source: 'football-data.org',
+      data: {
+        formation: {
+          home: details.homeTeam.formation || '4-3-3',
+          away: details.awayTeam.formation || '4-3-3',
+        },
+        homeCoach: details.homeTeam.coach,
+        awayCoach: details.awayTeam.coach,
+        home: details.homeTeam.lineup,
+        away: details.awayTeam.lineup,
+        homeBench: details.homeTeam.bench,
+        awayBench: details.awayTeam.bench,
+      },
     });
   } catch (error) {
     logger.error(`❌ LINEUPS ERROR: ${error.message}`);
