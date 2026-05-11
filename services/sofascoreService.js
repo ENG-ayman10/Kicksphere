@@ -33,9 +33,44 @@ const fetchAPI = async (endpoint) => {
 };
 
 // ==========================================
+// 🔍 RESOLVE TEAM ID BY NAME
+// ==========================================
+const resolveTeamIdByName = async (teamName) => {
+  if (!teamName) return null;
+  const cacheKey = `resolve_team:${teamName.toLowerCase()}`;
+  const cached = getCached(cacheKey, TTL.TEAM);
+  if (cached) return cached;
+
+  try {
+    const data = await fetchAPI(`/search/all?q=${encodeURIComponent(teamName)}`);
+    if (data && data.results) {
+      // Find the first result that is a team
+      const teamResult = data.results.find(r => r.type === 'team');
+      if (teamResult && teamResult.entity) {
+        const id = teamResult.entity.id;
+        setCache(cacheKey, id);
+        return id;
+      }
+    }
+    return null;
+  } catch (e) {
+    logger.error(`resolveTeamIdByName failed: ${e.message}`);
+    return null;
+  }
+};
+
+// ==========================================
 // 👕 GET TEAM DETAILS & STATS
 // ==========================================
-exports.getTeamDetails = async (teamId) => {
+exports.getTeamDetails = async (teamIdOrName) => {
+  let teamId = teamIdOrName;
+  
+  // If it's a string that contains letters, treat as name and resolve
+  if (isNaN(teamIdOrName)) {
+    teamId = await resolveTeamIdByName(teamIdOrName);
+    if (!teamId) return null;
+  }
+
   const cacheKey = `team:${teamId}`;
   const cached = getCached(cacheKey, TTL.TEAM);
   if (cached) return cached;
@@ -80,10 +115,16 @@ exports.getTeamDetails = async (teamId) => {
 // ==========================================
 // 📊 GET TEAM STANDINGS
 // ==========================================
-exports.getTeamStandings = async (teamId, tournamentId, seasonId) => {
+exports.getTeamStandings = async (teamIdOrName, tournamentId, seasonId) => {
   // If we don't know the exact tournament/season, we can fetch team tournaments first
   // For simplicity, we just return basic info if tournamentId isn't provided
   if (!tournamentId || !seasonId) return null;
+
+  let teamId = teamIdOrName;
+  if (isNaN(teamIdOrName)) {
+    teamId = await resolveTeamIdByName(teamIdOrName);
+    if (!teamId) return null;
+  }
 
   const cacheKey = `standings:team:${teamId}:${seasonId}`;
   const cached = getCached(cacheKey, TTL.STANDINGS);
