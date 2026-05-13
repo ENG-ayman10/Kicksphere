@@ -60,6 +60,32 @@ const resolveTeamIdByName = async (teamName) => {
 };
 
 // ==========================================
+// 🔍 RESOLVE PLAYER ID BY NAME
+// ==========================================
+const resolvePlayerIdByName = async (playerName) => {
+  if (!playerName) return null;
+  const cacheKey = `resolve_player:${playerName.toLowerCase()}`;
+  const cached = getCached(cacheKey, TTL.PLAYER);
+  if (cached) return cached;
+
+  try {
+    const data = await fetchAPI(`/search/all?q=${encodeURIComponent(playerName)}`);
+    if (data && data.results) {
+      const playerResult = data.results.find(r => r.type === 'player');
+      if (playerResult && playerResult.entity) {
+        const id = playerResult.entity.id;
+        setCache(cacheKey, id);
+        return id;
+      }
+    }
+    return null;
+  } catch (e) {
+    logger.error(`resolvePlayerIdByName failed: ${e.message}`);
+    return null;
+  }
+};
+
+// ==========================================
 // 👕 GET TEAM DETAILS & STATS
 // ==========================================
 exports.getTeamDetails = async (teamIdOrName) => {
@@ -162,10 +188,39 @@ exports.getTeamStandings = async (teamIdOrName, tournamentId, seasonId) => {
   }
 };
 
+const getPlayerTransferHistory = async (playerId) => {
+  try {
+    const data = await fetchAPI(`/player/${playerId}/transfer-history`);
+    if (!data || !data.transferHistory) return [];
+    
+    return data.transferHistory.map(t => ({
+      transferDate: t.transferDateTimestamp,
+      fromTeam: t.fromTeamName,
+      fromTeamId: t.transferFrom?.id,
+      fromTeamLogo: t.transferFrom?.id ? `https://api.sofascore.app/api/v1/team/${t.transferFrom.id}/image` : null,
+      toTeam: t.toTeamName,
+      toTeamId: t.transferTo?.id,
+      toTeamLogo: t.transferTo?.id ? `https://api.sofascore.app/api/v1/team/${t.transferTo.id}/image` : null,
+      type: t.type,
+      fee: t.transferFeeDescription || (t.transferFeeRaw ? t.transferFeeRaw.value : 'Free'),
+    }));
+  } catch (err) {
+    logger.error(`getPlayerTransferHistory failed: ${err.message}`);
+    return [];
+  }
+};
+
 // ==========================================
 // 🏃 GET PLAYER DETAILS
 // ==========================================
-exports.getPlayerDetails = async (playerId) => {
+exports.getPlayerDetails = async (playerIdOrName) => {
+  let playerId = playerIdOrName;
+  
+  if (isNaN(playerIdOrName)) {
+    playerId = await resolvePlayerIdByName(playerIdOrName);
+    if (!playerId) return null;
+  }
+
   const cacheKey = `player:${playerId}`;
   const cached = getCached(cacheKey, TTL.PLAYER);
   if (cached) return cached;
@@ -176,8 +231,11 @@ exports.getPlayerDetails = async (playerId) => {
     
     const p = data.player;
     
-    // Attempt to get attributes
-    const attrData = await fetchAPI(`/player/${playerId}/attribute-overview`);
+    // Attempt to get attributes & transfers in parallel
+    const [attrData, transfers] = await Promise.all([
+      fetchAPI(`/player/${playerId}/attribute-overview`),
+      getPlayerTransferHistory(playerId)
+    ]);
     
     const result = {
       id: p.id,
@@ -186,6 +244,7 @@ exports.getPlayerDetails = async (playerId) => {
       image: `https://api.sofascore.app/api/v1/player/${p.id}/image`,
       team: p.team?.name,
       teamId: p.team?.id,
+      teamLogo: p.team?.id ? `https://api.sofascore.app/api/v1/team/${p.team.id}/image` : null,
       position: p.position,
       jerseyNumber: p.jerseyNumber,
       height: p.height,
@@ -194,6 +253,7 @@ exports.getPlayerDetails = async (playerId) => {
       country: p.country?.name,
       marketValue: p.proposedMarketValue,
       attributes: attrData ? attrData.averageAttributeOverview : null,
+      transferHistory: transfers,
     };
 
     setCache(cacheKey, result);
@@ -230,5 +290,49 @@ exports.getAllLeagues = async () => {
   } catch (err) {
     logger.error(`getAllLeagues failed: ${err.message}`);
     return [];
+  }
+};
+
+// ==========================================
+// ⚽ GET TEAM MATCHES (LAST & NEXT)
+// ==========================================
+exports.getTeamMatches = async (teamId) => {
+  const cacheKey = `team_matches:${teamId}`;
+  const cached = getCached(cacheKey, TTL.TEAM);
+  if (cached) return cached;
+
+  try {
+    const [lastMatches, nextMatches] = await Promise.all([
+      fetchAPI(`/team/${teamId}/events/last/0`),
+      fetchAPI(`/team/${teamId}/events/next/0`)
+    ]);
+
+    const formatEvent = (e) => ({
+      id: e.id,
+      tournament: e.tournament?.name,
+      tournamentLogo: e.tournament?.uniqueTournament?.id ? `https://api.sofascore.app/api/v1/unique-tournament/${e.tournament.uniqueTournament.id}/image` : null,
+      startTimestamp: e.startTimestamp,
+      status: e.status?.description,
+      homeTeam: e.homeTeam?.name,
+      homeTeamId: e.homeTeam?.id,
+      homeTeamLogo: e.homeTeam?.id ? `https://api.sofascore.app/api/v1/team/${e.homeTeam.id}/image` : null,
+      awayTeam: e.awayTeam?.name,
+      awayTeamId: e.awayTeam?.id,
+      awayTeamLogo: e.awayTeam?.id ? `https://api.sofascore.app/api/v1/team/${e.awayTeam.id}/image` : null,
+      homeScore: e.homeScore?.display,
+      awayScore: e.awayScore?.display,
+      winnerCode: e.winnerCode,
+    });
+
+    const result = {
+      recent: (lastMatches?.events || []).map(formatEvent),
+      upcoming: (nextMatches?.events || []).map(formatEvent),
+    };
+
+    setCache(cacheKey, result);
+    return result;
+  } catch (err) {
+    logger.error(`getTeamMatches failed: ${err.message}`);
+    return { recent: [], upcoming: [] };
   }
 };

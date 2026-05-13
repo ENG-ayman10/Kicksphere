@@ -3,8 +3,29 @@
  * @description Universal search — searches clubs, players, and leagues from local database.
  */
 
-const { CLUBS } = require('./footballApi');
+// Removed invalid require for CLUBS
 const logger = require('../utils/logger');
+
+// ==========================================
+// 🛡️ CLUBS DATABASE
+// ==========================================
+const CLUBS = {
+  'Real Madrid': { league: 'La Liga', logo: 'https://crests.football-data.org/86.png' },
+  'Barcelona': { league: 'La Liga', logo: 'https://crests.football-data.org/81.png' },
+  'Manchester City': { league: 'Premier League', logo: 'https://crests.football-data.org/65.png' },
+  'Arsenal': { league: 'Premier League', logo: 'https://crests.football-data.org/57.png' },
+  'Liverpool': { league: 'Premier League', logo: 'https://crests.football-data.org/64.png' },
+  'Manchester United': { league: 'Premier League', logo: 'https://crests.football-data.org/66.png' },
+  'Chelsea': { league: 'Premier League', logo: 'https://crests.football-data.org/61.png' },
+  'Tottenham': { league: 'Premier League', logo: 'https://crests.football-data.org/73.png' },
+  'Bayern Munich': { league: 'Bundesliga', logo: 'https://crests.football-data.org/5.png' },
+  'Bayer Leverkusen': { league: 'Bundesliga', logo: 'https://crests.football-data.org/3.png' },
+  'Inter Milan': { league: 'Serie A', logo: 'https://crests.football-data.org/108.png' },
+  'AC Milan': { league: 'Serie A', logo: 'https://crests.football-data.org/98.png' },
+  'Juventus': { league: 'Serie A', logo: 'https://crests.football-data.org/109.png' },
+  'Napoli': { league: 'Serie A', logo: 'https://crests.football-data.org/113.png' },
+  'PSG': { league: 'Ligue 1', logo: 'https://crests.football-data.org/524.png' },
+};
 
 // ==========================================
 // 🌟 PLAYER DATABASE

@@ -230,6 +230,23 @@ io.on('connection', (socket) => {
   });
 
   /**
+   * ⭐ Subscribe to favorite teams (for targeted notifications)
+   */
+  socket.on('subscribeFavorites', (data) => {
+    if (!data) return;
+    const { teams, userId } = data;
+    if (Array.isArray(teams)) {
+      teams.forEach(team => {
+        socket.join(`team_${team}`);
+      });
+      logger.info(`⭐ User subscribed to ${teams.length} favorite teams`);
+    }
+    if (userId) {
+      socket.join(userId);
+    }
+  });
+
+  /**
    * 💬 Match Chat Messaging
    */
   socket.on('sendMessage', async (data) => {
@@ -356,7 +373,7 @@ const liveEventsInterval = setInterval(async () => {
 
   }
 
-}, 90000);
+}, 30000);
 
 // ==========================================
 // 🛑 10. Graceful Shutdown

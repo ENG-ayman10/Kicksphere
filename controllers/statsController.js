@@ -186,8 +186,11 @@ exports.getMatchLineups = async (req, res) => {
 exports.getDeepTeamDetails = async (req, res) => {
   try {
     const teamId = req.params.id;
-    // We only need team details since the new service returns squad too
-    const teamDetails = await sofascoreService.getTeamDetails(teamId);
+    // Fetch team details and matches in parallel for speed
+    const [teamDetails, teamMatches] = await Promise.all([
+      sofascoreService.getTeamDetails(teamId),
+      sofascoreService.getTeamMatches(teamId),
+    ]);
     
     // For standings, Sofascore requires tournamentId and seasonId, which we might not have trivially
     // Let's omit standings here or fetch it if provided in query params
@@ -206,6 +209,7 @@ exports.getDeepTeamDetails = async (req, res) => {
         info: teamDetails.team,
         squad: teamDetails.squad,
         standing: teamStandings,
+        matches: teamMatches,
       }
     });
   } catch (error) {
@@ -249,23 +253,75 @@ exports.getAllCompetitions = async (req, res) => {
 exports.getMatchDeepStats = async (req, res) => {
   try {
     const matchId = req.params.id;
-    // Mocking deep stats (Heatmap, Shot map, advanced metrics) to match the Sofascore UI design requirements
+    const details = await fetchMatchDetails(matchId);
+
+    if (!details) {
+      return res.json({ success: true, source: 'empty', data: null });
+    }
+
+    // Build a comprehensive match data payload
+    const goals = details.goals || [];
+    const bookings = details.bookings || [];
+    const substitutions = details.substitutions || [];
+    const referees = details.referees || [];
+
+    // Derive statistics from the match data we have
+    const homeGoals = goals.filter(g => g.team === details.homeTeam.name || g.team === details.homeTeam.fullName).length;
+    const awayGoals = goals.filter(g => g.team === details.awayTeam.name || g.team === details.awayTeam.fullName).length;
+    const homeYellows = bookings.filter(b => (b.team === details.homeTeam.name || b.team === details.homeTeam.fullName) && b.card === 'YELLOW').length;
+    const awayYellows = bookings.filter(b => (b.team === details.awayTeam.name || b.team === details.awayTeam.fullName) && b.card === 'YELLOW').length;
+    const homeReds = bookings.filter(b => (b.team === details.homeTeam.name || b.team === details.homeTeam.fullName) && b.card === 'RED').length;
+    const awayReds = bookings.filter(b => (b.team === details.awayTeam.name || b.team === details.awayTeam.fullName) && b.card === 'RED').length;
+    const homeSubs = substitutions.filter(s => s.team === details.homeTeam.name || s.team === details.homeTeam.fullName).length;
+    const awaySubs = substitutions.filter(s => s.team === details.awayTeam.name || s.team === details.awayTeam.fullName).length;
+
     return res.json({
       success: true,
+      source: 'football-data.org',
       data: {
-        statistics: {
-          ballPossession: { home: 61, away: 39 },
-          expectedGoals: { home: 0.82, away: 0.14 },
-          totalShots: { home: 10, away: 3 },
-          cornerKicks: { home: 6, away: 1 },
-          passes: { home: 203, away: 135 },
-          tackles: { home: 15, away: 13 },
-          defending: {
-            tacklesWon: { home: 53, away: 62 }
-          }
+        // Full match info for Details tab
+        matchInfo: {
+          competition: details.competition,
+          utcDate: details.utcDate,
+          status: details.status,
+          matchday: details.matchday,
+          stage: details.stage,
+          venue: details.venue,
+          attendance: details.attendance,
+          referees: referees,
+          score: details.score,
+          homeTeam: {
+            id: details.homeTeam.id,
+            name: details.homeTeam.name,
+            fullName: details.homeTeam.fullName,
+            crest: details.homeTeam.crest,
+            coach: details.homeTeam.coach,
+            formation: details.homeTeam.formation,
+          },
+          awayTeam: {
+            id: details.awayTeam.id,
+            name: details.awayTeam.name,
+            fullName: details.awayTeam.fullName,
+            crest: details.awayTeam.crest,
+            coach: details.awayTeam.coach,
+            formation: details.awayTeam.formation,
+          },
         },
-        attackHeatmap: "Available",
-        shotMap: "Available"
+        // Key events for Details tab
+        goals: goals,
+        bookings: bookings,
+        substitutions: substitutions,
+        // Match statistics
+        statistics: {
+          goals: { home: homeGoals, away: awayGoals },
+          yellowCards: { home: homeYellows, away: awayYellows },
+          redCards: { home: homeReds, away: awayReds },
+          substitutions: { home: homeSubs, away: awaySubs },
+          halfTimeScore: details.score?.halfTime || { home: 0, away: 0 },
+          fullTimeScore: details.score?.fullTime || { home: 0, away: 0 },
+        },
+        // H2H data
+        head2head: details.head2head || null,
       }
     });
   } catch (error) {

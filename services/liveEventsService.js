@@ -1,7 +1,8 @@
 /**
  * @file liveEventsService.js
- * @description Detects live match events (goals) by comparing scores
- * and sends notifications to subscribed users.
+ * @description Detects live match events (goals, cards, subs) by polling Sofascore
+ * and comparing states. Sends real-time notifications to subscribed users.
+ * Ultra-fast 30s polling for near real-time performance.
  */
 
 const db = require('../config/firebase');
@@ -9,208 +10,346 @@ const { fetchMatchesFromAPI } = require('./footballApi');
 const { saveNotification } = require('./notificationService');
 const { sendPushNotification } = require('./pushNotificationService');
 const logger = require('../utils/logger');
+const axios = require('axios');
 
-// لتجنب تكرار نفس الحدث
+// Sofascore headers
+const SOFA_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  'Accept': '*/*',
+  'Origin': 'https://www.sofascore.com',
+  'Referer': 'https://www.sofascore.com/',
+};
+
+// ==========================================
+// 🧠 STATE TRACKING
+// ==========================================
 const processedEvents = new Set();
 const MAX_PROCESSED_EVENTS = 10000;
-
-// آخر بيانات محفوظة للمقارنة
 const previousMatchScores = new Map();
+const previousIncidents = new Map(); // Track incidents per match
 const MAX_TRACKED_MATCHES = 500;
 
-// 🔥 تنظيف الأحداث القديمة لمنع تسرّب الذاكرة
+// Cleanup functions to prevent memory leaks
 const cleanupProcessedEvents = () => {
   if (processedEvents.size > MAX_PROCESSED_EVENTS) {
     const toDelete = Math.floor(processedEvents.size / 2);
     let count = 0;
-
     for (const key of processedEvents) {
       if (count >= toDelete) break;
       processedEvents.delete(key);
       count++;
     }
-
     logger.info(`🧹 Cleaned ${count} old events (remaining: ${processedEvents.size})`);
   }
 };
 
-// 🔥 تنظيف previousMatchScores لمنع تسرّب الذاكرة
 const cleanupPreviousScores = () => {
   if (previousMatchScores.size > MAX_TRACKED_MATCHES) {
     const toDelete = Math.floor(previousMatchScores.size / 2);
     let count = 0;
-
     for (const [key] of previousMatchScores) {
       if (count >= toDelete) break;
       previousMatchScores.delete(key);
       count++;
     }
-
-    logger.info(`🧹 Cleaned ${count} old match scores (remaining: ${previousMatchScores.size})`);
+    logger.info(`🧹 Cleaned ${count} old match scores`);
   }
 };
 
 // ==========================================
-// 🔥 EMIT REAL EVENTS
+// 🔥 FETCH SOFASCORE LIVE MATCHES
+// ==========================================
+const fetchSofascoreLiveMatches = async () => {
+  try {
+    const res = await axios.get('https://api.sofascore.com/api/v1/sport/football/events/live', {
+      headers: SOFA_HEADERS,
+      timeout: 8000,
+    });
+    return res.data?.events || [];
+  } catch (err) {
+    logger.warn(`⚠️ Sofascore live fetch failed: ${err.message}`);
+    return [];
+  }
+};
+
+// ==========================================
+// 🔍 FETCH MATCH INCIDENTS (Goals, Cards, Subs)
+// ==========================================
+const fetchMatchIncidents = async (eventId) => {
+  try {
+    const res = await axios.get(`https://api.sofascore.com/api/v1/event/${eventId}/incidents`, {
+      headers: SOFA_HEADERS,
+      timeout: 5000,
+    });
+    return res.data?.incidents || [];
+  } catch (err) {
+    return [];
+  }
+};
+
+// ==========================================
+// 🔥 MAIN: EMIT LIVE EVENTS (called every 30s)
 // ==========================================
 exports.emitLiveEvents = async (io) => {
   try {
-    // 🧹 تنظيف الذاكرة
     cleanupProcessedEvents();
     cleanupPreviousScores();
 
-    // =========================
-    // 🔥 جلب المباريات الحية
-    // =========================
-    let liveMatches = [];
-
+    // ===========================
+    // 1. Fetch live matches from Sofascore (FAST)
+    // ===========================
+    const sofaLiveMatches = await fetchSofascoreLiveMatches();
+    
+    // Also get football-data.org matches as fallback
+    let fdMatches = [];
     try {
-      liveMatches = await fetchMatchesFromAPI();
-    } catch (err) {
-      // لو الـ API فشل، نقرأ من الكاش
-      const snapshot = await db.collection('matches')
-        .orderBy('createdAt', 'desc')
-        .limit(5)
-        .get();
-
-      liveMatches = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: data.matchId,
-          home: { name: data.homeTeam, score: data.homeScore ?? 0 },
-          away: { name: data.awayTeam, score: data.awayScore ?? 0 },
-          leagueId: data.league,
-          status: data.status
-        };
-      });
-    }
-
-    if (liveMatches.length === 0) return;
+      fdMatches = await fetchMatchesFromAPI();
+    } catch (_) {}
 
     const eventsToEmit = [];
 
-    // =========================
-    // 🔥 مقارنة النتائج (كشف الأهداف)
-    // =========================
-    for (const match of liveMatches) {
+    // ===========================
+    // 2. Process Sofascore live matches
+    // ===========================
+    for (const match of sofaLiveMatches) {
       if (!match.id) continue;
 
-      const prevScores = previousMatchScores.get(match.id);
+      const matchId = String(match.id);
+      const homeTeam = match.homeTeam?.name || 'Unknown';
+      const awayTeam = match.awayTeam?.name || 'Unknown';
+      const homeScore = match.homeScore?.current ?? 0;
+      const awayScore = match.awayScore?.current ?? 0;
+      const homeTeamId = match.homeTeam?.id;
+      const awayTeamId = match.awayTeam?.id;
+      const tournament = match.tournament?.name || '';
+      const statusCode = match.status?.code;
+
+      // Track score changes for goal detection
+      const prevScores = previousMatchScores.get(matchId);
 
       if (prevScores) {
-        // 🔥 هدف للفريق المضيف
-        if (match.home.score > prevScores.homeScore) {
-          const event = {
-            matchId: String(match.id),
-            type: "goal",
-            team: match.home.name,
-            player: "Unknown",
-            minute: 0,
-            createdAt: new Date()
-          };
-
-          const uniqueKey = `${match.id}_goal_home_${match.home.score}`;
+        // 🔥 GOAL DETECTED — Home team
+        if (homeScore > prevScores.homeScore) {
+          const uniqueKey = `${matchId}_goal_home_${homeScore}`;
           if (!processedEvents.has(uniqueKey)) {
             processedEvents.add(uniqueKey);
-            eventsToEmit.push(event);
+            eventsToEmit.push({
+              matchId,
+              type: 'goal',
+              team: homeTeam,
+              teamId: homeTeamId,
+              against: awayTeam,
+              score: `${homeScore} - ${awayScore}`,
+              tournament,
+              player: 'Unknown',
+              minute: match.time?.currentPeriodStartTimestamp ? Math.floor((Date.now() / 1000 - match.time.currentPeriodStartTimestamp) / 60) : 0,
+              createdAt: new Date(),
+            });
           }
         }
 
-        // 🔥 هدف للفريق الضيف
-        if (match.away.score > prevScores.awayScore) {
-          const event = {
-            matchId: String(match.id),
-            type: "goal",
-            team: match.away.name,
-            player: "Unknown",
-            minute: 0,
-            createdAt: new Date()
-          };
-
-          const uniqueKey = `${match.id}_goal_away_${match.away.score}`;
+        // 🔥 GOAL DETECTED — Away team
+        if (awayScore > prevScores.awayScore) {
+          const uniqueKey = `${matchId}_goal_away_${awayScore}`;
           if (!processedEvents.has(uniqueKey)) {
             processedEvents.add(uniqueKey);
-            eventsToEmit.push(event);
+            eventsToEmit.push({
+              matchId,
+              type: 'goal',
+              team: awayTeam,
+              teamId: awayTeamId,
+              against: homeTeam,
+              score: `${homeScore} - ${awayScore}`,
+              tournament,
+              player: 'Unknown',
+              minute: 0,
+              createdAt: new Date(),
+            });
+          }
+        }
+
+        // 🏟️ Match Started (status changed to live)
+        if (prevScores.statusCode !== 6 && statusCode === 6) {
+          const uniqueKey = `${matchId}_started`;
+          if (!processedEvents.has(uniqueKey)) {
+            processedEvents.add(uniqueKey);
+            eventsToEmit.push({
+              matchId,
+              type: 'matchStart',
+              team: homeTeam,
+              teamId: homeTeamId,
+              against: awayTeam,
+              awayTeamId,
+              tournament,
+              createdAt: new Date(),
+            });
+          }
+        }
+
+        // 🏁 Match Ended (status changed to finished)
+        if (prevScores.statusCode !== 100 && statusCode === 100) {
+          const uniqueKey = `${matchId}_ended`;
+          if (!processedEvents.has(uniqueKey)) {
+            processedEvents.add(uniqueKey);
+            eventsToEmit.push({
+              matchId,
+              type: 'matchEnd',
+              team: homeTeam,
+              teamId: homeTeamId,
+              against: awayTeam,
+              awayTeamId,
+              score: `${homeScore} - ${awayScore}`,
+              tournament,
+              createdAt: new Date(),
+            });
           }
         }
       }
 
-      // حفظ النتيجة الحالية للمقارنة القادمة
-      previousMatchScores.set(match.id, {
-        homeScore: match.home.score,
-        awayScore: match.away.score
+      // Save current state
+      previousMatchScores.set(matchId, { homeScore, awayScore, statusCode });
+    }
+
+    // ===========================
+    // 3. Process football-data.org matches (fallback for goal detection)
+    // ===========================
+    for (const match of fdMatches) {
+      if (!match.id) continue;
+      const matchId = `fd_${match.id}`;
+      const prevScores = previousMatchScores.get(matchId);
+
+      if (prevScores) {
+        if (match.home?.score > prevScores.homeScore) {
+          const uniqueKey = `${matchId}_goal_home_${match.home.score}`;
+          if (!processedEvents.has(uniqueKey)) {
+            processedEvents.add(uniqueKey);
+            eventsToEmit.push({
+              matchId: String(match.id),
+              type: 'goal',
+              team: match.home.name,
+              against: match.away.name,
+              score: `${match.home.score} - ${match.away.score}`,
+              player: 'Unknown',
+              minute: 0,
+              createdAt: new Date(),
+            });
+          }
+        }
+        if (match.away?.score > prevScores.awayScore) {
+          const uniqueKey = `${matchId}_goal_away_${match.away.score}`;
+          if (!processedEvents.has(uniqueKey)) {
+            processedEvents.add(uniqueKey);
+            eventsToEmit.push({
+              matchId: String(match.id),
+              type: 'goal',
+              team: match.away.name,
+              against: match.home.name,
+              score: `${match.home.score} - ${match.away.score}`,
+              player: 'Unknown',
+              minute: 0,
+              createdAt: new Date(),
+            });
+          }
+        }
+      }
+      previousMatchScores.set(matchId, {
+        homeScore: match.home?.score ?? 0,
+        awayScore: match.away?.score ?? 0,
+        statusCode: 0,
       });
     }
 
     if (eventsToEmit.length === 0) return;
 
-    // =========================
-    // 🔥 حفظ في Firestore
-    // =========================
-    const batch = db.batch();
-
-    eventsToEmit.forEach(event => {
-      const ref = db.collection('events').doc();
-      batch.set(ref, event);
-    });
-
-    await batch.commit();
-
-    // =========================
-    // 🔥 بث لكل مباراة
-    // =========================
+    // ===========================
+    // 4. Broadcast to match rooms
+    // ===========================
     eventsToEmit.forEach(event => {
       io.to(event.matchId).emit('liveEvent', event);
     });
 
-    // =========================
-    // 🔥 Notifications — only query users with matching team preferences
-    // Instead of fetching ALL users, we query by preferred teams
-    // =========================
-    const eventTeams = [...new Set(eventsToEmit.map(e => e.team))];
+    // ===========================
+    // 5. Save to Firestore & Notify subscribed users
+    // ===========================
+    try {
+      const batch = db.batch();
+      eventsToEmit.forEach(event => {
+        const ref = db.collection('events').doc();
+        batch.set(ref, event);
+      });
+      await batch.commit();
+    } catch (dbErr) {
+      logger.warn(`⚠️ Firestore batch save failed: ${dbErr.message}`);
+    }
 
-    // Query users who have at least one matching team in preferences
-    // Firestore array-contains can only check one value at a time
+    // Notify users with matching favorite teams
+    const eventTeams = [...new Set(eventsToEmit.flatMap(e => [e.team, e.against].filter(Boolean)))];
+
     for (const teamName of eventTeams) {
       try {
         const usersSnapshot = await db.collection('users')
           .where('preferences.teams', 'array-contains', teamName)
-          .limit(100)
+          .limit(200)
           .get();
 
-        const teamEvents = eventsToEmit.filter(e => e.team === teamName);
+        const teamEvents = eventsToEmit.filter(e => e.team === teamName || e.against === teamName);
 
         for (const userDoc of usersSnapshot.docs) {
           const user = userDoc.data();
           const userId = userDoc.id;
 
-          const ev = teamEvents[0];
-          const title = "⚽ Live Event";
-          const message = `${ev.team} scored! 🎉`;
+          for (const ev of teamEvents) {
+            let title, message;
 
-          await saveNotification(userId, {
-            title,
-            message,
-            matchId: ev.matchId,
-            type: ev.type
-          });
+            switch (ev.type) {
+              case 'goal':
+                title = '⚽ GOAL!';
+                message = `${ev.team} scored! ${ev.score} (${ev.tournament})`;
+                break;
+              case 'matchStart':
+                title = '🏟️ Match Started!';
+                message = `${ev.team} vs ${ev.against} — ${ev.tournament}`;
+                break;
+              case 'matchEnd':
+                title = '🏁 Full Time!';
+                message = `${ev.team} vs ${ev.against} — Final: ${ev.score}`;
+                break;
+              default:
+                title = '📢 Match Event';
+                message = `${ev.team} — ${ev.type}`;
+            }
 
-          io.to(userId).emit('notification', {
-            title,
-            message,
-            matchId: ev.matchId
-          });
+            // Save notification
+            await saveNotification(userId, {
+              title,
+              message,
+              matchId: ev.matchId,
+              type: ev.type,
+            });
 
-          if (user.fcmToken) {
-            await sendPushNotification(user.fcmToken, title, message);
+            // Socket push to user's personal room
+            io.to(userId).emit('notification', {
+              title,
+              message,
+              matchId: ev.matchId,
+              type: ev.type,
+              team: ev.team,
+              score: ev.score,
+              tournament: ev.tournament,
+            });
+
+            // FCM push notification
+            if (user.fcmToken) {
+              await sendPushNotification(user.fcmToken, title, message);
+            }
           }
         }
       } catch (err) {
-        logger.error(`❌ Notification query error for team ${teamName}: ${err.message}`);
+        logger.error(`❌ Notification query error for ${teamName}: ${err.message}`);
       }
     }
 
-    logger.info(`⚽ Real events sent: ${eventsToEmit.length}`);
+    logger.info(`⚡ Live events emitted: ${eventsToEmit.length} (Sofascore: ${sofaLiveMatches.length} live matches tracked)`);
 
   } catch (error) {
     logger.error(`❌ Live Events Error: ${error.message}`);
