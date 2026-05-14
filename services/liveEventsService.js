@@ -14,10 +14,7 @@ const axios = require('axios');
 
 // Sofascore headers
 const SOFA_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-  'Accept': '*/*',
-  'Origin': 'https://www.sofascore.com',
-  'Referer': 'https://www.sofascore.com/',
+  'User-Agent': 'Mozilla/5.0'
 };
 
 // ==========================================

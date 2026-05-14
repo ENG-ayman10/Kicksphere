@@ -373,7 +373,7 @@ const liveEventsInterval = setInterval(async () => {
 
   }
 
-}, 30000);
+}, 90000);
 
 // ==========================================
 // 🛑 10. Graceful Shutdown
