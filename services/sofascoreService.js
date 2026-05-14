@@ -139,12 +139,82 @@ exports.getTeamDetails = async (teamIdOrName) => {
 };
 
 // ==========================================
-// 📊 GET TEAM STANDINGS
+// 📊 GET TEAM STANDINGS & OVERALL STATS
 // ==========================================
+exports.getTeamStandingsAndStats = async (teamIdOrName) => {
+  let teamId = teamIdOrName;
+  if (isNaN(teamIdOrName)) {
+    teamId = await resolveTeamIdByName(teamIdOrName);
+    if (!teamId) return null;
+  }
+
+  const cacheKey = `standings_stats:team:${teamId}`;
+  const cached = getCached(cacheKey, TTL.STANDINGS);
+  if (cached) return cached;
+
+  try {
+    // 1. Get primary tournament
+    const tourneysData = await fetchAPI(`/team/${teamId}/unique-tournaments`);
+    if (!tourneysData || !tourneysData.uniqueTournaments || tourneysData.uniqueTournaments.length === 0) return null;
+    const primaryTournament = tourneysData.uniqueTournaments[0];
+    
+    // 2. Get current season
+    const seasonsData = await fetchAPI(`/unique-tournament/${primaryTournament.id}/seasons`);
+    if (!seasonsData || !seasonsData.seasons || seasonsData.seasons.length === 0) return null;
+    const currentSeason = seasonsData.seasons[0]; // latest season is typically first
+
+    // 3. Fetch standings and stats in parallel
+    const [standingsData, statsData] = await Promise.all([
+      fetchAPI(`/unique-tournament/${primaryTournament.id}/season/${currentSeason.id}/standings/total`).catch(() => null),
+      fetchAPI(`/team/${teamId}/unique-tournament/${primaryTournament.id}/season/${currentSeason.id}/statistics/overall`).catch(() => null)
+    ]);
+
+    let teamStanding = null;
+    if (standingsData && standingsData.standings) {
+      for (const group of standingsData.standings) {
+        const found = group.rows?.find(r => r.team.id == teamId);
+        if (found) {
+          teamStanding = found;
+          break;
+        }
+      }
+    }
+
+    const result = {
+      tournament: {
+        id: primaryTournament.id,
+        name: primaryTournament.name,
+        logo: `https://api.sofascore.app/api/v1/unique-tournament/${primaryTournament.id}/image`
+      },
+      season: {
+        id: currentSeason.id,
+        name: currentSeason.name,
+        year: currentSeason.year
+      },
+      standing: teamStanding ? {
+        position: teamStanding.position,
+        matches: teamStanding.matches,
+        wins: teamStanding.wins,
+        draws: teamStanding.draws,
+        losses: teamStanding.losses,
+        points: teamStanding.points,
+        scoresFor: teamStanding.scoresFor,
+        scoresAgainst: teamStanding.scoresAgainst,
+      } : null,
+      statistics: statsData ? statsData.statistics : null
+    };
+
+    setCache(cacheKey, result);
+    return result;
+  } catch (err) {
+    logger.error(`getTeamStandingsAndStats failed: ${err.message}`);
+    return null;
+  }
+};
+
 exports.getTeamStandings = async (teamIdOrName, tournamentId, seasonId) => {
-  // If we don't know the exact tournament/season, we can fetch team tournaments first
-  // For simplicity, we just return basic info if tournamentId isn't provided
-  if (!tournamentId || !seasonId) return null;
+  // Legacy method for backward compatibility if needed
+  if (!tournamentId || !seasonId) return exports.getTeamStandingsAndStats(teamIdOrName);
 
   let teamId = teamIdOrName;
   if (isNaN(teamIdOrName)) {

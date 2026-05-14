@@ -192,12 +192,8 @@ exports.getDeepTeamDetails = async (req, res) => {
       sofascoreService.getTeamMatches(teamId),
     ]);
     
-    // For standings, Sofascore requires tournamentId and seasonId, which we might not have trivially
-    // Let's omit standings here or fetch it if provided in query params
-    const { tournamentId, seasonId } = req.query;
-    const teamStandings = tournamentId && seasonId 
-        ? await sofascoreService.getTeamStandings(teamId, tournamentId, seasonId) 
-        : null;
+    // Automatically fetch standings and overall statistics for the current season
+    const teamStandingsAndStats = await sofascoreService.getTeamStandingsAndStats(teamId);
     
     if (!teamDetails) {
       return res.status(404).json({ success: false, message: 'Team details not found' });
@@ -208,7 +204,10 @@ exports.getDeepTeamDetails = async (req, res) => {
       data: {
         info: teamDetails.team,
         squad: teamDetails.squad,
-        standing: teamStandings,
+        standing: teamStandingsAndStats?.standing,
+        stats: teamStandingsAndStats?.statistics,
+        tournament: teamStandingsAndStats?.tournament,
+        season: teamStandingsAndStats?.season,
         matches: teamMatches,
       }
     });
