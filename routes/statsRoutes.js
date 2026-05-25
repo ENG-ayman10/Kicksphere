@@ -6,6 +6,10 @@ const {
   getLeaguesStandings,
   getMatchTimeline,
   getMatchLineups,
+  getDeepTeamDetails,
+  getDeepPlayerDetails,
+  getAllCompetitions,
+  getMatchDeepStats,
 } = require('../controllers/statsController');
 
 // ==========================================
@@ -22,15 +26,8 @@ router.get('/matches/:id/timeline', getMatchTimeline);  // Match events
 router.get('/matches/:id/lineups', getMatchLineups);    // Team lineups
 
 // ==========================================
-// 🚀 DEEP STATS (RAPIDAPI)
+// 🚀 DEEP STATS (Sofascore proxy)
 // ==========================================
-const {
-  getDeepTeamDetails,
-  getDeepPlayerDetails,
-  getAllCompetitions,
-  getMatchDeepStats,
-} = require('../controllers/statsController');
-
 router.get('/deep/team/:id', getDeepTeamDetails);
 router.get('/deep/player/:id', getDeepPlayerDetails);
 router.get('/deep/competitions', getAllCompetitions);

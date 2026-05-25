@@ -21,9 +21,22 @@ const TTL = {
 // ==========================================
 const fetchAPI = async (endpoint) => {
   try {
-    const response = await axios.get(`${BASE_URL}${endpoint}`, { headers });
+    // Try direct first
+    const response = await axios.get(`${BASE_URL}${endpoint}`, { headers, timeout: 5000 });
     return response.data;
   } catch (error) {
+    if (error.response?.status === 403 || error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      logger.warn(`⚠️ Direct fetch failed for ${endpoint}, trying via proxy...`);
+      try {
+        // Fallback to a different proxy if direct fails
+        // Using allorigins as a raw proxy
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(BASE_URL + endpoint)}`;
+        const proxyResponse = await axios.get(proxyUrl, { timeout: 10000 });
+        return proxyResponse.data;
+      } catch (proxyError) {
+        logger.error(`❌ Proxy fetch failed: ${proxyError.message}`);
+      }
+    }
     logger.error(`❌ Sofascore fetch error [${endpoint}]: ${error.message}`);
     return null;
   }
@@ -41,7 +54,6 @@ const resolveTeamIdByName = async (teamName) => {
   try {
     const data = await fetchAPI(`/search/all?q=${encodeURIComponent(teamName)}`);
     if (data && data.results) {
-      // Find the first result that is a team
       const teamResult = data.results.find(r => r.type === 'team');
       if (teamResult && teamResult.entity) {
         const id = teamResult.entity.id;
@@ -49,6 +61,18 @@ const resolveTeamIdByName = async (teamName) => {
         return id;
       }
     }
+    
+    // Final fallback to TheSportsDB for search if Sofascore fails
+    logger.warn(`⚠️ Sofascore search failed for ${teamName}, trying TheSportsDB...`);
+    const tsdbRes = await axios.get(`https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(teamName)}`);
+    if (tsdbRes.data?.teams?.[0]) {
+      const team = tsdbRes.data.teams[0];
+      // We can't use TSDB ID for Sofascore, but we can store the TSDB data in cache
+      // and let the controller know we are using a different source.
+      // For now, return a special string or null.
+      return null; 
+    }
+
     return null;
   } catch (e) {
     logger.error(`resolveTeamIdByName failed: ${e.message}`);
@@ -363,7 +387,15 @@ exports.getAllLeagues = async () => {
 // ==========================================
 // ⚽ GET TEAM MATCHES (LAST & NEXT)
 // ==========================================
-exports.getTeamMatches = async (teamId) => {
+exports.getTeamMatches = async (teamIdOrName) => {
+  let teamId = teamIdOrName;
+
+  // If it's a string that contains letters, treat as name and resolve
+  if (isNaN(teamIdOrName)) {
+    teamId = await resolveTeamIdByName(teamIdOrName);
+    if (!teamId) return { recent: [], upcoming: [] };
+  }
+
   const cacheKey = `team_matches:${teamId}`;
   const cached = getCached(cacheKey, TTL.TEAM);
   if (cached) return cached;
@@ -401,5 +433,104 @@ exports.getTeamMatches = async (teamId) => {
   } catch (err) {
     logger.error(`getTeamMatches failed: ${err.message}`);
     return { recent: [], upcoming: [] };
+  }
+};
+
+// ==========================================
+// 🏆 LEAGUE MAPPING & FREE DATA FETCHERS
+// ==========================================
+
+const SOFASCORE_LEAGUE_MAP = {
+  'PL': 17,    // Premier League
+  'PD': 8,     // La Liga
+  'SA': 23,    // Serie A
+  'BL1': 35,   // Bundesliga
+  'FL1': 34,   // Ligue 1
+  'CL': 7,     // Champions League
+  'PPL': 238,  // Primeira Liga
+  'DED': 37,   // Eredivisie
+  'BSA': 325,  // Brasileirão
+  'ELC': 18,   // Championship
+  'EC': 1,     // Euro
+  'WC': 16,    // World Cup
+};
+
+exports.getLeagueStandings = async (leagueCode) => {
+  const tournamentId = SOFASCORE_LEAGUE_MAP[leagueCode];
+  if (!tournamentId) return null;
+
+  const cacheKey = `sofascore_standings:${leagueCode}`;
+  const cached = getCached(cacheKey, TTL.STANDINGS);
+  if (cached) return cached;
+
+  try {
+    const seasonsData = await fetchAPI(`/unique-tournament/${tournamentId}/seasons`);
+    if (!seasonsData || !seasonsData.seasons || seasonsData.seasons.length === 0) return null;
+    const currentSeason = seasonsData.seasons[0];
+
+    const standingsData = await fetchAPI(`/unique-tournament/${tournamentId}/season/${currentSeason.id}/standings/total`);
+    if (!standingsData || !standingsData.standings || standingsData.standings.length === 0) return null;
+
+    const group = standingsData.standings[0];
+    if (!group || !group.rows) return null;
+
+    const formatted = group.rows.map(row => ({
+      teamId: row.team.id?.toString(),
+      name: row.team.name,
+      logo: `https://api.sofascore.app/api/v1/team/${row.team.id}/image`,
+      rank: row.position,
+      played: row.matches,
+      won: row.wins,
+      drawn: row.draws,
+      lost: row.losses,
+      points: row.points,
+      gf: row.scoresFor,
+      ga: row.scoresAgainst,
+      gd: row.scoresFor - row.scoresAgainst,
+    }));
+
+    setCache(cacheKey, formatted);
+    return formatted;
+  } catch (err) {
+    logger.error(`getLeagueStandings failed for ${leagueCode}: ${err.message}`);
+    return null;
+  }
+};
+
+exports.getLeagueTopScorers = async (leagueCode, limit = 20) => {
+  const tournamentId = SOFASCORE_LEAGUE_MAP[leagueCode];
+  if (!tournamentId) return null;
+
+  const cacheKey = `sofascore_scorers:${leagueCode}:${limit}`;
+  const cached = getCached(cacheKey, TTL.PLAYER);
+  if (cached) return cached;
+
+  try {
+    const seasonsData = await fetchAPI(`/unique-tournament/${tournamentId}/seasons`);
+    if (!seasonsData || !seasonsData.seasons || seasonsData.seasons.length === 0) return null;
+    const currentSeason = seasonsData.seasons[0];
+
+    // Fetch players statistics sorted by goals
+    const statsData = await fetchAPI(`/unique-tournament/${tournamentId}/season/${currentSeason.id}/statistics?limit=${limit}&order=-goals&accumulation=total`);
+    if (!statsData || !statsData.results || statsData.results.length === 0) return null;
+
+    const formatted = statsData.results.map((row, i) => ({
+      rank: i + 1,
+      name: row.player.name,
+      playerId: row.player.id?.toString(),
+      nationality: row.player.country?.name || '',
+      team: row.team.name,
+      teamLogo: `https://api.sofascore.app/api/v1/team/${row.team.id}/image`,
+      goals: row.statistics.goals || 0,
+      assists: row.statistics.assists || 0,
+      penalties: row.statistics.penalties || 0,
+      matches: row.statistics.appearances || 0,
+    }));
+
+    setCache(cacheKey, formatted);
+    return formatted;
+  } catch (err) {
+    logger.error(`getLeagueTopScorers failed for ${leagueCode}: ${err.message}`);
+    return null;
   }
 };

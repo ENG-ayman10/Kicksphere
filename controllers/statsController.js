@@ -20,6 +20,18 @@ exports.getTopPlayers = async (req, res) => {
     const league = req.query.league || 'PL';
     const limit = parseInt(req.query.limit) || 20;
 
+    // 1. Try Sofascore first (completely free and unlimited)
+    try {
+      const sofascoreData = await sofascoreService.getLeagueTopScorers(league, limit);
+      if (sofascoreData && sofascoreData.length > 0) {
+        logger.info(`✅ Top Scorers: ${sofascoreData.length} from Sofascore`);
+        return res.json({ success: true, source: 'sofascore', data: sofascoreData });
+      }
+    } catch (sofascoreErr) {
+      logger.warn(`⚠️ Sofascore top scorers failed: ${sofascoreErr.message}`);
+    }
+
+    // 2. Fallback to football-data.org
     const data = await fetchTopScorers(league, limit);
     
     if (data && data.length > 0) {
@@ -42,6 +54,18 @@ exports.getTopTeams = async (req, res) => {
   try {
     const league = req.query.league || 'PL';
 
+    // 1. Try Sofascore first (completely free and unlimited 20 teams)
+    try {
+      const sofascoreData = await sofascoreService.getLeagueStandings(league);
+      if (sofascoreData && sofascoreData.length > 0) {
+        logger.info(`✅ Standings: ${sofascoreData.length} teams from Sofascore`);
+        return res.json({ success: true, source: 'sofascore', data: sofascoreData });
+      }
+    } catch (sofascoreErr) {
+      logger.warn(`⚠️ Sofascore standings failed: ${sofascoreErr.message}`);
+    }
+
+    // 2. Fallback to football-data.org
     const data = await fetchStandings(league);
     
     if (data && data.length > 0) {

@@ -64,6 +64,16 @@ const fetchSofascoreLiveMatches = async () => {
     });
     return res.data?.events || [];
   } catch (err) {
+    if (err.response?.status === 403) {
+      logger.warn(`⚠️ Sofascore blocked, trying via proxy...`);
+      try {
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent('https://api.sofascore.com/api/v1/sport/football/events/live')}`;
+        const res = await axios.get(proxyUrl, { timeout: 15000 });
+        return res.data?.events || [];
+      } catch (pErr) {
+        logger.error(`❌ Proxy failed: ${pErr.message}`);
+      }
+    }
     logger.warn(`⚠️ Sofascore live fetch failed: ${err.message}`);
     return [];
   }
@@ -139,7 +149,9 @@ exports.emitLiveEvents = async (io) => {
               score: `${homeScore} - ${awayScore}`,
               tournament,
               player: 'Unknown',
-              minute: match.time?.currentPeriodStartTimestamp ? Math.floor((Date.now() / 1000 - match.time.currentPeriodStartTimestamp) / 60) : 0,
+              minute: match.time?.currentPeriodStartTimestamp
+                  ? Math.max(0, Math.floor((Date.now() / 1000 - match.time.currentPeriodStartTimestamp) / 60))
+                  : (match.statusTime?.max ? Math.floor(match.statusTime.max / 60) : 0),
               createdAt: new Date(),
             });
           }
@@ -214,34 +226,42 @@ exports.emitLiveEvents = async (io) => {
       if (!match.id) continue;
       const matchId = `fd_${match.id}`;
       const prevScores = previousMatchScores.get(matchId);
+      
+      // football-data.org _formatMatchList structure:
+      // match.homeTeam.name, match.awayTeam.name
+      // match.score.fullTime.home, match.score.fullTime.away
+      const homeScore = match.score?.fullTime?.home ?? 0;
+      const awayScore = match.score?.fullTime?.away ?? 0;
+      const homeName = match.homeTeam?.name || match.homeTeam?.fullName || '';
+      const awayName = match.awayTeam?.name || match.awayTeam?.fullName || '';
 
       if (prevScores) {
-        if (match.home?.score > prevScores.homeScore) {
-          const uniqueKey = `${matchId}_goal_home_${match.home.score}`;
+        if (homeScore > prevScores.homeScore) {
+          const uniqueKey = `${matchId}_goal_home_${homeScore}`;
           if (!processedEvents.has(uniqueKey)) {
             processedEvents.add(uniqueKey);
             eventsToEmit.push({
               matchId: String(match.id),
               type: 'goal',
-              team: match.home.name,
-              against: match.away.name,
-              score: `${match.home.score} - ${match.away.score}`,
+              team: homeName,
+              against: awayName,
+              score: `${homeScore} - ${awayScore}`,
               player: 'Unknown',
               minute: 0,
               createdAt: new Date(),
             });
           }
         }
-        if (match.away?.score > prevScores.awayScore) {
-          const uniqueKey = `${matchId}_goal_away_${match.away.score}`;
+        if (awayScore > prevScores.awayScore) {
+          const uniqueKey = `${matchId}_goal_away_${awayScore}`;
           if (!processedEvents.has(uniqueKey)) {
             processedEvents.add(uniqueKey);
             eventsToEmit.push({
               matchId: String(match.id),
               type: 'goal',
-              team: match.away.name,
-              against: match.home.name,
-              score: `${match.home.score} - ${match.away.score}`,
+              team: awayName,
+              against: homeName,
+              score: `${homeScore} - ${awayScore}`,
               player: 'Unknown',
               minute: 0,
               createdAt: new Date(),
@@ -250,8 +270,8 @@ exports.emitLiveEvents = async (io) => {
         }
       }
       previousMatchScores.set(matchId, {
-        homeScore: match.home?.score ?? 0,
-        awayScore: match.away?.score ?? 0,
+        homeScore,
+        awayScore,
         statusCode: 0,
       });
     }

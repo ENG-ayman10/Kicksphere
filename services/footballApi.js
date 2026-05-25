@@ -397,3 +397,43 @@ exports.COMPETITIONS = COMPETITIONS;
 exports.LEAGUE_SLUGS = Object.fromEntries(
   Object.entries(COMPETITIONS).map(([code, info]) => [code, info])
 );
+
+// ==========================================
+// 📤 ADDITIONAL EXPORTS for matchDetailsService.js
+// ==========================================
+
+/**
+ * Alias: fetch match statistics (same as fetchMatchDetails — full match data)
+ */
+exports.fetchMatchStatsFromAPI = async (matchId) => {
+  const details = await exports.fetchMatchDetails(matchId);
+  if (!details) return null;
+  return {
+    possession: { home: null, away: null },
+    shots: { home: null, away: null },
+    passes: { home: null, away: null },
+    goals: { home: (details.goals || []).filter(g => g.team === details.homeTeam?.name).length, away: (details.goals || []).filter(g => g.team === details.awayTeam?.name).length },
+    yellowCards: { home: (details.bookings || []).filter(b => b.team === details.homeTeam?.name && b.card === 'YELLOW').length, away: (details.bookings || []).filter(b => b.team === details.awayTeam?.name && b.card === 'YELLOW').length },
+    redCards: { home: (details.bookings || []).filter(b => b.team === details.homeTeam?.name && b.card === 'RED').length, away: (details.bookings || []).filter(b => b.team === details.awayTeam?.name && b.card === 'RED').length },
+  };
+};
+
+/**
+ * Alias: fetch lineups from match details
+ */
+exports.fetchLineupsFromAPI = async (matchId) => {
+  const details = await exports.fetchMatchDetails(matchId);
+  if (!details) return null;
+  const hasLineups = (details.homeTeam?.lineup?.length > 0) || (details.awayTeam?.lineup?.length > 0);
+  if (!hasLineups) return null;
+  return {
+    formation: {
+      home: details.homeTeam?.formation || '4-3-3',
+      away: details.awayTeam?.formation || '4-3-3',
+    },
+    home: details.homeTeam?.lineup || [],
+    away: details.awayTeam?.lineup || [],
+    homeBench: details.homeTeam?.bench || [],
+    awayBench: details.awayTeam?.bench || [],
+  };
+};
