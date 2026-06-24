@@ -42,6 +42,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const newsRoutes = require('./routes/newsRoutes');
 const searchRoutes = require('./routes/searchRoutes');
 const statsRoutes = require('./routes/statsRoutes');
+const proxyRoutes = require('./routes/proxyRoutes');
 
 // ==========================================
 // ⚙️ 4. Background Services
@@ -169,6 +170,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/search', searchLimiter, searchRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/proxy/rapidapi', proxyRoutes);
 
 // ==========================================
 // ❌ Global Error Handler
