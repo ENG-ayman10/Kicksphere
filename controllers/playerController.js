@@ -10,6 +10,7 @@ const logger = require('../utils/logger');
 
 exports.syncPlayers = async (req, res) => {
   try {
+    const BATCH_LIMIT = 500;
     const players = await fetchPlayersFromAPI();
 
     if (players.length === 0) {
@@ -22,7 +23,6 @@ exports.syncPlayers = async (req, res) => {
     // ❌ Delete old players first to prevent duplicates
     const oldDocs = await db.collection('players').get();
     if (!oldDocs.empty) {
-      const BATCH_LIMIT = 500;
       const refs = oldDocs.docs.map(doc => doc.ref);
 
       for (let i = 0; i < refs.length; i += BATCH_LIMIT) {

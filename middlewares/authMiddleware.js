@@ -5,12 +5,15 @@
  */
 
 const admin = require('firebase-admin');
+const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 
+const JWT_SECRET = process.env.JWT_SECRET || 'kicksphere_super_secret_key_CHANGE_IN_PRODUCTION';
+
 /**
- * Middleware to verify Firebase Auth token.
- * Expects: Authorization: Bearer <idToken>
- * Sets req.user with the decoded token (uid, email, etc.)
+ * Middleware to verify token (JWT or Firebase ID token).
+ * Expects: Authorization: Bearer <token>
+ * Sets req.user with the decoded token (id, email, etc.)
  */
 const authMiddleware = async (req, res, next) => {
   try {
@@ -23,32 +26,53 @@ const authMiddleware = async (req, res, next) => {
       });
     }
 
-    const idToken = authHeader.split('Bearer ')[1];
+    const token = authHeader.split('Bearer ')[1];
 
-    if (!idToken) {
+    if (!token) {
       return res.status(401).json({
         success: false,
         message: "Invalid token format."
       });
     }
 
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
-    req.user = decodedToken;
-    next();
+    // 1. Try verifying as custom JWT first
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      req.user = decoded;
+      return next();
+    } catch (jwtError) {
+      // 2. Fallback: Try verifying as Firebase ID token
+      try {
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        // Normalize uid to match custom JWT schema where user ID is 'id'
+        req.user = {
+          id: decodedToken.uid,
+          email: decodedToken.email,
+          ...decodedToken
+        };
+        return next();
+      } catch (firebaseError) {
+        logger.error(`🔐 Auth Error: JWT verification failed (${jwtError.message}) and Firebase verification failed (${firebaseError.message})`);
+        
+        if (firebaseError.code === 'auth/id-token-expired') {
+          return res.status(401).json({
+            success: false,
+            message: "Token expired. Please re-authenticate."
+          });
+        }
 
-  } catch (error) {
-    logger.error(`🔐 Auth Error: ${error.message}`);
-
-    if (error.code === 'auth/id-token-expired') {
-      return res.status(401).json({
-        success: false,
-        message: "Token expired. Please re-authenticate."
-      });
+        return res.status(403).json({
+          success: false,
+          message: "Invalid or expired authentication token."
+        });
+      }
     }
 
-    return res.status(403).json({
+  } catch (error) {
+    logger.error(`🔐 Auth Middleware Error: ${error.message}`);
+    return res.status(500).json({
       success: false,
-      message: "Invalid or expired authentication token."
+      message: "Server authentication error."
     });
   }
 };
@@ -62,9 +86,23 @@ const optionalAuth = async (req, res, next) => {
     const authHeader = req.headers.authorization;
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      const idToken = authHeader.split('Bearer ')[1];
-      if (idToken) {
-        req.user = await admin.auth().verifyIdToken(idToken);
+      const token = authHeader.split('Bearer ')[1];
+      if (token) {
+        try {
+          const decoded = jwt.verify(token, JWT_SECRET);
+          req.user = decoded;
+        } catch (jwtError) {
+          try {
+            const decodedToken = await admin.auth().verifyIdToken(token);
+            req.user = {
+              id: decodedToken.uid,
+              email: decodedToken.email,
+              ...decodedToken
+            };
+          } catch (firebaseError) {
+            req.user = null;
+          }
+        }
       }
     }
   } catch (error) {
