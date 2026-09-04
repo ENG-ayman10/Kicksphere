@@ -302,7 +302,7 @@ exports.getTeamDetails = async (teamIdOrName) => {
   if (!isNaN(teamIdOrName)) {
     params.id = Number(teamIdOrName);
   } else {
-    params.search = teamIdOrName;
+    params.search = teamIdOrName.replace(/-/g, ' ');
   }
 
   const data = await safeFetch(endpoint, params);
@@ -402,10 +402,12 @@ exports.getPlayerDetails = async (playerIdOrName) => {
     if (Number(app) > 0) hasAppearances = true;
   }
 
+  let actualSeason = season;
   if (!data?.response || data.response.length === 0 || !hasAppearances) {
     const prevData = await safeFetch('/api/v1/players', { ...params, season: season - 1 });
     if (prevData?.response && prevData.response.length > 0) {
       data = prevData;
+      actualSeason = season - 1;
     }
   }
 
@@ -470,7 +472,7 @@ exports.getPlayerDetails = async (playerIdOrName) => {
     image: player.photo || (player.id ? `https://images.kickoffapi.com/images/players/${player.id}.png` : ''),
     description: '',
     seasonStats: {
-      season: `${season}/${season + 1}`,
+      season: `${actualSeason}/${actualSeason + 1}`,
       matches: appearances ?? 0,
       minutes: games.minutes ?? 0,
       goals: goals.total ?? 0,

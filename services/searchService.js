@@ -5,8 +5,7 @@
 
 const logger = require('../utils/logger');
 const sportscoreService = require('./sportscoreService');
-const sofascoreService = require('./sofascoreService');
-const { COMPETITIONS } = require('./footballApi');
+const { COMPETITION_SLUGS } = require('./sportscoreService');
 
 const normalizeTerm = (value) => String(value || '')
   .normalize('NFKD')
@@ -232,11 +231,11 @@ const mapLeague = ([code, info]) => ({
   id: code,
   targetId: code,
   code,
-  provider: 'football-data.org',
-  providerId: code,
+  provider: 'sportscore',
+  providerId: info.slug,
   name: info.name,
   country: info.country,
-  logo: `https://crests.football-data.org/${code}.png`,
+  logo: info.logo,
   aliases: LEAGUE_ALIASES[code] || []
 });
 
@@ -305,14 +304,13 @@ exports.searchAll = async (query, options = {}) => {
 
   const fallback = searchLocal(q);
   let sportscoreProvider = emptyResult('sportscore');
-  let sofascoreProvider = emptyResult('sofascore');
   const providerSources = [];
 
-  // 1. Try SportScore search first
+  // 1. Try SportScore search
   if (options.useProvider !== false && q.length >= 2) {
     try {
       const scResult = await sportscoreService.searchEntities(rawQuery, 10);
-      if (scResult && (scResult.teams?.length > 0 || scResult.competitions?.length > 0)) {
+      if (scResult && (scResult.teams?.length > 0 || scResult.competitions?.length > 0 || scResult.players?.length > 0)) {
         sportscoreProvider = {
           teams: (scResult.teams || []).map(t => ({
             id: t.slug || t.id,
@@ -324,7 +322,16 @@ exports.searchAll = async (query, options = {}) => {
             logo: t.logo || t.crest || '',
             slug: t.slug || ''
           })),
-          players: [],
+          players: (scResult.players || []).map(p => ({
+             id: p.slug || p.id,
+             targetId: p.slug || p.id,
+             provider: 'sportscore',
+             providerId: p.slug,
+             name: p.name,
+             shortName: p.name,
+             logo: p.logo || '',
+             slug: p.slug || ''
+          })),
           leagues: (scResult.competitions || []).map(c => ({
             id: c.slug || c.id,
             targetId: c.slug || c.id,
@@ -343,22 +350,9 @@ exports.searchAll = async (query, options = {}) => {
     } catch (error) {
       logger.warn(`SportScore search failed for "${rawQuery}": ${error.message}`);
     }
-
-    // 2. Always try Sofascore too because SportScore search may omit players.
-    try {
-      sofascoreProvider = await sofascoreService.search(rawQuery, 10);
-      if (hasMatches(sofascoreProvider)) providerSources.push('sofascore');
-    } catch (error) {
-      logger.warn(`Sofascore search failed for "${rawQuery}": ${error.message}`);
-    }
   }
 
-  const provider = {
-    teams: mergeUnique(sportscoreProvider.teams, sofascoreProvider.teams, ['name']),
-    players: sofascoreProvider.players || [],
-    leagues: mergeUnique(sportscoreProvider.leagues || [], sofascoreProvider.leagues || [], ['name']),
-    matches: [],
-  };
+  const provider = sportscoreProvider;
   const usedProvider = hasMatches(provider);
 
   const teams = mergeUnique(provider.teams, fallback.teams, ['name']).slice(0, 10);
@@ -370,10 +364,10 @@ exports.searchAll = async (query, options = {}) => {
     players,
     leagues,
     matches: [],
-    source: usedProvider ? `${[...new Set(providerSources)].join('+')}+local-fallback` : 'local-fallback'
+    source: usedProvider ? `sportscore+local-fallback` : 'local-fallback'
   };
 };
 
 exports.CLUBS = CLUBS;
 exports.PLAYERS = PLAYERS;
-exports.LEAGUES = Object.entries(COMPETITIONS).map(mapLeague);
+exports.LEAGUES = Object.entries(COMPETITION_SLUGS).map(mapLeague);

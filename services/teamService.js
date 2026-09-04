@@ -5,7 +5,6 @@
 
 const sportscoreService = require('./sportscoreService');
 const kickoffApiService = require('./kickoffApiService');
-const sofascoreService = require('./sofascoreService');
 const { CLUBS } = require('./searchService');
 const { normalizeCompetitionCode } = require('../utils/sportsContracts');
 
@@ -64,32 +63,26 @@ exports.getTeamByIdService = async (idOrName) => {
   const localTeam = resolveLocalTeam(idOrName);
   if (localTeam) return serviceResult(localTeam, 'local');
 
-  // 1. Try SportScore API
-  try {
-    const scTeam = await sportscoreService.getTeamDetails(idOrName);
-    if (scTeam?.info) return serviceResult(scTeam.info, 'sportscore');
-  } catch (_) {}
-
-  // 2. Try KickOff API
+  // Try KickOff API first for rich team details (HD images)
   try {
     const koTeam = await kickoffApiService.getTeamDetails(idOrName);
     if (koTeam) return serviceResult(koTeam, 'kickoffapi');
   } catch (_) {}
 
-  // 3. Try Sofascore
-  const details = await sofascoreService.getTeamDetails(idOrName);
-  if (!details?.team) {
-    return { success: false, statusCode: 404, message: 'Team not found' };
-  }
+  // Try SportScore API fallback
+  try {
+    const scTeam = await sportscoreService.getTeamDetails(idOrName);
+    if (scTeam?.info) return serviceResult(scTeam.info, 'sportscore');
+  } catch (_) {}
 
-  return serviceResult(details.team, 'sofascore');
+  return { success: false, statusCode: 404, message: 'Team not found' };
 };
 
 exports.getTeamMatchesService = async (idOrName) => {
   const localTeam = resolveLocalTeam(idOrName);
   const lookup = localTeam?.name || idOrName;
 
-  // 1. Try SportScore API
+  // Try SportScore API
   try {
     const scTeam = await sportscoreService.getTeamDetails(lookup);
     if (scTeam?.matches && (scTeam.matches.recent?.length || scTeam.matches.upcoming?.length)) {
@@ -97,24 +90,14 @@ exports.getTeamMatchesService = async (idOrName) => {
     }
   } catch (_) {}
 
-  // 2. Try KickOff API fixtures
-  try {
-    const koFixtures = await kickoffApiService.getTeamFixtures(lookup);
-    if (koFixtures && (koFixtures.recent?.length || koFixtures.upcoming?.length)) {
-      return serviceResult(koFixtures, 'kickoffapi');
-    }
-  } catch (_) {}
-
-  // 3. Try Sofascore
-  const matches = await sofascoreService.getTeamMatches(lookup);
-  return serviceResult(matches, 'sofascore');
+  return serviceResult({ recent: [], upcoming: [] }, 'empty');
 };
 
 exports.getTeamSquadService = async (idOrName) => {
   const localTeam = resolveLocalTeam(idOrName);
   const lookup = localTeam?.name || idOrName;
 
-  // 1. Try KickOff API squad
+  // Try KickOff API first for complete squad lists and player images
   try {
     const koSquad = await kickoffApiService.getTeamSquad(lookup);
     if (koSquad && koSquad.length > 0) {
@@ -122,9 +105,15 @@ exports.getTeamSquadService = async (idOrName) => {
     }
   } catch (_) {}
 
-  // 2. Try Sofascore
-  const details = await sofascoreService.getTeamDetails(lookup);
-  return serviceResult(details?.squad || [], details?.squad ? 'sofascore' : 'empty');
+  // Try SportScore API fallback
+  try {
+    const scTeam = await sportscoreService.getTeamDetails(lookup);
+    if (scTeam?.squad && scTeam.squad.length > 0) {
+      return serviceResult(scTeam.squad, 'sportscore');
+    }
+  } catch (_) {}
+
+  return serviceResult([], 'empty');
 };
 
 exports.resolveLocalTeam = resolveLocalTeam;

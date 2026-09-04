@@ -4,8 +4,7 @@
  */
 
 const db = require('../config/firebase');
-const { fetchMatchesByDate, fetchLiveMatches } = require('../services/footballApi');
-const sofascoreService = require('../services/sofascoreService');
+const sportscoreService = require('../services/sportscoreService');
 const logger = require('../utils/logger');
 const { isAdminUser } = require('../utils/auth');
 
@@ -38,8 +37,8 @@ exports.getHome = async (req, res) => {
     // =========================
     // 🔥 1. FETCH TODAY'S MATCHES FROM API
     // =========================
-    const todayMatches = await fetchMatchesByDate('TODAY');
-    const liveMatches = await fetchLiveMatches();
+    const todayMatches = await sportscoreService.getMatchesByDate('TODAY');
+    const liveMatches = await sportscoreService.getLiveMatches();
 
     // Sort today's matches by priority
     const priority = ['CL', 'WC', 'EC', 'PL', 'PD', 'SA', 'BL1', 'FL1', 'PPL', 'ELC', 'DED', 'BSA'];
@@ -96,12 +95,12 @@ exports.getHome = async (req, res) => {
         )
         .slice(0, 5);
 
-      // Fallback: if no matches today, fetch recent + upcoming from Sofascore
+      // Fallback: if no matches today, fetch recent + upcoming from SportScore
       if (recommended.length < 2) {
         try {
           const teamsToFetch = preferredTeams.slice(0, 3); // Limit to 3 to prevent timeouts
           const teamMatchPromises = teamsToFetch.map(teamName =>
-            sofascoreService.getTeamMatches(teamName).catch(err => {
+            sportscoreService.getTeamMatches(teamName).catch(err => {
               logger.warn(`⚠️ Failed to fetch matches for ${teamName}: ${err.message}`);
               return { recent: [], upcoming: [] };
             })
@@ -109,7 +108,6 @@ exports.getHome = async (req, res) => {
 
           const teamMatchResults = await Promise.all(teamMatchPromises);
 
-          // Convert Sofascore events to standard match format
           const sofascoreMatches = [];
           for (const result of teamMatchResults) {
             const allEvents = [...(result.recent || []).slice(-3), ...(result.upcoming || []).slice(0, 3)];

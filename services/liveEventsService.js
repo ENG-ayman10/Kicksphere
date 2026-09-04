@@ -6,18 +6,11 @@
  */
 
 const db = require('../config/firebase');
-const { fetchMatchesFromAPI } = require('./footballApi');
+const sportscoreService = require('./sportscoreService');
 const { saveNotification } = require('./notificationService');
 const { sendPushNotification } = require('./pushNotificationService');
 const logger = require('../utils/logger');
-const axios = require('axios');
 const { matchRoom, teamRoom, userRoom } = require('../utils/socketRooms');
-const ENABLE_SOFASCORE_PROXY = process.env.ENABLE_SOFASCORE_PROXY === 'true';
-
-// Sofascore headers
-const SOFA_HEADERS = {
-  'User-Agent': 'Mozilla/5.0'
-};
 
 // ==========================================
 // 🧠 STATE TRACKING
@@ -58,29 +51,13 @@ const cleanupPreviousScores = () => {
 };
 
 // ==========================================
-// 🔥 FETCH SOFASCORE LIVE MATCHES
+// 🔥 FETCH SPORTSCORE LIVE MATCHES
 // ==========================================
-const fetchSofascoreLiveMatches = async () => {
+const fetchLiveMatches = async () => {
   try {
-    const res = await axios.get('https://api.sofascore.com/api/v1/sport/football/events/live', {
-      headers: SOFA_HEADERS,
-      timeout: 8000,
-    });
-    return res.data?.events || [];
+    return await sportscoreService.getLiveMatches() || [];
   } catch (err) {
-    if (err.response?.status === 403 && ENABLE_SOFASCORE_PROXY) {
-      logger.warn(`⚠️ Sofascore blocked, trying via proxy...`);
-      try {
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent('https://api.sofascore.com/api/v1/sport/football/events/live')}`;
-        const res = await axios.get(proxyUrl, { timeout: 15000 });
-        return res.data?.events || [];
-      } catch (pErr) {
-        logger.error(`❌ Proxy failed: ${pErr.message}`);
-      }
-    } else if (err.response?.status === 403) {
-      logger.warn('Sofascore live fetch blocked and ENABLE_SOFASCORE_PROXY is not enabled.');
-    }
-    logger.warn(`⚠️ Sofascore live fetch failed: ${err.message}`);
+    logger.warn(`⚠️ SportScore live fetch failed: ${err.message}`);
     return [];
   }
 };
@@ -90,12 +67,10 @@ const fetchSofascoreLiveMatches = async () => {
 // ==========================================
 const fetchMatchIncidents = async (eventId) => {
   try {
-    const res = await axios.get(`https://api.sofascore.com/api/v1/event/${eventId}/incidents`, {
-      headers: SOFA_HEADERS,
-      timeout: 5000,
-    });
-    return res.data?.incidents || [];
+    const details = await sportscoreService.getMatchDetails(eventId);
+    return details?.timeline || [];
   } catch (err) {
+    logger.error(`⚠️ SportScore incidents fetch failed: ${err.message}`);
     return [];
   }
 };
@@ -109,36 +84,83 @@ exports.emitLiveEvents = async (io) => {
     cleanupPreviousScores();
 
     // ===========================
-    // 1. Fetch live matches from Sofascore (FAST)
+    // 1. Fetch live matches from SportScore (FAST)
     // ===========================
-    const sofaLiveMatches = await fetchSofascoreLiveMatches();
-    
-    // Also get football-data.org matches as fallback
-    let fdMatches = [];
-    try {
-      fdMatches = await fetchMatchesFromAPI();
-    } catch (_) {}
+    const liveMatches = await fetchLiveMatches();
 
     const eventsToEmit = [];
 
     // ===========================
-    // 2. Process Sofascore live matches
+    // 2. Process SportScore live matches
     // ===========================
-    for (const match of sofaLiveMatches) {
+    for (const match of liveMatches) {
       if (!match.id) continue;
 
       const matchId = String(match.id);
       const homeTeam = match.homeTeam?.name || 'Unknown';
       const awayTeam = match.awayTeam?.name || 'Unknown';
-      const homeScore = match.homeScore?.current ?? 0;
-      const awayScore = match.awayScore?.current ?? 0;
+      const homeScore = match.score?.fullTime?.home ?? 0;
+      const awayScore = match.score?.fullTime?.away ?? 0;
       const homeTeamId = match.homeTeam?.id;
       const awayTeamId = match.awayTeam?.id;
-      const tournament = match.tournament?.name || '';
-      const statusCode = match.status?.code;
+      const tournament = match.competition?.name || '';
+      const statusCode = match.status === 'IN_PLAY' ? 6 : (match.status === 'FINISHED' ? 100 : 0);
 
       // Track score changes for goal detection
       const prevScores = previousMatchScores.get(matchId);
+
+      // Check for detailed alerts subscription
+      const matchAlertsRoom = `matchAlerts_${matchId}`;
+      const hasSubscribers = io.sockets.adapter.rooms.get(matchAlertsRoom)?.size > 0;
+
+      if (hasSubscribers) {
+        const incidents = await fetchMatchIncidents(matchId);
+        if (incidents.length > 0) {
+          for (const inc of incidents) {
+            const uniqueKey = `${matchId}_inc_${inc.minute}_${inc.type}_${inc.player}`;
+            if (!processedEvents.has(uniqueKey)) {
+              processedEvents.set(uniqueKey, Date.now());
+              
+              const teamName = inc.side === 'home' ? homeTeam : awayTeam;
+              let title = '';
+              let message = '';
+
+              if (inc.type === 'goal') {
+                title = `⚽ GOAL for ${teamName}!`;
+                message = inc.player || 'Goal scored';
+                if (inc.assist) message += ` (Assist: ${inc.assist})`;
+                if ((inc.label || '').toLowerCase().includes('penalty')) message += ' (Penalty)';
+              } else if (inc.type === 'red_card') {
+                title = `🟥 RED CARD - ${teamName}`;
+                message = inc.player || 'Red card given';
+              } else if (inc.type === 'incident' && (inc.label || '').toLowerCase().includes('var')) {
+                title = `🖥️ VAR Decision`;
+                message = `Goal Cancelled or Penalty checked`;
+              } else if (inc.type === 'incident' && ((inc.label || '').includes('HT') || (inc.label || '').includes('Half Time'))) {
+                title = '⏱️ Half Time';
+                message = `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`;
+              } else if (inc.type === 'incident' && ((inc.label || '').includes('FT') || (inc.label || '').includes('Full Time'))) {
+                title = '🏁 Full Time';
+                message = `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`;
+              }
+
+              if (title) {
+                eventsToEmit.push({
+                  matchId,
+                  type: 'detailed_incident',
+                  title,
+                  message,
+                  team: teamName,
+                  score: `${homeScore} - ${awayScore}`,
+                  tournament,
+                  createdAt: new Date(),
+                  isDetailed: true
+                });
+              }
+            }
+          }
+        }
+      }
 
       if (prevScores) {
         // 🔥 GOAL DETECTED — Home team
@@ -225,72 +247,19 @@ exports.emitLiveEvents = async (io) => {
       previousMatchScores.set(matchId, { homeScore, awayScore, statusCode });
     }
 
-    // ===========================
-    // 3. Process football-data.org matches (fallback for goal detection)
-    // ===========================
-    for (const match of fdMatches) {
-      if (!match.id) continue;
-      const matchId = `fd_${match.id}`;
-      const prevScores = previousMatchScores.get(matchId);
-      
-      // football-data.org _formatMatchList structure:
-      // match.homeTeam.name, match.awayTeam.name
-      // match.score.fullTime.home, match.score.fullTime.away
-      const homeScore = match.score?.fullTime?.home ?? 0;
-      const awayScore = match.score?.fullTime?.away ?? 0;
-      const homeName = match.homeTeam?.name || match.homeTeam?.fullName || '';
-      const awayName = match.awayTeam?.name || match.awayTeam?.fullName || '';
-
-      if (prevScores) {
-        if (homeScore > prevScores.homeScore) {
-          const uniqueKey = `${matchId}_goal_home_${homeScore}`;
-          if (!processedEvents.has(uniqueKey)) {
-            processedEvents.set(uniqueKey, Date.now());
-            eventsToEmit.push({
-              matchId: String(match.id),
-              type: 'goal',
-              team: homeName,
-              against: awayName,
-              score: `${homeScore} - ${awayScore}`,
-              player: 'Unknown',
-              minute: 0,
-              createdAt: new Date(),
-            });
-          }
-        }
-        if (awayScore > prevScores.awayScore) {
-          const uniqueKey = `${matchId}_goal_away_${awayScore}`;
-          if (!processedEvents.has(uniqueKey)) {
-            processedEvents.set(uniqueKey, Date.now());
-            eventsToEmit.push({
-              matchId: String(match.id),
-              type: 'goal',
-              team: awayName,
-              against: homeName,
-              score: `${homeScore} - ${awayScore}`,
-              player: 'Unknown',
-              minute: 0,
-              createdAt: new Date(),
-            });
-          }
-        }
-      }
-      previousMatchScores.set(matchId, {
-        homeScore,
-        awayScore,
-        statusCode: 0,
-      });
-    }
-
     if (eventsToEmit.length === 0) return;
 
     // ===========================
     // 4. Broadcast to match rooms
     // ===========================
     eventsToEmit.forEach(event => {
-      io.to(matchRoom(event.matchId)).emit('liveEvent', event);
-      if (event.team) io.to(teamRoom(event.team)).emit('liveEvent', event);
-      if (event.against) io.to(teamRoom(event.against)).emit('liveEvent', event);
+      if (event.isDetailed) {
+        io.to(`matchAlerts_${event.matchId}`).emit('detailedAlert', event);
+      } else {
+        io.to(matchRoom(event.matchId)).emit('liveEvent', event);
+        if (event.team) io.to(teamRoom(event.team)).emit('liveEvent', event);
+        if (event.against) io.to(teamRoom(event.against)).emit('liveEvent', event);
+      }
     });
 
     // ===========================

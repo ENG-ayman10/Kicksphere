@@ -3,12 +3,11 @@
  * @description Stats endpoints — SportScore primary with robust fallbacks.
  */
 
+const axios = require('axios');
 const sportscoreService = require('../services/sportscoreService');
-const sportsDataService = require('../services/sportsDataService');
 const kickoffApiService = require('../services/kickoffApiService');
-const sofascoreService = require('../services/sofascoreService');
-const { fetchMatchDetails } = require('../services/footballApi');
 const { resolveLocalTeam } = require('../services/teamService');
+const { getCached, setCache } = require('../services/cacheService');
 const logger = require('../utils/logger');
 
 const serverError = (res) => res.status(500).json({ success: false, message: 'Server Error' });
@@ -242,50 +241,7 @@ exports.getMatchTimeline = async (req, res) => {
       }
     } catch (_) {}
 
-    // 2. Fallback to footballApi
-    const details = await fetchMatchDetails(id);
-    if (!details) {
-      return res.json({ success: true, source: 'empty', data: [] });
-    }
-
-    const timeline = [];
-    for (const g of (details.goals || [])) {
-      timeline.push({
-        minute: g.minute,
-        type: 'goal',
-        icon: '⚽',
-        label: g.type === 'PENALTY' ? 'Penalty Goal' : 'Goal',
-        team: g.team,
-        player: g.scorer,
-        assist: g.assist,
-      });
-    }
-
-    for (const b of (details.bookings || [])) {
-      timeline.push({
-        minute: b.minute,
-        type: b.card === 'RED' ? 'red_card' : 'yellow_card',
-        icon: b.card === 'RED' ? '🟥' : '🟨',
-        label: b.card === 'RED' ? 'Red Card' : 'Yellow Card',
-        team: b.team,
-        player: b.player,
-      });
-    }
-
-    for (const s of (details.substitutions || [])) {
-      timeline.push({
-        minute: s.minute,
-        type: 'substitution',
-        icon: '🔄',
-        label: 'Substitution',
-        team: s.team,
-        player: s.playerIn,
-        playerOut: s.playerOut,
-      });
-    }
-
-    timeline.sort((a, b) => (a.minute || 0) - (b.minute || 0));
-    res.json({ success: true, source: 'football-data.org', data: timeline });
+    return res.json({ success: true, source: 'empty', data: [] });
   } catch (error) {
     logger.error(`❌ TIMELINE ERROR: ${error.message}`);
     serverError(res);
@@ -293,58 +249,216 @@ exports.getMatchTimeline = async (req, res) => {
 };
 
 // ==========================================
-// 👥 GET MATCH LINEUPS
+// 👥 GET MATCH LINEUPS (Multi-provider with smart slug & team resolution)
 // ==========================================
-exports.getMatchLineups = async (req, res) => {
-  try {
-    const { id } = req.params;
+function slugify(text) {
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+}
 
-    // 1. Try SportScore
+function cleanTeamName(name) {
+  return String(name || '')
+    .replace(/\b(FC|CF|SC|AC|AS|SS|CD|UD|RCD|CA|BV|SV|VfB|1\.|BSC|Balompie|de|la|el|los|las)\b/gi, ' ')
+    .trim();
+}
+
+function mapKickoffPlayer(item) {
+  const p = item.player || item;
+  const fullName = [p.firstname, p.lastname].filter(Boolean).join(' ').trim();
+  const playerName = p.name || fullName || 'Player';
+  const playerNumber = p.number || 0;
+  const playerId = String(p.id || '');
+  return {
+    id: playerId,
+    name: playerName,
+    playerName,
+    number: playerNumber,
+    position: p.pos || p.position || '',
+    captain: Boolean(p.captain),
+    rating: p.rating ? parseFloat(p.rating) : null,
+    player: {
+      id: playerId,
+      name: playerName,
+      number: playerNumber
+    }
+  };
+}
+
+async function resolveMatchLineups(id, homeHint, awayHint, dateHint) {
+  let homeName = homeHint ? String(homeHint).trim() : null;
+  let awayName = awayHint ? String(awayHint).trim() : null;
+  let matchDate = dateHint ? String(dateHint).trim().split('T')[0] : new Date().toISOString().split('T')[0];
+
+  // 1. If id is already a slug, try SportScore directly
+  if (id && !/^\d+$/.test(id)) {
     try {
       const scMatch = await sportscoreService.getMatchDetails(id);
       if (scMatch?.lineups && (scMatch.lineups.home?.length > 0 || scMatch.lineups.away?.length > 0)) {
-        return res.json({
-          success: true,
-          source: 'sportscore',
-          data: scMatch.lineups
-        });
+        return { source: 'sportscore', lineups: scMatch.lineups };
+      }
+      if (scMatch?.homeTeam?.name && !homeName) homeName = scMatch.homeTeam.name;
+      if (scMatch?.awayTeam?.name && !awayName) awayName = scMatch.awayTeam.name;
+    } catch (_) {}
+  }
+
+  // 2. Resolve team names if missing and id is numeric
+  if ((!homeName || !awayName) && id && /^\d+$/.test(id)) {
+    try {
+      const sportsDataService = require('../services/sportsDataService');
+      const det = await sportsDataService.getMatchDetails(id);
+      if (det?.data) {
+        homeName = det.data.homeTeam?.name || det.data.homeTeam?.fullName;
+        awayName = det.data.awayTeam?.name || det.data.awayTeam?.fullName;
+        if (det.data.utcDate) matchDate = det.data.utcDate.split('T')[0];
       }
     } catch (_) {}
 
-    // 2. Fallback to footballApi
-    const details = await fetchMatchDetails(id);
-    const homeLineup = details?.homeTeam?.lineup || [];
-    const awayLineup = details?.awayTeam?.lineup || [];
-    const homeBench = details?.homeTeam?.bench || [];
-    const awayBench = details?.awayTeam?.bench || [];
+    // Fallback: check remote Render API for match details
+    if (!homeName || !awayName) {
+      try {
+        const r = await axios.get(`https://kicksphere.onrender.com/api/matches/${id}`, { timeout: 3500 });
+        if (r.data?.data) {
+          homeName = r.data.data.homeTeam?.name || r.data.data.homeTeam?.fullName;
+          awayName = r.data.data.awayTeam?.name || r.data.data.awayTeam?.fullName;
+          if (r.data.data.utcDate) matchDate = r.data.data.utcDate.split('T')[0];
+        }
+      } catch (_) {}
+    }
 
-    if (!details || (!homeLineup.length && !awayLineup.length)) {
+    // Fallback: check KickOff fixture by ID
+    if (!homeName || !awayName) {
+      try {
+        const kf = await kickoffApiService.safeFetch('/api/v1/fixtures', { id: Number(id) });
+        if (kf?.response?.[0]) {
+          const m = kf.response[0];
+          homeName = m.homeTeam?.name || m.teams?.home?.name;
+          awayName = m.awayTeam?.name || m.teams?.away?.name;
+          if (m.date) matchDate = m.date.split('T')[0];
+        }
+      } catch (_) {}
+    }
+  }
+
+  // 3. Try SportScore with generated slugs
+  if (homeName && awayName) {
+    const sHome = slugify(homeName);
+    const sAway = slugify(awayName);
+    const cHome = slugify(cleanTeamName(homeName));
+    const cAway = slugify(cleanTeamName(awayName));
+
+    const candidateSlugs = [
+      `${sHome}-vs-${sAway}`,
+      `${sAway}-vs-${sHome}`,
+      `${cHome}-vs-${cAway}`,
+      `${cAway}-vs-${cHome}`,
+    ].filter(Boolean);
+
+    for (const slug of [...new Set(candidateSlugs)]) {
+      try {
+        const sc = await sportscoreService.getMatchDetails(slug);
+        if (sc?.lineups && (sc.lineups.home?.length > 0 || sc.lineups.away?.length > 0)) {
+          return { source: 'sportscore', lineups: sc.lineups };
+        }
+      } catch (_) {}
+    }
+  }
+
+  // 4. Try KickOff API (API-Football)
+  try {
+    let fixtureId = null;
+    if (id && /^\d+$/.test(id)) {
+      fixtureId = Number(id);
+    }
+
+    if (homeName && awayName) {
+      const fixturesData = await kickoffApiService.safeFetch('/api/v1/fixtures', { date: matchDate });
+      const fixtures = fixturesData?.response || [];
+      const hLower = homeName.toLowerCase();
+      const aLower = awayName.toLowerCase();
+      const hClean = cleanTeamName(homeName).toLowerCase();
+      const aClean = cleanTeamName(awayName).toLowerCase();
+
+      const matched = fixtures.find(f => {
+        const fh = (f.homeTeam?.name || f.teams?.home?.name || '').toLowerCase();
+        const fa = (f.awayTeam?.name || f.teams?.away?.name || '').toLowerCase();
+        const matchHome = fh.includes(hLower) || hLower.includes(fh) || (hClean.length > 2 && fh.includes(hClean));
+        const matchAway = fa.includes(aLower) || aLower.includes(fa) || (aClean.length > 2 && fa.includes(aClean));
+        return matchHome && matchAway;
+      });
+
+      if (matched) {
+        fixtureId = matched.id || matched.fixture?.id;
+      }
+    }
+
+    if (fixtureId) {
+      const lData = await kickoffApiService.safeFetch('/api/v1/fixtures/lineups', { fixture: fixtureId });
+      if (lData?.response?.length > 0) {
+        const homeL = lData.response[0];
+        const awayL = lData.response[1];
+        const lineups = {
+          homeFormation: homeL?.formation || '',
+          awayFormation: awayL?.formation || '',
+          homeCoach: homeL?.coach?.name || null,
+          awayCoach: awayL?.coach?.name || null,
+          confirmed: true,
+          home: (homeL?.startXI || []).map(mapKickoffPlayer),
+          away: (awayL?.startXI || []).map(mapKickoffPlayer),
+          homeBench: (homeL?.substitutes || []).map(mapKickoffPlayer),
+          awayBench: (awayL?.substitutes || []).map(mapKickoffPlayer),
+        };
+        if (lineups.home.length > 0 || lineups.away.length > 0) {
+          return { source: 'kickoffapi', lineups };
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn(`[Lineups] KickOff fallback error: ${err.message}`);
+  }
+
+  return null;
+}
+
+exports.getMatchLineups = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { home, away, date } = req.query;
+
+    const cacheKey = `lineups:${id}:${home || ''}:${away || ''}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
       return res.json({
         success: true,
-        source: 'unavailable',
-        data: {
-          message: 'Lineups not available for this match',
-          formation: { home: details?.homeTeam?.formation || '', away: details?.awayTeam?.formation || '' },
-          home: homeLineup,
-          away: awayLineup,
-        },
+        source: `${cached.source}_cached`,
+        data: cached.lineups
       });
     }
 
-    res.json({
+    const result = await resolveMatchLineups(id, home, away, date);
+    if (result && result.lineups && (result.lineups.home?.length > 0 || result.lineups.away?.length > 0)) {
+      const ttl = result.lineups.confirmed ? 15 * 60 * 1000 : 2 * 60 * 1000;
+      setCache(cacheKey, result, ttl);
+
+      return res.json({
+        success: true,
+        source: result.source,
+        data: result.lineups
+      });
+    }
+
+    return res.json({
       success: true,
-      source: 'football-data.org',
+      source: 'unavailable',
       data: {
-        formation: {
-          home: details.homeTeam.formation || '',
-          away: details.awayTeam.formation || '',
-        },
-        homeCoach: details.homeTeam.coach,
-        awayCoach: details.awayTeam.coach,
-        home: homeLineup,
-        away: awayLineup,
-        homeBench,
-        awayBench,
+        message: 'Lineups not available for this match yet',
+        formation: { home: '', away: '' },
+        home: [],
+        away: [],
+        homeBench: [],
+        awayBench: []
       },
     });
   } catch (error) {
@@ -362,36 +476,14 @@ exports.getDeepTeamDetails = async (req, res) => {
     const localTeam = resolveLocalTeam(teamId);
     const lookup = localTeam?.name || teamId;
 
-    const [
-      scTeam,
-      koTeam,
-      koSquad,
-      koFixtures,
-      sfDetails,
-      sfMatches,
-      sfStats
-    ] = await Promise.all([
-      callProvider('SportScore team details', () => sportscoreService.getTeamDetails(lookup)),
-      callProvider('KickOff team details', () => kickoffApiService.getTeamDetails(lookup)),
-      callProvider('KickOff team squad', () => kickoffApiService.getTeamSquad(lookup)),
-      callProvider('KickOff team fixtures', () => kickoffApiService.getTeamFixtures(lookup)),
-      callProvider('Sofascore team details', () => sofascoreService.getTeamDetails(lookup)),
-      callProvider('Sofascore team matches', () => sofascoreService.getTeamMatches(lookup)),
-      callProvider('Sofascore team standings and stats', () => sofascoreService.getTeamStandingsAndStats(lookup)),
-    ]);
+    const scTeam = await callProvider('SportScore team details', () => sportscoreService.getTeamDetails(lookup));
 
     const sources = [];
     if (scTeam?.info) sources.push('sportscore');
-    if (koTeam || hasItems(koSquad) || hasItems(koFixtures?.recent) || hasItems(koFixtures?.upcoming)) {
-      sources.push('kickoffapi');
-    }
-    if (sfDetails?.team || hasItems(sfDetails?.squad) || hasItems(sfMatches?.recent) || hasItems(sfMatches?.upcoming) || sfStats) {
-      sources.push('sofascore');
-    }
 
-    const info = normalizeTeamInfo(localTeam, scTeam?.info, koTeam, sfDetails?.team);
-    const squad = longestArray(koSquad, sfDetails?.squad);
-    const matches = mergeMatches(scTeam?.matches, koFixtures, sfMatches);
+    const info = normalizeTeamInfo(localTeam, scTeam?.info);
+    const squad = scTeam?.squad || [];
+    const matches = scTeam?.matches || { recent: [], upcoming: [] };
 
     if (!isPresent(info) && !hasItems(squad) && !hasItems(matches.recent) && !hasItems(matches.upcoming)) {
       return res.status(404).json({ success: false, message: 'Team details not found' });
@@ -403,10 +495,10 @@ exports.getDeepTeamDetails = async (req, res) => {
       matches
     };
 
-    if (sfStats?.standing) data.standing = sfStats.standing;
-    if (sfStats?.statistics) data.stats = sfStats.statistics;
-    if (sfStats?.tournament) data.tournament = sfStats.tournament;
-    if (sfStats?.season) data.season = sfStats.season;
+    if (scTeam?.standing) data.standing = scTeam.standing;
+    if (scTeam?.statistics) data.stats = scTeam.statistics;
+    if (scTeam?.tournament) data.tournament = scTeam.tournament;
+    if (scTeam?.season) data.season = scTeam.season;
 
     return res.json({
       success: true,
@@ -422,19 +514,48 @@ exports.getDeepTeamDetails = async (req, res) => {
 exports.getDeepPlayerDetails = async (req, res) => {
   try {
     const playerId = req.params.id;
-
-    const [scPlayer, koPlayer, sfPlayer] = await Promise.all([
-      callProvider('SportScore player details', () => sportscoreService.getPlayerDetails(playerId)),
-      callProvider('KickOff player details', () => kickoffApiService.getPlayerDetails(playerId)),
-      callProvider('Sofascore player details', () => sofascoreService.getPlayerDetails(playerId))
-    ]);
-
     const sources = [];
-    if (scPlayer) sources.push('sportscore');
-    if (koPlayer) sources.push('kickoffapi');
-    if (sfPlayer) sources.push('sofascore');
+    
+    // 1. Try KickOff API first (Rich stats and HD images)
+    try {
+      const koPlayer = await kickoffApiService.getPlayerDetails(playerId);
+      if (koPlayer && isPresent(koPlayer.seasonStats)) {
+        sources.push('kickoffapi');
+        return res.json({
+          success: true,
+          source: 'kickoffapi',
+          data: {
+            info: {
+              id: koPlayer.id,
+              name: koPlayer.name,
+              fullName: koPlayer.name,
+              image: koPlayer.image,
+              team: koPlayer.team,
+              teamBadge: koPlayer.teamBadge,
+              competition: '',
+              position: koPlayer.position,
+              country: koPlayer.country,
+              marketValue: koPlayer.marketValue,
+            },
+            seasonStats: koPlayer.seasonStats,
+            attributes: {},
+            careerTotals: {},
+            careerBySeason: [],
+            formerTeams: koPlayer.formerTeams || [],
+            honours: [],
+            contracts: [],
+            milestones: []
+          }
+        });
+      }
+    } catch (_) {}
 
-    const sportscoreInfo = scPlayer ? {
+    // 2. Try SportScore API fallback
+    const scPlayer = await callProvider('SportScore player details', () => sportscoreService.getPlayerDetails(playerId));
+
+    if (scPlayer) sources.push('sportscore');
+
+    const info = scPlayer ? {
       id: scPlayer.id,
       name: scPlayer.name,
       fullName: scPlayer.fullName,
@@ -445,54 +566,7 @@ exports.getDeepPlayerDetails = async (req, res) => {
       position: scPlayer.position || ''
     } : {};
 
-    const kickoffInfo = koPlayer ? {
-      id: koPlayer.id,
-      name: koPlayer.name,
-      shortName: koPlayer.shortName,
-      fullName: koPlayer.fullName || koPlayer.name,
-      image: koPlayer.image,
-      team: koPlayer.team,
-      teamBadge: koPlayer.teamBadge,
-      jerseyNumber: koPlayer.jerseyNumber,
-      position: koPlayer.position,
-      country: koPlayer.country,
-      nationality: koPlayer.nationality || koPlayer.country,
-      flag: koPlayer.flag,
-      dateBorn: koPlayer.dateBorn,
-      birthLocation: koPlayer.birthLocation,
-      height: koPlayer.height,
-      weight: koPlayer.weight,
-      preferredFoot: koPlayer.preferredFoot,
-      marketValue: koPlayer.marketValue,
-      wage: koPlayer.wage,
-      contractUntil: koPlayer.contractUntil,
-      description: koPlayer.description
-    } : {};
-
-    const sofascoreInfo = sfPlayer ? {
-      id: sfPlayer.id?.toString(),
-      name: sfPlayer.name,
-      shortName: sfPlayer.shortName,
-      fullName: sfPlayer.name,
-      image: sfPlayer.image,
-      team: sfPlayer.team,
-      teamId: sfPlayer.teamId?.toString(),
-      teamLogo: sfPlayer.teamLogo,
-      teamBadge: sfPlayer.teamLogo,
-      jerseyNumber: sfPlayer.jerseyNumber,
-      position: sfPlayer.position,
-      country: sfPlayer.country,
-      nationality: sfPlayer.country,
-      dateOfBirth: sfPlayer.dateOfBirth,
-      dateBorn: unixSecondsToDate(sfPlayer.dateOfBirth),
-      height: sfPlayer.height,
-      preferredFoot: sfPlayer.preferredFoot,
-      marketValue: sfPlayer.marketValue
-    } : {};
-
-    const info = mergePresent(sportscoreInfo, kickoffInfo, sofascoreInfo);
-    const seasonStats = mergePresent(
-      scPlayer ? {
+    const seasonStats = scPlayer ? {
         matches: scPlayer.matches,
         goals: scPlayer.goals,
         assists: scPlayer.assists,
@@ -508,41 +582,21 @@ exports.getDeepPlayerDetails = async (req, res) => {
         keyPasses: scPlayer.keyPasses,
         yellowCards: scPlayer.yellowCards,
         redCards: scPlayer.redCards
-      } : {},
-      koPlayer?.seasonStats,
-      sfPlayer?.seasonStats
-    );
-
-    const formerTeams = longestArray(
-      koPlayer?.formerTeams,
-      sfPlayer?.formerTeams,
-      (sfPlayer?.transferHistory || []).map(transfer => ({
-        team: transfer.fromTeam || '',
-        teamBadge: transfer.fromTeamLogo || '',
-        joined: transfer.transferDate || '',
-        departed: '',
-        moveType: transfer.type || '',
-        fee: transfer.fee || ''
-      }))
-    );
+    } : {};
 
     const data = {
       info,
       seasonStats,
-      attributes: mergePresent(koPlayer?.attributes, sfPlayer?.attributes),
-      careerTotals: mergePresent(koPlayer?.careerTotals, sfPlayer?.careerTotals),
-      careerBySeason: longestArray(koPlayer?.careerBySeason, sfPlayer?.careerBySeason),
-      formerTeams,
-      honours: longestArray(koPlayer?.honours, sfPlayer?.honours),
-      contracts: longestArray(koPlayer?.contracts, sfPlayer?.contracts),
-      milestones: longestArray(koPlayer?.milestones, sfPlayer?.milestones),
+      attributes: {},
+      careerTotals: {},
+      careerBySeason: [],
+      formerTeams: [],
+      honours: [],
+      contracts: [],
+      milestones: [],
     };
 
-    if (sfPlayer?.transferHistory && !hasItems(data.formerTeams)) {
-      data.transferHistory = sfPlayer.transferHistory;
-    }
-
-    if (!isPresent(info) && !isPresent(seasonStats) && !hasItems(formerTeams)) {
+    if (!isPresent(info) && !isPresent(seasonStats)) {
       const cleanName = String(playerId).replace(/^[a-z]+_[a-z]+_\d+_?/, '').replace(/_/g, ' ').trim() || 'Player';
       return res.json({
         success: true,
@@ -648,73 +702,7 @@ exports.getMatchDeepStats = async (req, res) => {
         });
       }
     } catch (_) {}
-
-    // 2. Fallback to footballApi
-    const details = await fetchMatchDetails(matchId);
-    if (!details) {
-      return res.json({ success: true, source: 'empty', data: null });
-    }
-
-    const goals = details.goals || [];
-    const bookings = details.bookings || [];
-    const substitutions = details.substitutions || [];
-    const referees = details.referees || [];
-
-    const homeGoals = goals.filter(g => g.team === details.homeTeam.name || g.team === details.homeTeam.fullName).length;
-    const awayGoals = goals.filter(g => g.team === details.awayTeam.name || g.team === details.awayTeam.fullName).length;
-    const homeYellows = bookings.filter(b => (b.team === details.homeTeam.name || b.team === details.homeTeam.fullName) && b.card === 'YELLOW').length;
-    const awayYellows = bookings.filter(b => (b.team === details.awayTeam.name || b.team === details.awayTeam.fullName) && b.card === 'YELLOW').length;
-    const homeReds = bookings.filter(b => (b.team === details.homeTeam.name || b.team === details.homeTeam.fullName) && b.card === 'RED').length;
-    const awayReds = bookings.filter(b => (b.team === details.awayTeam.name || b.team === details.awayTeam.fullName) && b.card === 'RED').length;
-    const homeSubs = substitutions.filter(s => s.team === details.homeTeam.name || s.team === details.homeTeam.fullName).length;
-    const awaySubs = substitutions.filter(s => s.team === details.awayTeam.name || s.team === details.awayTeam.fullName).length;
-
-    return res.json({
-      success: true,
-      source: 'football-data.org',
-      data: {
-        matchInfo: {
-          competition: details.competition,
-          utcDate: details.utcDate,
-          status: details.status,
-          matchday: details.matchday,
-          stage: details.stage,
-          venue: details.venue,
-          attendance: details.attendance,
-          referees: referees,
-          score: details.score,
-          homeTeam: {
-            id: details.homeTeam.id,
-            name: details.homeTeam.name,
-            fullName: details.homeTeam.fullName,
-            crest: details.homeTeam.crest,
-            coach: details.homeTeam.coach,
-            formation: details.homeTeam.formation,
-          },
-          awayTeam: {
-            id: details.awayTeam.id,
-            name: details.awayTeam.name,
-            fullName: details.awayTeam.fullName,
-            crest: details.awayTeam.crest,
-            coach: details.awayTeam.coach,
-            formation: details.awayTeam.formation,
-          },
-        },
-        goals,
-        bookings,
-        substitutions,
-        statistics: {
-          goals: { home: homeGoals, away: awayGoals },
-          yellowCards: { home: homeYellows, away: awayYellows },
-          redCards: { home: homeReds, away: awayReds },
-          substitutions: { home: homeSubs, away: awaySubs },
-          halfTimeScore: details.score?.halfTime || { home: null, away: null },
-          fullTimeScore: details.score?.fullTime || { home: null, away: null },
-          hasAdvancedStats: false,
-        },
-        head2head: details.head2head || null,
-      }
-    });
+    return res.status(404).json({ success: false, message: 'Match details not found' });
   } catch (error) {
     logger.error(`getMatchDeepStats Error: ${error.message}`);
     return res.status(500).json({ success: false, message: 'Server Error' });

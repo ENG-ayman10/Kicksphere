@@ -310,6 +310,26 @@ io.on('connection', (socket) => {
   });
 
   /**
+   * 🔔 Subscribe to detailed match alerts
+   */
+  socket.on('subscribeMatchAlerts', (matchId) => {
+    const roomMatchId = normalizeRoomValue(matchId);
+    if (!roomMatchId) return;
+    socket.join(`matchAlerts_${roomMatchId}`);
+    logger.info(`🔔 User subscribed to alerts for match: ${roomMatchId}`);
+  });
+
+  /**
+   * 🔕 Unsubscribe from detailed match alerts
+   */
+  socket.on('unsubscribeMatchAlerts', (matchId) => {
+    const roomMatchId = normalizeRoomValue(matchId);
+    if (!roomMatchId) return;
+    socket.leave(`matchAlerts_${roomMatchId}`);
+    logger.info(`🔕 User unsubscribed from alerts for match: ${roomMatchId}`);
+  });
+
+  /**
    * ⭐ Subscribe to favorite teams (for targeted notifications)
    */
   socket.on('subscribeFavorites', (data) => {

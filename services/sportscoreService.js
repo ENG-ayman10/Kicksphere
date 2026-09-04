@@ -537,35 +537,30 @@ function normalizeSportScoreMatchDetail(m, slug) {
 
   // Lineups normalization
   const lineups = m.lineups || {};
-  const homeXi = (lineups.home_xi || []).map(p => ({
-    name: p.name || '',
-    number: p.number || 0,
-    position: p.position || '',
-    captain: Boolean(p.captain),
-    rating: p.rating || null
-  }));
+  const mapPlayer = p => {
+    const name = p.name || p.playerName || 'Player';
+    const id = String(p.slug || p.id || name);
+    const number = p.number || 0;
+    return {
+      id,
+      name,
+      playerName: name,
+      number,
+      position: p.position || '',
+      captain: Boolean(p.captain),
+      rating: p.rating || null,
+      player: {
+        id,
+        name,
+        number
+      }
+    };
+  };
 
-  const awayXi = (lineups.away_xi || []).map(p => ({
-    name: p.name || '',
-    number: p.number || 0,
-    position: p.position || '',
-    captain: Boolean(p.captain),
-    rating: p.rating || null
-  }));
-
-  const homeSubs = (lineups.home_subs || []).map(p => ({
-    name: p.name || '',
-    number: p.number || 0,
-    position: p.position || '',
-    captain: Boolean(p.captain)
-  }));
-
-  const awaySubs = (lineups.away_subs || []).map(p => ({
-    name: p.name || '',
-    number: p.number || 0,
-    position: p.position || '',
-    captain: Boolean(p.captain)
-  }));
+  const homeXi = (lineups.home_xi || []).map(mapPlayer);
+  const awayXi = (lineups.away_xi || []).map(mapPlayer);
+  const homeSubs = (lineups.home_subs || []).map(mapPlayer);
+  const awaySubs = (lineups.away_subs || []).map(mapPlayer);
 
   return {
     ...base,

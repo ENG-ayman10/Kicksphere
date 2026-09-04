@@ -4,7 +4,7 @@
  * Uses football-data.org v4 API.
  */
 
-const { fetchLiveMatches, fetchMatchesByDate } = require('./footballApi');
+const sportscoreService = require('./sportscoreService');
 const logger = require('../utils/logger');
 
 // ==========================================
@@ -13,11 +13,11 @@ const logger = require('../utils/logger');
 exports.emitLiveMatches = async (io) => {
   try {
     // Try live matches first
-    let data = await fetchLiveMatches();
+    let data = await sportscoreService.getLiveMatches();
 
     // If no live matches, send today's matches
     if (!data || data.length === 0) {
-      data = await fetchMatchesByDate('TODAY');
+      data = await sportscoreService.getMatchesByDate('TODAY');
     }
 
     io.emit('liveMatches', data);
