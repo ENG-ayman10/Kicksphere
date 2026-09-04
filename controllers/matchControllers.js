@@ -4,12 +4,20 @@
  * Uses football-data.org v4 API via footballApi service.
  */
 
-const {
-  fetchMatchesByDate,
-  fetchLiveMatches,
-  fetchMatchDetails,
-} = require('../services/footballApi');
+const sportsDataService = require('../services/sportsDataService');
 const logger = require('../utils/logger');
+
+const serverError = (res) => res.status(500).json({ success: false, message: 'Server Error' });
+
+const searchableMatchText = (match) => [
+  match.homeTeam?.name,
+  match.homeTeam?.fullName,
+  match.homeTeam?.shortName,
+  match.awayTeam?.name,
+  match.awayTeam?.fullName,
+  match.awayTeam?.shortName,
+  match.competition?.name
+].filter(Boolean).join(' ').toLowerCase();
 
 // ==========================================
 // 📅 GET MATCHES BY DATE
@@ -17,7 +25,16 @@ const logger = require('../utils/logger');
 exports.getMatchesByDate = async (req, res) => {
   try {
     const date = req.query.date || 'TODAY';
-    const matches = await fetchMatchesByDate(date);
+    const result = await sportsDataService.getMatchesByDate(date);
+
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json({
+        success: false,
+        message: result.message
+      });
+    }
+
+    const matches = result.data;
 
     // Group by competition
     const grouped = {};
@@ -35,12 +52,13 @@ exports.getMatchesByDate = async (req, res) => {
     res.json({
       success: true,
       date,
+      source: result.source,
       total: matches.length,
       data: Object.values(grouped),
     });
   } catch (error) {
     logger.error(`❌ GET MATCHES BY DATE ERROR: ${error.message}`);
-    res.status(500).json({ success: false, message: error.message });
+    serverError(res);
   }
 };
 
@@ -49,16 +67,47 @@ exports.getMatchesByDate = async (req, res) => {
 // ==========================================
 exports.getLiveMatches = async (req, res) => {
   try {
-    const matches = await fetchLiveMatches();
+    const result = await sportsDataService.getLiveMatches();
+    const matches = result.data;
 
     res.json({
       success: true,
+      source: result.source,
       count: matches.length,
       data: matches,
     });
   } catch (error) {
     logger.error(`❌ LIVE MATCHES ERROR: ${error.message}`);
-    res.status(500).json({ success: false, message: error.message });
+    serverError(res);
+  }
+};
+
+// ==========================================
+// 🏆 COMPETITION MATCHES
+// ==========================================
+exports.getCompetitionMatches = async (req, res) => {
+  try {
+    const { code } = req.params;
+    const { dateFrom, dateTo } = req.query;
+
+    const result = await sportsDataService.getCompetitionMatches(code, dateFrom, dateTo);
+
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json({
+        success: false,
+        message: result.message
+      });
+    }
+
+    res.json({
+      success: true,
+      source: result.source,
+      count: result.data.length,
+      data: result.data,
+    });
+  } catch (error) {
+    logger.error(`❌ COMPETITION MATCHES ERROR: ${error.message}`);
+    serverError(res);
   }
 };
 
@@ -69,7 +118,8 @@ exports.getMatchDetails = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const data = await fetchMatchDetails(id);
+    const result = await sportsDataService.getMatchDetails(id);
+    const data = result.data;
 
     if (!data) {
       return res.status(404).json({
@@ -78,10 +128,10 @@ exports.getMatchDetails = async (req, res) => {
       });
     }
 
-    res.json({ success: true, data });
+    res.json({ success: true, source: result.source, data });
   } catch (error) {
     logger.error(`❌ MATCH DETAILS ERROR: ${error.message}`);
-    res.status(500).json({ success: false, message: error.message });
+    serverError(res);
   }
 };
 
@@ -90,26 +140,24 @@ exports.getMatchDetails = async (req, res) => {
 // ==========================================
 exports.searchMatches = async (req, res) => {
   try {
-    const { q } = req.query;
-    if (!q || q.trim() === '') {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (!q) {
       return res.status(400).json({ success: false, message: 'Search query is required' });
+    }
+    if (q.length > 120) {
+      return res.status(400).json({ success: false, message: 'Search query is too long' });
     }
 
     const query = q.toLowerCase();
-    const today = await fetchMatchesByDate('TODAY');
+    const result = await sportsDataService.getMatchesByDate('TODAY');
+    const today = result.success ? result.data : [];
     
-    const data = today.filter(m =>
-      m.homeTeam.name.toLowerCase().includes(query) ||
-      m.awayTeam.name.toLowerCase().includes(query) ||
-      m.homeTeam.fullName.toLowerCase().includes(query) ||
-      m.awayTeam.fullName.toLowerCase().includes(query) ||
-      m.competition.name.toLowerCase().includes(query)
-    );
+    const data = today.filter(m => searchableMatchText(m).includes(query));
 
     res.json({ success: true, count: data.length, data });
   } catch (error) {
     logger.error(`❌ SEARCH MATCHES ERROR: ${error.message}`);
-    res.status(500).json({ success: false, message: error.message });
+    serverError(res);
   }
 };
 

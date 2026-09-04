@@ -1,86 +1,130 @@
 /**
  * @file teamService.js
- * @description Service layer for team data operations.
+ * @description Compatibility facade for public team routes.
  */
 
-const db = require('../config/firebase');
-const logger = require('../utils/logger');
+const sportscoreService = require('./sportscoreService');
+const kickoffApiService = require('./kickoffApiService');
+const sofascoreService = require('./sofascoreService');
+const { CLUBS } = require('./searchService');
+const { normalizeCompetitionCode } = require('../utils/sportsContracts');
 
-// ==========================================
-// 🔥 GET ALL TEAMS
-// ==========================================
-exports.getTeamsService = async () => {
-  const snapshot = await db.collection('teams').get();
+const normalizeText = (value) => String(value || '').trim().toLowerCase();
 
-  return snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  }));
+const localTeams = () => Object.entries(CLUBS).map(([name, data]) => ({
+  id: data.id,
+  targetId: name,
+  provider: 'sportscore',
+  providerId: data.id,
+  name,
+  shortName: name,
+  league: data.league,
+  leagueCode: data.leagueCode,
+  country: data.country,
+  logo: data.logo,
+  crest: data.logo
+}));
+
+const resolveLocalTeam = (idOrName) => {
+  const needle = normalizeText(idOrName);
+  if (!needle) return null;
+
+  return localTeams().find(team => (
+    normalizeText(team.id) === needle ||
+    normalizeText(team.providerId) === needle ||
+    normalizeText(team.targetId) === needle ||
+    normalizeText(team.name) === needle ||
+    normalizeText(team.shortName) === needle
+  )) || null;
 };
 
+const serviceResult = (data, source = 'sportscore') => ({
+  success: true,
+  source,
+  data
+});
 
-// ==========================================
-// 🔥 GET TEAM BY ID
-// ==========================================
-exports.getTeamByIdService = async (id) => {
-  const doc = await db.collection('teams').doc(id).get();
+exports.getTeamsService = async (competitionCode) => {
+  let teams = localTeams();
 
-  if (!doc.exists) return null;
-
-  return {
-    id: doc.id,
-    ...doc.data()
-  };
-};
-
-
-// ==========================================
-// 🔥 GET TEAM MATCHES (searches both homeTeam and awayTeam)
-// ==========================================
-exports.getTeamMatchesService = async (teamName) => {
-  const snapshot = await db.collection('matches')
-    .orderBy('createdAt', 'desc')
-    .limit(50)
-    .get();
-
-  let data = snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  }));
-
-  // Search both home and away teams
-  const lowerName = teamName.toLowerCase();
-  data = data.filter(m =>
-    (m.homeTeam || '').toLowerCase().includes(lowerName) ||
-    (m.awayTeam || '').toLowerCase().includes(lowerName)
-  );
-
-  return data;
-};
-
-
-// ==========================================
-// 🔥 GET TEAM SQUAD (searches by both team name and teamId)
-// ==========================================
-exports.getTeamSquadService = async (teamId) => {
-  // Try by teamId first
-  let snapshot = await db.collection('players')
-    .where('teamId', '==', teamId)
-    .get();
-
-  // Fallback: try by team name (for backward compatibility)
-  if (snapshot.empty) {
-    const teamDoc = await db.collection('teams').doc(teamId).get();
-    if (teamDoc.exists) {
-      const teamName = teamDoc.data().name;
-      snapshot = await db.collection('players')
-        .where('team', '==', teamName)
-        .get();
+  if (competitionCode) {
+    const leagueCode = normalizeCompetitionCode(competitionCode, '');
+    if (!leagueCode) {
+      return { success: false, statusCode: 400, message: 'Unsupported league code' };
     }
+    teams = teams.filter(team => team.leagueCode === leagueCode);
   }
 
-  return snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  }));
+  return serviceResult(teams);
 };
+
+exports.getTeamByIdService = async (idOrName) => {
+  // Prefer stable app-facing ids/names before provider lookup because numeric
+  // ids can be ambiguous outside our own compatibility contract.
+  const localTeam = resolveLocalTeam(idOrName);
+  if (localTeam) return serviceResult(localTeam, 'local');
+
+  // 1. Try SportScore API
+  try {
+    const scTeam = await sportscoreService.getTeamDetails(idOrName);
+    if (scTeam?.info) return serviceResult(scTeam.info, 'sportscore');
+  } catch (_) {}
+
+  // 2. Try KickOff API
+  try {
+    const koTeam = await kickoffApiService.getTeamDetails(idOrName);
+    if (koTeam) return serviceResult(koTeam, 'kickoffapi');
+  } catch (_) {}
+
+  // 3. Try Sofascore
+  const details = await sofascoreService.getTeamDetails(idOrName);
+  if (!details?.team) {
+    return { success: false, statusCode: 404, message: 'Team not found' };
+  }
+
+  return serviceResult(details.team, 'sofascore');
+};
+
+exports.getTeamMatchesService = async (idOrName) => {
+  const localTeam = resolveLocalTeam(idOrName);
+  const lookup = localTeam?.name || idOrName;
+
+  // 1. Try SportScore API
+  try {
+    const scTeam = await sportscoreService.getTeamDetails(lookup);
+    if (scTeam?.matches && (scTeam.matches.recent?.length || scTeam.matches.upcoming?.length)) {
+      return serviceResult(scTeam.matches, 'sportscore');
+    }
+  } catch (_) {}
+
+  // 2. Try KickOff API fixtures
+  try {
+    const koFixtures = await kickoffApiService.getTeamFixtures(lookup);
+    if (koFixtures && (koFixtures.recent?.length || koFixtures.upcoming?.length)) {
+      return serviceResult(koFixtures, 'kickoffapi');
+    }
+  } catch (_) {}
+
+  // 3. Try Sofascore
+  const matches = await sofascoreService.getTeamMatches(lookup);
+  return serviceResult(matches, 'sofascore');
+};
+
+exports.getTeamSquadService = async (idOrName) => {
+  const localTeam = resolveLocalTeam(idOrName);
+  const lookup = localTeam?.name || idOrName;
+
+  // 1. Try KickOff API squad
+  try {
+    const koSquad = await kickoffApiService.getTeamSquad(lookup);
+    if (koSquad && koSquad.length > 0) {
+      return serviceResult(koSquad, 'kickoffapi');
+    }
+  } catch (_) {}
+
+  // 2. Try Sofascore
+  const details = await sofascoreService.getTeamDetails(lookup);
+  return serviceResult(details?.squad || [], details?.squad ? 'sofascore' : 'empty');
+};
+
+exports.resolveLocalTeam = resolveLocalTeam;

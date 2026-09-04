@@ -1,6 +1,21 @@
 const db = require('../config/firebase');
 const logger = require('../utils/logger');
+const {
+  normalizeFavoriteItem,
+  normalizePreferences,
+  normalizeStoredFavorite
+} = require('../utils/userContracts');
 
+const getPublicBaseUrl = (req) => {
+  const configuredBaseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (configuredBaseUrl) return configuredBaseUrl;
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('PUBLIC_BASE_URL is required in production for uploaded asset URLs');
+  }
+
+  return `${req.protocol}://${req.get('host')}`;
+};
 
 // ==========================================
 // 🔥 1. SAVE USER PREFERENCES
@@ -8,7 +23,8 @@ const logger = require('../utils/logger');
 exports.savePreferences = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { teams, leagues, content, fcmToken } = req.body;
+    const { fcmToken } = req.body;
+    const preferences = normalizePreferences(req.body);
 
     if (!userId) {
       return res.status(400).json({
@@ -17,15 +33,18 @@ exports.savePreferences = async (req, res) => {
       });
     }
 
-    await db.collection('users').doc(userId).set({
-      preferences: {
-        teams: teams || [],
-        leagues: leagues || [],
-        content: content || []
-      },
-      fcmToken: fcmToken || null,
+    const update = {
+      preferences,
       updatedAt: new Date()
-    }, { merge: true });
+    };
+
+    if (typeof fcmToken === 'string' && fcmToken.trim()) {
+      update.fcmToken = fcmToken.trim();
+    } else if (fcmToken === null) {
+      update.fcmToken = null;
+    }
+
+    await db.collection('users').doc(userId).set(update, { merge: true });
 
     res.json({
       success: true,
@@ -37,7 +56,7 @@ exports.savePreferences = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Server Error'
     });
   }
 };
@@ -76,7 +95,7 @@ exports.getPreferences = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Server Error'
     });
   }
 };
@@ -97,26 +116,58 @@ exports.addFavorite = async (req, res) => {
       });
     }
 
-    const docRef = await db
+    const favorite = normalizeFavoriteItem(item);
+    const favoritesRef = db
       .collection('users')
       .doc(userId)
-      .collection('favorites')
-      .add({
-        ...item,
-        createdAt: new Date()
+      .collection('favorites');
+    const existing = await favoritesRef
+      .where('canonicalKey', '==', favorite.canonicalKey)
+      .limit(1)
+      .get();
+
+    if (!existing.empty) {
+      const existingDoc = existing.docs[0];
+      await existingDoc.ref.set({
+        ...favorite,
+        updatedAt: new Date()
+      }, { merge: true });
+
+      return res.json({
+        success: true,
+        id: existingDoc.id,
+        data: {
+          id: existingDoc.id,
+          ...favorite
+        },
+        created: false
       });
+    }
+
+    const docRef = await favoritesRef.add({
+      ...favorite,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
 
     res.json({
       success: true,
-      id: docRef.id
+      id: docRef.id,
+      data: {
+        id: docRef.id,
+        ...favorite
+      },
+      created: true
     });
 
   } catch (error) {
     logger.error("❌ ADD FAVORITE ERROR:", error);
 
-    res.status(500).json({
+    const statusCode = error.statusCode || 500;
+
+    res.status(statusCode).json({
       success: false,
-      message: error.message
+      message: statusCode >= 500 ? 'Server Error' : error.message
     });
   }
 };
@@ -143,10 +194,13 @@ exports.getFavorites = async (req, res) => {
       .orderBy('createdAt', 'desc')
       .get();
 
-    const data = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const data = snapshot.docs.map(doc => {
+      const favorite = normalizeStoredFavorite(doc.data());
+      return {
+        id: doc.id,
+        ...favorite
+      };
+    });
 
     res.json({
       success: true,
@@ -158,7 +212,7 @@ exports.getFavorites = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Server Error'
     });
   }
 };
@@ -195,7 +249,7 @@ exports.removeFavorite = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Server Error'
     });
   }
 };
@@ -215,10 +269,7 @@ exports.uploadAvatar = async (req, res) => {
       return res.status(400).json({ success: false, message: "No image file provided" });
     }
 
-    // Host should be dynamic in production
-    const host = req.get('host');
-    const protocol = req.protocol;
-    const imageUrl = `${protocol}://${host}/uploads/avatars/${req.file.filename}`;
+    const imageUrl = `${getPublicBaseUrl(req)}/uploads/avatars/${req.file.filename}`;
 
     await db.collection('users').doc(userId).set({
       avatarUrl: imageUrl,
@@ -233,6 +284,6 @@ exports.uploadAvatar = async (req, res) => {
 
   } catch (error) {
     logger.error("❌ UPLOAD AVATAR ERROR:", error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Server Error' });
   }
 };

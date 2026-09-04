@@ -14,18 +14,27 @@ exports.search = async (req, res, next) => {
   try {
     const query = req.query.q;
     
-    if (!query) {
+    if (!query || !String(query).trim()) {
       return res.status(400).json({
         success: false,
         message: "Search query 'q' is required."
       });
     }
 
+    if (String(query).trim().length > 120) {
+      return res.status(400).json({
+        success: false,
+        message: "Search query 'q' must be 120 characters or fewer."
+      });
+    }
+
     const results = await searchAll(query);
+    const { source, ...data } = results;
     
     res.json({
       success: true,
-      data: results
+      data,
+      meta: { source }
     });
   } catch (error) {
     logger.error(`❌ Search Controller Error: ${error.message}`);

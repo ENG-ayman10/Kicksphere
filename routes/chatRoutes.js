@@ -8,6 +8,6 @@ const chatController = require('../controllers/chatController');
 router.get('/:matchId/messages', requireParams(['matchId']), chatController.getMatchMessages);
 
 // مسار لإرسال رسالة جديدة (POST) - protected
-router.post('/:matchId/send', authMiddleware, requireParams(['matchId']), requireFields(['text', 'username']), chatController.sendMessage);
+router.post('/:matchId/send', authMiddleware, requireParams(['matchId']), requireFields(['text']), chatController.sendMessage);
 
 module.exports = router;

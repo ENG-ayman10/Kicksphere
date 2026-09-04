@@ -26,6 +26,13 @@ const path = require('path');
 const logger = require('./utils/logger');
 const errorHandler = require('./middlewares/errorHandler');
 const { sanitizeInput } = require('./middlewares/validate');
+const { isAdminUser, verifyAuthToken } = require('./utils/auth');
+const {
+  matchRoom,
+  normalizeRoomValue,
+  teamRoom,
+  userRoom
+} = require('./utils/socketRooms');
 
 // ==========================================
 // 🔀 3. Route Handlers
@@ -113,12 +120,25 @@ app.use(generalLimiter);
 // 🌍 CORS Configuration
 // ==========================================
 const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['*'];
+  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean)
+  : [];
+
+if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
+  throw new Error('ALLOWED_ORIGINS is required in production');
+}
+
+const corsAllowsAllOrigins = allowedOrigins.length === 0 || allowedOrigins.includes('*');
+const corsOrigin = (origin, callback) => {
+  if (!origin || corsAllowsAllOrigins || allowedOrigins.includes(origin)) {
+    return callback(null, true);
+  }
+
+  return callback(null, false);
+};
 
 app.use(cors({
-  origin: allowedOrigins,
-  credentials: true,
+  origin: corsOrigin,
+  credentials: !corsAllowsAllOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -172,6 +192,13 @@ app.use('/api/search', searchLimiter, searchRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/proxy/rapidapi', proxyRoutes);
 
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Route not found'
+  });
+});
+
 // ==========================================
 // ❌ Global Error Handler
 // ==========================================
@@ -184,9 +211,10 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins.includes('*')
+    origin: corsAllowsAllOrigins
       ? '*'
       : allowedOrigins,
+    credentials: !corsAllowsAllOrigins,
     methods: ['GET', 'POST']
   }
 });
@@ -197,6 +225,45 @@ app.set('io', io);
 // ==========================================
 // ⚡ 8. Socket.io Logic
 // ==========================================
+const getSocketToken = (socket) => {
+  const authToken = socket.handshake.auth?.token;
+  const authHeader = socket.handshake.headers?.authorization;
+
+  if (typeof authToken === 'string' && authToken.trim()) {
+    return authToken.trim();
+  }
+
+  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    return authHeader.slice('Bearer '.length).trim();
+  }
+
+  return null;
+};
+
+const canAccessUserRoom = (socket, userId) => {
+  return socket.user && (String(socket.user.id) === String(userId) || isAdminUser(socket.user));
+};
+
+io.use(async (socket, next) => {
+  const token = getSocketToken(socket);
+
+  if (!token) {
+    socket.user = null;
+    return next();
+  }
+
+  try {
+    socket.user = await verifyAuthToken(token);
+    if (!socket.user?.id) {
+      return next(new Error('Authentication failed'));
+    }
+    return next();
+  } catch (error) {
+    logger.warn(`Socket authentication failed: ${error.message}`);
+    return next(new Error('Authentication failed'));
+  }
+});
+
 io.on('connection', (socket) => {
 
   logger.info(`🔥 Client connected: ${socket.id}`);
@@ -206,13 +273,22 @@ io.on('connection', (socket) => {
    */
   socket.on('joinUser', (userId) => {
 
-    if (!userId || typeof userId !== 'string') {
+    const roomUserId = normalizeRoomValue(userId);
+
+    if (!roomUserId) {
       return;
     }
 
-    socket.join(userId);
+    if (!canAccessUserRoom(socket, roomUserId)) {
+      socket.emit('authorizationError', {
+        message: 'You are not allowed to join this user room.'
+      });
+      return;
+    }
 
-    logger.info(`👤 User joined room: ${userId}`);
+    socket.join(userRoom(roomUserId));
+
+    logger.info(`👤 User joined room: ${userRoom(roomUserId)}`);
 
   });
 
@@ -221,13 +297,15 @@ io.on('connection', (socket) => {
    */
   socket.on('joinMatch', (matchId) => {
 
-    if (!matchId || typeof matchId !== 'string') {
+    const roomMatchId = normalizeRoomValue(matchId);
+
+    if (!roomMatchId) {
       return;
     }
 
-    socket.join(matchId);
+    socket.join(matchRoom(roomMatchId));
 
-    logger.info(`⚽ User joined match room: ${matchId}`);
+    logger.info(`⚽ User joined match room: ${matchRoom(roomMatchId)}`);
 
   });
 
@@ -238,13 +316,24 @@ io.on('connection', (socket) => {
     if (!data) return;
     const { teams, userId } = data;
     if (Array.isArray(teams)) {
-      teams.forEach(team => {
-        socket.join(`team_${team}`);
+      const safeTeams = teams
+        .map(team => normalizeRoomValue(team))
+        .filter(Boolean)
+        .slice(0, 50);
+
+      safeTeams.forEach(team => {
+        const roomTeam = normalizeRoomValue(String(team || ''));
+        if (roomTeam) {
+          socket.join(teamRoom(roomTeam));
+        }
       });
-      logger.info(`⭐ User subscribed to ${teams.length} favorite teams`);
+      logger.info(`⭐ User subscribed to ${safeTeams.length} favorite teams`);
     }
     if (userId) {
-      socket.join(userId);
+      const roomUserId = normalizeRoomValue(userId);
+      if (roomUserId && canAccessUserRoom(socket, roomUserId)) {
+        socket.join(userRoom(roomUserId));
+      }
     }
   });
 
@@ -259,9 +348,18 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const { matchId, user, message } = data;
+      if (!socket.user?.id) {
+        socket.emit('authorizationError', {
+          message: 'Authentication required to send chat messages.'
+        });
+        return;
+      }
 
-      if (!matchId || !message) {
+      const { matchId, message } = data;
+
+      const roomMatchId = normalizeRoomValue(matchId);
+
+      if (!roomMatchId || !message) {
         return;
       }
 
@@ -279,12 +377,17 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const saved = await saveMessage(matchId, {
-        user: user || 'Anonymous',
+      const displayUser = socket.user.name || socket.user.email || socket.user.id;
+
+      const saved = await saveMessage(roomMatchId, {
+        userId: String(socket.user.id),
+        username: String(displayUser).slice(0, 80),
+        user: String(displayUser).slice(0, 80),
+        text: sanitizedMessage,
         message: sanitizedMessage
       });
 
-      io.to(matchId).emit('newMessage', saved);
+      io.to(matchRoom(roomMatchId)).emit('newMessage', saved);
 
     } catch (error) {
 
@@ -310,13 +413,16 @@ io.on('connection', (socket) => {
 // ==========================================
 // 🔄 9. Live Polling System
 // ==========================================
+const livePollingEnabled = process.env.ENABLE_LIVE_POLLING === 'true';
 let liveMatchesRunning = false;
 let liveEventsRunning = false;
+let liveMatchesInterval = null;
+let liveEventsInterval = null;
 
 /**
  * ⚽ Poll live matches every 60 sec
  */
-const liveMatchesInterval = setInterval(async () => {
+const pollLiveMatches = async () => {
 
   if (liveMatchesRunning) {
 
@@ -343,12 +449,12 @@ const liveMatchesInterval = setInterval(async () => {
 
   }
 
-}, 60000);
+};
 
 /**
  * 📢 Poll live events every 90 sec
  */
-const liveEventsInterval = setInterval(async () => {
+const pollLiveEvents = async () => {
 
   if (liveEventsRunning) {
 
@@ -375,7 +481,15 @@ const liveEventsInterval = setInterval(async () => {
 
   }
 
-}, 90000);
+};
+
+if (livePollingEnabled) {
+  liveMatchesInterval = setInterval(pollLiveMatches, 60000);
+  liveEventsInterval = setInterval(pollLiveEvents, 90000);
+  logger.info('📡 Live polling enabled.');
+} else {
+  logger.info('📡 Live polling disabled. Set ENABLE_LIVE_POLLING=true to enable background polling.');
+}
 
 // ==========================================
 // 🛑 10. Graceful Shutdown
@@ -384,8 +498,8 @@ const gracefulShutdown = (signal) => {
 
   logger.info(`⚠️ ${signal} received. Shutting down gracefully...`);
 
-  clearInterval(liveMatchesInterval);
-  clearInterval(liveEventsInterval);
+  if (liveMatchesInterval) clearInterval(liveMatchesInterval);
+  if (liveEventsInterval) clearInterval(liveEventsInterval);
 
   io.close(() => {
     logger.info('🔌 Socket.io closed.');

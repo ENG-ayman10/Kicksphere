@@ -1,14 +1,21 @@
 const logger = require('../utils/logger');
 
 const errorHandler = (err, req, res, next) => {
-  logger.error(`${err.message}\n${err.stack}`);
+  const statusCode = err.statusCode || err.status || 500;
+  const requestLabel = `${req.method} ${req.originalUrl}`;
+
+  if (process.env.NODE_ENV === 'production') {
+    logger.error(`${requestLabel} failed: ${err.message}`);
+  } else {
+    logger.error(`${requestLabel} failed: ${err.message}\n${err.stack}`);
+  }
 
   // Don't expose internal error details in production
   const message = process.env.NODE_ENV === 'production'
     ? "Internal Server Error"
     : err.message || "Server Error";
 
-  res.status(err.statusCode || 500).json({
+  res.status(statusCode).json({
     success: false,
     message
   });

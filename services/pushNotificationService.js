@@ -3,7 +3,7 @@
  * @description Firebase Cloud Messaging (FCM) push notification service.
  */
 
-const admin = require('firebase-admin');
+const { getMessaging } = require('firebase-admin/messaging');
 const logger = require('../utils/logger');
 
 // ==========================================
@@ -24,7 +24,7 @@ exports.sendPushNotification = async (token, title, body) => {
       token
     };
 
-    await admin.messaging().send(message);
+    await getMessaging().send(message);
 
     logger.info("📲 Push sent successfully");
 
@@ -32,7 +32,7 @@ exports.sendPushNotification = async (token, title, body) => {
     // Handle invalid/expired tokens gracefully
     if (error.code === 'messaging/registration-token-not-registered' ||
         error.code === 'messaging/invalid-registration-token') {
-      logger.warn(`⚠️ Invalid FCM token: ${token.substring(0, 10)}...`);
+      logger.warn('⚠️ Invalid FCM token.');
     } else {
       logger.error(`❌ Push Error: ${error.message}`);
     }

@@ -1,35 +1,132 @@
 /**
  * @file searchService.js
- * @description Universal search — searches clubs, players, and leagues from local database.
+ * @description Universal search facade for teams, players, and supported competitions.
  */
 
-// Removed invalid require for CLUBS
 const logger = require('../utils/logger');
+const sportscoreService = require('./sportscoreService');
+const sofascoreService = require('./sofascoreService');
+const { COMPETITIONS } = require('./footballApi');
 
-// ==========================================
-// 🛡️ CLUBS DATABASE
-// ==========================================
-const CLUBS = {
-  'Real Madrid': { league: 'La Liga', logo: 'https://crests.football-data.org/86.png' },
-  'Barcelona': { league: 'La Liga', logo: 'https://crests.football-data.org/81.png' },
-  'Manchester City': { league: 'Premier League', logo: 'https://crests.football-data.org/65.png' },
-  'Arsenal': { league: 'Premier League', logo: 'https://crests.football-data.org/57.png' },
-  'Liverpool': { league: 'Premier League', logo: 'https://crests.football-data.org/64.png' },
-  'Manchester United': { league: 'Premier League', logo: 'https://crests.football-data.org/66.png' },
-  'Chelsea': { league: 'Premier League', logo: 'https://crests.football-data.org/61.png' },
-  'Tottenham': { league: 'Premier League', logo: 'https://crests.football-data.org/73.png' },
-  'Bayern Munich': { league: 'Bundesliga', logo: 'https://crests.football-data.org/5.png' },
-  'Bayer Leverkusen': { league: 'Bundesliga', logo: 'https://crests.football-data.org/3.png' },
-  'Inter Milan': { league: 'Serie A', logo: 'https://crests.football-data.org/108.png' },
-  'AC Milan': { league: 'Serie A', logo: 'https://crests.football-data.org/98.png' },
-  'Juventus': { league: 'Serie A', logo: 'https://crests.football-data.org/109.png' },
-  'Napoli': { league: 'Serie A', logo: 'https://crests.football-data.org/113.png' },
-  'PSG': { league: 'Ligue 1', logo: 'https://crests.football-data.org/524.png' },
+const normalizeTerm = (value) => String(value || '')
+  .normalize('NFKD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase()
+  .trim();
+
+const toText = (value, fallback = '') => {
+  if (value === undefined || value === null) return fallback;
+  return String(value).trim();
 };
 
-// ==========================================
-// 🌟 PLAYER DATABASE
-// ==========================================
+const CLUBS = {
+  'Real Madrid': {
+    id: '86',
+    league: 'La Liga',
+    leagueCode: 'PD',
+    country: 'Spain',
+    logo: 'https://crests.football-data.org/86.png'
+  },
+  Barcelona: {
+    id: '81',
+    league: 'La Liga',
+    leagueCode: 'PD',
+    country: 'Spain',
+    logo: 'https://crests.football-data.org/81.png'
+  },
+  'Manchester City': {
+    id: '65',
+    league: 'Premier League',
+    leagueCode: 'PL',
+    country: 'England',
+    logo: 'https://crests.football-data.org/65.png'
+  },
+  Arsenal: {
+    id: '57',
+    league: 'Premier League',
+    leagueCode: 'PL',
+    country: 'England',
+    logo: 'https://crests.football-data.org/57.png'
+  },
+  Liverpool: {
+    id: '64',
+    league: 'Premier League',
+    leagueCode: 'PL',
+    country: 'England',
+    logo: 'https://crests.football-data.org/64.png'
+  },
+  'Manchester United': {
+    id: '66',
+    league: 'Premier League',
+    leagueCode: 'PL',
+    country: 'England',
+    logo: 'https://crests.football-data.org/66.png'
+  },
+  Chelsea: {
+    id: '61',
+    league: 'Premier League',
+    leagueCode: 'PL',
+    country: 'England',
+    logo: 'https://crests.football-data.org/61.png'
+  },
+  Tottenham: {
+    id: '73',
+    league: 'Premier League',
+    leagueCode: 'PL',
+    country: 'England',
+    logo: 'https://crests.football-data.org/73.png'
+  },
+  'Bayern Munich': {
+    id: '5',
+    league: 'Bundesliga',
+    leagueCode: 'BL1',
+    country: 'Germany',
+    logo: 'https://crests.football-data.org/5.png'
+  },
+  'Bayer Leverkusen': {
+    id: '3',
+    league: 'Bundesliga',
+    leagueCode: 'BL1',
+    country: 'Germany',
+    logo: 'https://crests.football-data.org/3.png'
+  },
+  'Inter Milan': {
+    id: '108',
+    league: 'Serie A',
+    leagueCode: 'SA',
+    country: 'Italy',
+    logo: 'https://crests.football-data.org/108.png'
+  },
+  'AC Milan': {
+    id: '98',
+    league: 'Serie A',
+    leagueCode: 'SA',
+    country: 'Italy',
+    logo: 'https://crests.football-data.org/98.png'
+  },
+  Juventus: {
+    id: '109',
+    league: 'Serie A',
+    leagueCode: 'SA',
+    country: 'Italy',
+    logo: 'https://crests.football-data.org/109.png'
+  },
+  Napoli: {
+    id: '113',
+    league: 'Serie A',
+    leagueCode: 'SA',
+    country: 'Italy',
+    logo: 'https://crests.football-data.org/113.png'
+  },
+  PSG: {
+    id: '524',
+    league: 'Ligue 1',
+    leagueCode: 'FL1',
+    country: 'France',
+    logo: 'https://crests.football-data.org/524.png'
+  },
+};
+
 const PLAYERS = [
   { name: 'Kylian Mbappé', team: 'Real Madrid', position: 'Forward', nationality: 'France', number: 9 },
   { name: 'Erling Haaland', team: 'Manchester City', position: 'Forward', nationality: 'Norway', number: 9 },
@@ -55,55 +152,228 @@ const PLAYERS = [
   { name: 'Ousmane Dembélé', team: 'PSG', position: 'Forward', nationality: 'France', number: 10 },
 ];
 
-// ==========================================
-// 🔥 LEAGUE DATABASE
-// ==========================================
-const LEAGUES = [
-  { name: 'Premier League', country: 'England', logo: 'https://crests.football-data.org/PL.png' },
-  { name: 'La Liga', country: 'Spain', logo: 'https://crests.football-data.org/PD.png' },
-  { name: 'Serie A', country: 'Italy', logo: 'https://crests.football-data.org/SA.png' },
-  { name: 'Bundesliga', country: 'Germany', logo: 'https://crests.football-data.org/BL1.png' },
-  { name: 'Ligue 1', country: 'France', logo: 'https://crests.football-data.org/FL1.png' },
-  { name: 'UEFA Champions League', country: 'Europe', logo: 'https://crests.football-data.org/CL.png' },
-];
-
-/**
- * Perform a universal search for teams, players, and leagues.
- */
-exports.searchAll = async (query) => {
-  const q = query.toLowerCase().trim();
-  if (!q) return { teams: [], players: [], leagues: [], matches: [] };
-
-  // Search Teams
-  const teams = Object.entries(CLUBS)
-    .filter(([name]) => name.toLowerCase().includes(q))
-    .map(([name, data]) => ({
-      name,
-      league: data.league,
-      logo: data.logo
-    }))
-    .slice(0, 10);
-
-  // Search Players
-  const players = PLAYERS
-    .filter(p => p.name.toLowerCase().includes(q) || p.team.toLowerCase().includes(q))
-    .map(p => ({
-      name: p.name,
-      team: p.team,
-      position: p.position,
-      nationality: p.nationality,
-      number: p.number,
-      teamLogo: CLUBS[p.team]?.logo || ''
-    }))
-    .slice(0, 10);
-
-  // Search Leagues
-  const leagues = LEAGUES
-    .filter(l => l.name.toLowerCase().includes(q) || l.country.toLowerCase().includes(q))
-    .slice(0, 5);
-
-  return { teams, players, leagues, matches: [] };
+const LEAGUE_ALIASES = {
+  PL: ['EPL', 'English Premier League'],
+  PD: ['LaLiga', 'Primera Division'],
+  SA: ['Italian Serie A'],
+  BL1: ['German Bundesliga'],
+  FL1: ['French Ligue 1'],
+  CL: ['UEFA Champions League', 'UCL'],
+  PPL: ['Liga Portugal'],
+  ELC: ['English Championship', 'EFL Championship'],
+  DED: ['Dutch Eredivisie'],
+  BSA: ['Brazil Serie A', 'Brasileirao'],
+  EC: ['Euro', 'European Championship'],
+  WC: ['FIFA World Cup'],
 };
 
+const emptyResult = (source = 'empty') => ({
+  teams: [],
+  players: [],
+  leagues: [],
+  matches: [],
+  source
+});
+
+const hasMatches = (results = {}) => (
+  (results.teams || []).length > 0 ||
+  (results.players || []).length > 0 ||
+  (results.leagues || []).length > 0 ||
+  (results.matches || []).length > 0
+);
+
+const relevanceScore = (item, q, fields) => {
+  const values = fields.map(field => normalizeTerm(item[field]));
+  if (values.some(value => value === q)) return 0;
+  if (values.some(value => value.startsWith(q))) return 1;
+  if (values.some(value => value.includes(q))) return 2;
+  return 3;
+};
+
+const sortByRelevance = (items, q, fields) => items.sort((a, b) => {
+  const score = relevanceScore(a, q, fields) - relevanceScore(b, q, fields);
+  if (score !== 0) return score;
+  return toText(a.name).localeCompare(toText(b.name));
+});
+
+const mapLocalTeam = ([name, data]) => ({
+  id: data.id,
+  targetId: name,
+  provider: 'football-data.org',
+  providerId: data.id,
+  name,
+  shortName: name,
+  league: data.league,
+  leagueCode: data.leagueCode,
+  country: data.country,
+  logo: data.logo
+});
+
+const mapLocalPlayer = (player) => {
+  const team = CLUBS[player.team] || {};
+  return {
+    id: player.id || player.name,
+    targetId: player.id || player.name,
+    provider: 'local-fallback',
+    providerId: player.id || null,
+    name: player.name,
+    shortName: player.name,
+    team: player.team,
+    teamId: team.id || null,
+    teamLogo: team.logo || '',
+    position: player.position,
+    nationality: player.nationality,
+    country: player.nationality,
+    number: player.number
+  };
+};
+
+const mapLeague = ([code, info]) => ({
+  id: code,
+  targetId: code,
+  code,
+  provider: 'football-data.org',
+  providerId: code,
+  name: info.name,
+  country: info.country,
+  logo: `https://crests.football-data.org/${code}.png`,
+  aliases: LEAGUE_ALIASES[code] || []
+});
+
+const searchLocal = (q) => {
+  const teams = Object.entries(CLUBS)
+    .map(mapLocalTeam)
+    .filter(team => [
+      team.name,
+      team.shortName,
+      team.league,
+      team.leagueCode,
+      team.country
+    ].some(value => normalizeTerm(value).includes(q)));
+
+  const players = PLAYERS
+    .map(mapLocalPlayer)
+    .filter(player => [
+      player.name,
+      player.team,
+      player.position,
+      player.nationality
+    ].some(value => normalizeTerm(value).includes(q)));
+
+  const leagues = Object.entries(COMPETITIONS)
+    .map(mapLeague)
+    .filter(league => [
+      league.id,
+      league.code,
+      league.name,
+      league.country,
+      ...league.aliases
+    ].some(value => normalizeTerm(value).includes(q)));
+
+  return {
+    teams: sortByRelevance(teams, q, ['name', 'league', 'country']).slice(0, 10),
+    players: sortByRelevance(players, q, ['name', 'team', 'nationality']).slice(0, 10),
+    leagues: sortByRelevance(leagues, q, ['code', 'name', 'country']).slice(0, 8),
+    matches: []
+  };
+};
+
+const mergeUnique = (primary = [], fallback = [], fields = ['name']) => {
+  const seen = new Set();
+  const merged = [];
+
+  const add = (item) => {
+    if (!item || typeof item !== 'object') return;
+    const key = fields
+      .map(field => normalizeTerm(item[field]))
+      .filter(Boolean)
+      .join(':');
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push(item);
+  };
+
+  primary.forEach(add);
+  fallback.forEach(add);
+  return merged;
+};
+
+exports.searchAll = async (query, options = {}) => {
+  const rawQuery = toText(query);
+  const q = normalizeTerm(rawQuery);
+  if (!q) return emptyResult();
+
+  const fallback = searchLocal(q);
+  let sportscoreProvider = emptyResult('sportscore');
+  let sofascoreProvider = emptyResult('sofascore');
+  const providerSources = [];
+
+  // 1. Try SportScore search first
+  if (options.useProvider !== false && q.length >= 2) {
+    try {
+      const scResult = await sportscoreService.searchEntities(rawQuery, 10);
+      if (scResult && (scResult.teams?.length > 0 || scResult.competitions?.length > 0)) {
+        sportscoreProvider = {
+          teams: (scResult.teams || []).map(t => ({
+            id: t.slug || t.id,
+            targetId: t.slug || t.id,
+            provider: 'sportscore',
+            providerId: t.slug,
+            name: t.name,
+            shortName: t.name,
+            logo: t.logo || t.crest || '',
+            slug: t.slug || ''
+          })),
+          players: [],
+          leagues: (scResult.competitions || []).map(c => ({
+            id: c.slug || c.id,
+            targetId: c.slug || c.id,
+            code: c.slug,
+            provider: 'sportscore',
+            providerId: c.slug,
+            name: c.name,
+            logo: c.logo || c.emblem || '',
+            slug: c.slug || ''
+          })),
+          matches: [],
+          source: 'sportscore'
+        };
+        if (hasMatches(sportscoreProvider)) providerSources.push('sportscore');
+      }
+    } catch (error) {
+      logger.warn(`SportScore search failed for "${rawQuery}": ${error.message}`);
+    }
+
+    // 2. Always try Sofascore too because SportScore search may omit players.
+    try {
+      sofascoreProvider = await sofascoreService.search(rawQuery, 10);
+      if (hasMatches(sofascoreProvider)) providerSources.push('sofascore');
+    } catch (error) {
+      logger.warn(`Sofascore search failed for "${rawQuery}": ${error.message}`);
+    }
+  }
+
+  const provider = {
+    teams: mergeUnique(sportscoreProvider.teams, sofascoreProvider.teams, ['name']),
+    players: sofascoreProvider.players || [],
+    leagues: mergeUnique(sportscoreProvider.leagues || [], sofascoreProvider.leagues || [], ['name']),
+    matches: [],
+  };
+  const usedProvider = hasMatches(provider);
+
+  const teams = mergeUnique(provider.teams, fallback.teams, ['name']).slice(0, 10);
+  const players = mergeUnique(provider.players, fallback.players, ['name']).slice(0, 10);
+  const leagues = mergeUnique(provider.leagues || [], fallback.leagues, ['name']).slice(0, 8);
+
+  return {
+    teams,
+    players,
+    leagues,
+    matches: [],
+    source: usedProvider ? `${[...new Set(providerSources)].join('+')}+local-fallback` : 'local-fallback'
+  };
+};
+
+exports.CLUBS = CLUBS;
 exports.PLAYERS = PLAYERS;
-exports.LEAGUES = LEAGUES;
+exports.LEAGUES = Object.entries(COMPETITIONS).map(mapLeague);

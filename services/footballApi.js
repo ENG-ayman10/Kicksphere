@@ -7,14 +7,24 @@
 
 const axios = require('axios');
 const logger = require('../utils/logger');
+const {
+  normalizeCompetitionCode,
+  normalizeDateSelector,
+  normalizeFootballDataMatch,
+  normalizeFootballDataMatchDetails,
+  normalizeFootballDataScorer,
+  normalizeFootballDataStanding,
+  normalizeLimit
+} = require('../utils/sportsContracts');
 
 const BASE_URL = 'https://api.football-data.org/v4';
-const API_KEY = process.env.FOOTBALL_DATA_API_KEY || '';
+const API_KEY = String(process.env.FOOTBALL_DATA_API_KEY || '').trim();
 
 const headers = {
   'X-Auth-Token': API_KEY,
   Accept: 'application/json',
 };
+let missingApiKeyLogged = false;
 
 // ==========================================
 // 🔄 SMART CACHE SYSTEM
@@ -46,6 +56,17 @@ async function rateLimitedFetch(url, params = {}) {
   return response.data;
 }
 
+const hasApiKey = () => {
+  if (API_KEY && API_KEY !== 'replace-me') return true;
+
+  if (!missingApiKeyLogged) {
+    logger.warn('FOOTBALL_DATA_API_KEY is not configured. football-data.org requests will return empty results.');
+    missingApiKeyLogged = true;
+  }
+
+  return false;
+};
+
 // ==========================================
 // 🏆 COMPETITION CODES (Free Tier)
 // ==========================================
@@ -68,6 +89,17 @@ const COMPETITIONS = {
 // ⚽ FETCH MATCHES BY DATE
 // ==========================================
 exports.fetchMatchesByDate = async (date = 'TODAY') => {
+  date = normalizeDateSelector(date);
+  if (!date) {
+    logger.warn('Invalid match date selector received');
+    return [];
+  }
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  if (date === todayStr) {
+    date = 'TODAY';
+  }
+
   const cacheKey = `matches:${date}`;
   const cached = getCached(cacheKey, TTL.MATCHES);
   if (cached) {
@@ -75,14 +107,10 @@ exports.fetchMatchesByDate = async (date = 'TODAY') => {
     return cached;
   }
 
+  if (!hasApiKey()) return [];
+
   try {
     let params = {};
-    
-    // If the frontend passes today's date in YYYY-MM-DD, convert to TODAY
-    const todayStr = new Date().toISOString().split('T')[0];
-    if (date === todayStr) {
-      date = 'TODAY';
-    }
     
     if (date === 'TODAY') {
       // default — returns today's matches reliably
@@ -145,6 +173,8 @@ exports.fetchLiveMatches = async () => {
   const cached = getCached(cacheKey, TTL.LIVE);
   if (cached) return cached;
 
+  if (!hasApiKey()) return [];
+
   try {
     const data = await rateLimitedFetch(`${BASE_URL}/matches`, { status: 'LIVE' });
     const result = _formatMatchList(data.matches || []);
@@ -164,9 +194,14 @@ exports.fetchLiveMatches = async () => {
 // 📊 FETCH STANDINGS
 // ==========================================
 exports.fetchStandings = async (competitionCode = 'PL') => {
+  competitionCode = normalizeCompetitionCode(competitionCode);
+  if (!competitionCode) return [];
+
   const cacheKey = `standings:${competitionCode}`;
   const cached = getCached(cacheKey, TTL.STANDINGS);
   if (cached) return cached;
+
+  if (!hasApiKey()) return [];
 
   try {
     const data = await rateLimitedFetch(`${BASE_URL}/competitions/${competitionCode}/standings`);
@@ -174,20 +209,7 @@ exports.fetchStandings = async (competitionCode = 'PL') => {
     const total = data.standings?.find(s => s.type === 'TOTAL');
     if (!total || !total.table) return [];
 
-    const result = total.table.map(t => ({
-      rank: t.position,
-      name: t.team.shortName || t.team.name,
-      logo: t.team.crest || '',
-      teamId: t.team.id,
-      played: t.playedGames,
-      won: t.won,
-      drawn: t.draw,
-      lost: t.lost,
-      gf: t.goalsFor,
-      ga: t.goalsAgainst,
-      gd: t.goalDifference,
-      points: t.points,
-    }));
+    const result = total.table.map(normalizeFootballDataStanding);
 
     setCache(cacheKey, result);
     logger.info(`✅ Standings: ${result.length} teams for ${competitionCode}`);
@@ -202,25 +224,20 @@ exports.fetchStandings = async (competitionCode = 'PL') => {
 // 🏅 FETCH TOP SCORERS
 // ==========================================
 exports.fetchTopScorers = async (competitionCode = 'PL', limit = 20) => {
+  competitionCode = normalizeCompetitionCode(competitionCode);
+  limit = normalizeLimit(limit);
+  if (!competitionCode) return [];
+
   const cacheKey = `scorers:${competitionCode}:${limit}`;
   const cached = getCached(cacheKey, TTL.SCORERS);
   if (cached) return cached;
 
+  if (!hasApiKey()) return [];
+
   try {
     const data = await rateLimitedFetch(`${BASE_URL}/competitions/${competitionCode}/scorers`, { limit });
     
-    const result = (data.scorers || []).map((s, i) => ({
-      rank: i + 1,
-      name: s.player?.name || 'Unknown',
-      playerId: s.player?.id,
-      nationality: s.player?.nationality || '',
-      team: s.team?.shortName || s.team?.name || '',
-      teamLogo: s.team?.crest || '',
-      goals: s.goals || 0,
-      assists: s.assists || 0,
-      penalties: s.penalties || 0,
-      matches: s.playedMatches || 0,
-    }));
+    const result = (data.scorers || []).map(normalizeFootballDataScorer);
 
     setCache(cacheKey, result);
     logger.info(`✅ Scorers: ${result.length} for ${competitionCode}`);
@@ -239,80 +256,12 @@ exports.fetchMatchDetails = async (matchId) => {
   const cached = getCached(cacheKey, TTL.DETAILS);
   if (cached) return cached;
 
+  if (!hasApiKey()) return null;
+
   try {
     const data = await rateLimitedFetch(`${BASE_URL}/matches/${matchId}`);
 
-    const m = data;
-    const result = {
-      id: m.id,
-      competition: {
-        name: m.competition?.name || '',
-        code: m.competition?.code || '',
-        emblem: m.competition?.emblem || '',
-      },
-      utcDate: m.utcDate,
-      status: m.status,
-      matchday: m.matchday,
-      stage: m.stage,
-      venue: m.venue || null,
-      attendance: m.attendance || null,
-      homeTeam: {
-        id: m.homeTeam?.id,
-        name: m.homeTeam?.shortName || m.homeTeam?.name || '',
-        fullName: m.homeTeam?.name || '',
-        crest: m.homeTeam?.crest || '',
-        coach: m.homeTeam?.coach?.name || null,
-        formation: m.homeTeam?.formation || null,
-        lineup: (m.homeTeam?.lineup || []).map(p => ({
-          id: p.id, name: p.name, position: p.position, shirtNumber: p.shirtNumber,
-        })),
-        bench: (m.homeTeam?.bench || []).map(p => ({
-          id: p.id, name: p.name, position: p.position, shirtNumber: p.shirtNumber,
-        })),
-      },
-      awayTeam: {
-        id: m.awayTeam?.id,
-        name: m.awayTeam?.shortName || m.awayTeam?.name || '',
-        fullName: m.awayTeam?.name || '',
-        crest: m.awayTeam?.crest || '',
-        coach: m.awayTeam?.coach?.name || null,
-        formation: m.awayTeam?.formation || null,
-        lineup: (m.awayTeam?.lineup || []).map(p => ({
-          id: p.id, name: p.name, position: p.position, shirtNumber: p.shirtNumber,
-        })),
-        bench: (m.awayTeam?.bench || []).map(p => ({
-          id: p.id, name: p.name, position: p.position, shirtNumber: p.shirtNumber,
-        })),
-      },
-      score: {
-        winner: m.score?.winner,
-        fullTime: m.score?.fullTime || { home: null, away: null },
-        halfTime: m.score?.halfTime || { home: null, away: null },
-      },
-      goals: (m.goals || []).map(g => ({
-        minute: g.minute,
-        type: g.type,
-        team: g.team?.name || '',
-        scorer: g.scorer?.name || '',
-        assist: g.assist?.name || null,
-      })),
-      bookings: (m.bookings || []).map(b => ({
-        minute: b.minute,
-        team: b.team?.name || '',
-        player: b.player?.name || '',
-        card: b.card,
-      })),
-      substitutions: (m.substitutions || []).map(s => ({
-        minute: s.minute,
-        team: s.team?.name || '',
-        playerIn: s.playerIn?.name || '',
-        playerOut: s.playerOut?.name || '',
-      })),
-      referees: (m.referees || []).map(r => ({
-        name: r.name, type: r.type, nationality: r.nationality,
-      })),
-      head2head: data.head2head || null,
-    };
+    const result = normalizeFootballDataMatchDetails(data);
 
     setCache(cacheKey, result);
     logger.info(`✅ Match details: ${matchId}`);
@@ -327,9 +276,14 @@ exports.fetchMatchDetails = async (matchId) => {
 // 📅 FETCH COMPETITION MATCHES (date range)
 // ==========================================
 exports.fetchCompetitionMatches = async (competitionCode, dateFrom, dateTo) => {
+  competitionCode = normalizeCompetitionCode(competitionCode);
+  if (!competitionCode) return [];
+
   const cacheKey = `comp:${competitionCode}:${dateFrom}:${dateTo}`;
   const cached = getCached(cacheKey, TTL.MATCHES);
   if (cached) return cached;
+
+  if (!hasApiKey()) return [];
 
   try {
     const params = {};
@@ -354,38 +308,7 @@ exports.fetchCompetitionMatches = async (competitionCode, dateFrom, dateTo) => {
 // 🔧 INTERNAL: Format match list
 // ==========================================
 function _formatMatchList(matches) {
-  return matches.map(m => ({
-    id: m.id,
-    utcDate: m.utcDate,
-    status: m.status,
-    matchday: m.matchday,
-    stage: m.stage,
-    minute: m.minute || null,
-    competition: {
-      code: m.competition?.code || '',
-      name: m.competition?.name || '',
-      emblem: m.competition?.emblem || '',
-      country: m.area?.name || '',
-      countryFlag: m.area?.flag || '',
-    },
-    homeTeam: {
-      id: m.homeTeam?.id,
-      name: m.homeTeam?.shortName || m.homeTeam?.name || '',
-      fullName: m.homeTeam?.name || '',
-      crest: m.homeTeam?.crest || '',
-    },
-    awayTeam: {
-      id: m.awayTeam?.id,
-      name: m.awayTeam?.shortName || m.awayTeam?.name || '',
-      fullName: m.awayTeam?.name || '',
-      crest: m.awayTeam?.crest || '',
-    },
-    score: {
-      winner: m.score?.winner,
-      fullTime: m.score?.fullTime || { home: null, away: null },
-      halfTime: m.score?.halfTime || { home: null, away: null },
-    },
-  }));
+  return matches.map(normalizeFootballDataMatch);
 }
 
 // ==========================================
@@ -399,7 +322,7 @@ exports.LEAGUE_SLUGS = Object.fromEntries(
 );
 
 // ==========================================
-// 📤 ADDITIONAL EXPORTS for matchDetailsService.js
+// 📤 ADDITIONAL COMPATIBILITY EXPORTS
 // ==========================================
 
 /**

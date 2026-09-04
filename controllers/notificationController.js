@@ -42,7 +42,7 @@ exports.getNotifications = async (req, res) => {
     logger.error(`❌ GET NOTIFICATIONS ERROR: ${error.message}`);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Server Error'
     });
   }
 };
@@ -78,7 +78,7 @@ exports.markAsRead = async (req, res) => {
       });
     }
 
-    await notifRef.update({ isRead: true });
+    await notifRef.update({ isRead: true, readAt: new Date() });
 
     res.json({
       success: true,
@@ -89,7 +89,7 @@ exports.markAsRead = async (req, res) => {
     logger.error(`❌ MARK READ ERROR: ${error.message}`);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Server Error'
     });
   }
 };

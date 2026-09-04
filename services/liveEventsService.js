@@ -11,6 +11,8 @@ const { saveNotification } = require('./notificationService');
 const { sendPushNotification } = require('./pushNotificationService');
 const logger = require('../utils/logger');
 const axios = require('axios');
+const { matchRoom, teamRoom, userRoom } = require('../utils/socketRooms');
+const ENABLE_SOFASCORE_PROXY = process.env.ENABLE_SOFASCORE_PROXY === 'true';
 
 // Sofascore headers
 const SOFA_HEADERS = {
@@ -20,7 +22,7 @@ const SOFA_HEADERS = {
 // ==========================================
 // 🧠 STATE TRACKING
 // ==========================================
-const processedEvents = new Set();
+const processedEvents = new Map();
 const MAX_PROCESSED_EVENTS = 10000;
 const previousMatchScores = new Map();
 const previousIncidents = new Map(); // Track incidents per match
@@ -29,12 +31,14 @@ const MAX_TRACKED_MATCHES = 500;
 // Cleanup functions to prevent memory leaks
 const cleanupProcessedEvents = () => {
   if (processedEvents.size > MAX_PROCESSED_EVENTS) {
-    const toDelete = Math.floor(processedEvents.size / 2);
     let count = 0;
-    for (const key of processedEvents) {
-      if (count >= toDelete) break;
-      processedEvents.delete(key);
-      count++;
+    const now = Date.now();
+    for (const [key, timestamp] of processedEvents.entries()) {
+      // Remove events older than 4 hours
+      if (now - timestamp > 4 * 60 * 60 * 1000) {
+        processedEvents.delete(key);
+        count++;
+      }
     }
     logger.info(`🧹 Cleaned ${count} old events (remaining: ${processedEvents.size})`);
   }
@@ -64,7 +68,7 @@ const fetchSofascoreLiveMatches = async () => {
     });
     return res.data?.events || [];
   } catch (err) {
-    if (err.response?.status === 403) {
+    if (err.response?.status === 403 && ENABLE_SOFASCORE_PROXY) {
       logger.warn(`⚠️ Sofascore blocked, trying via proxy...`);
       try {
         const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent('https://api.sofascore.com/api/v1/sport/football/events/live')}`;
@@ -73,6 +77,8 @@ const fetchSofascoreLiveMatches = async () => {
       } catch (pErr) {
         logger.error(`❌ Proxy failed: ${pErr.message}`);
       }
+    } else if (err.response?.status === 403) {
+      logger.warn('Sofascore live fetch blocked and ENABLE_SOFASCORE_PROXY is not enabled.');
     }
     logger.warn(`⚠️ Sofascore live fetch failed: ${err.message}`);
     return [];
@@ -139,7 +145,7 @@ exports.emitLiveEvents = async (io) => {
         if (homeScore > prevScores.homeScore) {
           const uniqueKey = `${matchId}_goal_home_${homeScore}`;
           if (!processedEvents.has(uniqueKey)) {
-            processedEvents.add(uniqueKey);
+            processedEvents.set(uniqueKey, Date.now());
             eventsToEmit.push({
               matchId,
               type: 'goal',
@@ -161,7 +167,7 @@ exports.emitLiveEvents = async (io) => {
         if (awayScore > prevScores.awayScore) {
           const uniqueKey = `${matchId}_goal_away_${awayScore}`;
           if (!processedEvents.has(uniqueKey)) {
-            processedEvents.add(uniqueKey);
+            processedEvents.set(uniqueKey, Date.now());
             eventsToEmit.push({
               matchId,
               type: 'goal',
@@ -181,7 +187,7 @@ exports.emitLiveEvents = async (io) => {
         if (prevScores.statusCode !== 6 && statusCode === 6) {
           const uniqueKey = `${matchId}_started`;
           if (!processedEvents.has(uniqueKey)) {
-            processedEvents.add(uniqueKey);
+            processedEvents.set(uniqueKey, Date.now());
             eventsToEmit.push({
               matchId,
               type: 'matchStart',
@@ -199,7 +205,7 @@ exports.emitLiveEvents = async (io) => {
         if (prevScores.statusCode !== 100 && statusCode === 100) {
           const uniqueKey = `${matchId}_ended`;
           if (!processedEvents.has(uniqueKey)) {
-            processedEvents.add(uniqueKey);
+            processedEvents.set(uniqueKey, Date.now());
             eventsToEmit.push({
               matchId,
               type: 'matchEnd',
@@ -239,7 +245,7 @@ exports.emitLiveEvents = async (io) => {
         if (homeScore > prevScores.homeScore) {
           const uniqueKey = `${matchId}_goal_home_${homeScore}`;
           if (!processedEvents.has(uniqueKey)) {
-            processedEvents.add(uniqueKey);
+            processedEvents.set(uniqueKey, Date.now());
             eventsToEmit.push({
               matchId: String(match.id),
               type: 'goal',
@@ -255,7 +261,7 @@ exports.emitLiveEvents = async (io) => {
         if (awayScore > prevScores.awayScore) {
           const uniqueKey = `${matchId}_goal_away_${awayScore}`;
           if (!processedEvents.has(uniqueKey)) {
-            processedEvents.add(uniqueKey);
+            processedEvents.set(uniqueKey, Date.now());
             eventsToEmit.push({
               matchId: String(match.id),
               type: 'goal',
@@ -282,7 +288,9 @@ exports.emitLiveEvents = async (io) => {
     // 4. Broadcast to match rooms
     // ===========================
     eventsToEmit.forEach(event => {
-      io.to(event.matchId).emit('liveEvent', event);
+      io.to(matchRoom(event.matchId)).emit('liveEvent', event);
+      if (event.team) io.to(teamRoom(event.team)).emit('liveEvent', event);
+      if (event.against) io.to(teamRoom(event.against)).emit('liveEvent', event);
     });
 
     // ===========================
@@ -345,7 +353,7 @@ exports.emitLiveEvents = async (io) => {
             });
 
             // Socket push to user's personal room
-            io.to(userId).emit('notification', {
+            io.to(userRoom(userId)).emit('notification', {
               title,
               message,
               matchId: ev.matchId,

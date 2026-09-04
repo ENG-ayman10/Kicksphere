@@ -2,3 +2,12 @@ node_modules/
 .env
 serviceAccountKey.json
 logs/
+*.code-workspace
+
+# Local API scratch scripts
+test_app_domain.js
+test_headers.js
+test_player.js
+test_rapidapi.js
+test_sofascore.js
+test_sportsdb.js

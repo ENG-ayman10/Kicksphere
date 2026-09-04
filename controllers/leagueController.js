@@ -1,95 +1,100 @@
-const {
-  getLeaguesService,
-  getLeagueByIdService,
-  getLeagueTeamsService,
-  getLeagueMatchesService
-} = require('../services/leagueService');
+/**
+ * @file leagueController.js
+ * @description Public league facade backed by the supported sports data contract.
+ */
 
+const sportsDataService = require('../services/sportsDataService');
+const { normalizeCompetitionCode } = require('../utils/sportsContracts');
+const logger = require('../utils/logger');
 
-// 🔥 كل الدوريات
+const findCompetition = (id) => {
+  const code = normalizeCompetitionCode(id);
+  if (!code) return null;
+
+  return sportsDataService
+    .getSupportedCompetitions()
+    .find(competition => competition.code === code) || null;
+};
+
 exports.getLeagues = async (req, res) => {
   try {
-    const data = await getLeaguesService();
-
-    res.json({
+    return res.json({
       success: true,
-      data
+      source: 'supported-contract',
+      data: sportsDataService.getSupportedCompetitions()
     });
-
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    logger.error(`getLeagues Error: ${error.message}`);
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-
-// 🔥 دوري واحد
 exports.getLeagueById = async (req, res) => {
   try {
-    const { id } = req.params;
+    const competition = findCompetition(req.params.id);
 
-    const data = await getLeagueByIdService(id);
-
-    if (!data) {
+    if (!competition) {
       return res.status(404).json({
         success: false,
-        message: "League not found"
+        message: 'League not found'
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
-      data
+      source: 'supported-contract',
+      data: competition
     });
-
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    logger.error(`getLeagueById Error: ${error.message}`);
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-
-// 🔥 فرق الدوري
 exports.getLeagueTeams = async (req, res) => {
   try {
-    const { id } = req.params;
+    const result = await sportsDataService.getStandings(req.params.id);
 
-    const data = await getLeagueTeamsService(id);
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json({
+        success: false,
+        message: result.message
+      });
+    }
 
-    res.json({
+    return res.json({
       success: true,
-      data
+      source: result.source,
+      data: result.data
     });
-
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    logger.error(`getLeagueTeams Error: ${error.message}`);
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-
-// 🔥 مباريات الدوري
 exports.getLeagueMatches = async (req, res) => {
   try {
-    const { id } = req.params;
+    const result = await sportsDataService.getCompetitionMatches(
+      req.params.id,
+      req.query.dateFrom,
+      req.query.dateTo
+    );
 
-    const data = await getLeagueMatchesService(id);
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json({
+        success: false,
+        message: result.message
+      });
+    }
 
-    res.json({
+    return res.json({
       success: true,
-      data
+      source: result.source,
+      data: result.data
     });
-
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    logger.error(`getLeagueMatches Error: ${error.message}`);
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };

@@ -5,6 +5,7 @@ const {
   getMatches,
   getLiveMatches,
   searchMatches,
+  getCompetitionMatches,
   getMatchDetails,
   getMatchesByDate,
 } = require('../controllers/matchControllers');
@@ -29,6 +30,11 @@ router.get('/live', getLiveMatches);
 // 🔍 SEARCH MATCHES
 // ==========================================
 router.get('/search', searchMatches);
+
+// ==========================================
+// 🏆 COMPETITION MATCHES
+// ==========================================
+router.get('/competition/:code', getCompetitionMatches);
 
 // ==========================================
 // 🔍 MATCH DETAILS (must be last — catches :id)

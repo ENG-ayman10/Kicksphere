@@ -5,108 +5,59 @@ const {
   getTeamSquadService
 } = require('../services/teamService');
 
+const logger = require('../utils/logger');
 
-// ==========================================
-// 🔥 GET ALL TEAMS
-// ==========================================
+const sendResult = (res, result) => {
+  if (!result.success) {
+    return res.status(result.statusCode || 400).json({
+      success: false,
+      message: result.message
+    });
+  }
+
+  return res.json({
+    success: true,
+    source: result.source,
+    data: result.data
+  });
+};
+
 exports.getTeams = async (req, res) => {
   try {
-    const data = await getTeamsService();
-
-    res.json({
-      success: true,
-      data
-    });
-
+    const result = await getTeamsService(req.query.league);
+    return sendResult(res, result);
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    logger.error(`getTeams Error: ${error.message}`);
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-
-// ==========================================
-// 🔥 GET TEAM BY ID
-// ==========================================
 exports.getTeamById = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const data = await getTeamByIdService(id);
-
-    if (!data) {
-      return res.status(404).json({
-        success: false,
-        message: "Team not found"
-      });
-    }
-
-    res.json({
-      success: true,
-      data
-    });
-
+    const result = await getTeamByIdService(req.params.id);
+    return sendResult(res, result);
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    logger.error(`getTeamById Error: ${error.message}`);
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-
-// ==========================================
-// 🔥 GET TEAM MATCHES
-// ==========================================
 exports.getTeamMatches = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const team = await getTeamByIdService(id);
-
-    if (!team) {
-      return res.status(404).json({
-        success: false,
-        message: "Team not found"
-      });
-    }
-
-    const matches = await getTeamMatchesService(team.name);
-
-    res.json({
-      success: true,
-      data: matches
-    });
-
+    const result = await getTeamMatchesService(req.params.id);
+    return sendResult(res, result);
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    logger.error(`getTeamMatches Error: ${error.message}`);
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-
-// ==========================================
-// 🔥 GET TEAM SQUAD
-// ==========================================
 exports.getTeamSquad = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const data = await getTeamSquadService(id);
-
-    res.json({
-      success: true,
-      data
-    });
-
+    const result = await getTeamSquadService(req.params.id);
+    return sendResult(res, result);
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    logger.error(`getTeamSquad Error: ${error.message}`);
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };

@@ -7,13 +7,33 @@ const db = require('../config/firebase');
 const { fetchMatchesByDate, fetchLiveMatches } = require('../services/footballApi');
 const sofascoreService = require('../services/sofascoreService');
 const logger = require('../utils/logger');
+const { isAdminUser } = require('../utils/auth');
 
 // ==========================================
 // 🔥 HOME API
 // ==========================================
 exports.getHome = async (req, res) => {
   try {
-    const { userId } = req.query;
+    const requestedUserId = typeof req.query.userId === 'string'
+      ? req.query.userId.trim()
+      : '';
+    const authenticatedUserId = req.user?.id ? String(req.user.id) : '';
+
+    if (requestedUserId && !authenticatedUserId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required for personalized home feed.'
+      });
+    }
+
+    if (requestedUserId && requestedUserId !== authenticatedUserId && !isAdminUser(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not allowed to access this user home feed.'
+      });
+    }
+
+    const userId = requestedUserId || authenticatedUserId;
 
     // =========================
     // 🔥 1. FETCH TODAY'S MATCHES FROM API
@@ -169,7 +189,7 @@ exports.getHome = async (req, res) => {
     logger.error(`❌ HOME ERROR: ${error.message}`);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: 'Server Error',
     });
   }
 };

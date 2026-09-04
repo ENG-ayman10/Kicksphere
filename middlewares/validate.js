@@ -17,12 +17,15 @@ const sanitizeString = (str) => {
 
 /**
  * Deep sanitize an object — recursively sanitize all string values.
+ * Includes a depth limit to prevent Maximum call stack size exceeded errors.
  */
-const sanitizeObject = (obj) => {
+const sanitizeObject = (obj, depth = 0) => {
+  if (depth > 5) return obj; // Max depth reached, return as is to prevent stack overflow
+
   if (!obj || typeof obj !== 'object') return obj;
 
   if (Array.isArray(obj)) {
-    return obj.map(item => sanitizeObject(item));
+    return obj.map(item => sanitizeObject(item, depth + 1));
   }
 
   const sanitized = {};
@@ -30,7 +33,7 @@ const sanitizeObject = (obj) => {
     if (typeof value === 'string') {
       sanitized[key] = sanitizeString(value);
     } else if (typeof value === 'object' && value !== null) {
-      sanitized[key] = sanitizeObject(value);
+      sanitized[key] = sanitizeObject(value, depth + 1);
     } else {
       sanitized[key] = value;
     }

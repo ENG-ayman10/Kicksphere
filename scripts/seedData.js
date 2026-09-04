@@ -1,48 +1,44 @@
-const db = require('../config/firebase');
+require('dotenv').config();
 
 const seed = async () => {
-  try {
-    console.log("🚀 Seeding data...");
-
-    // 🔥 leagues
-    const leagueRef = db.collection('leagues').doc();
-
-    await leagueRef.set({
-      name: "La Liga",
-      country: "Spain",
-      logo: "laliga.png",
-      createdAt: new Date()
-    });
-
-    const leagueId = leagueRef.id;
-
-    // 🔥 teams
-    const teams = [
-      { name: "Barcelona" },
-      { name: "Real Madrid" },
-      { name: "Atletico Madrid" }
-    ];
-
-    const batch = db.batch();
-
-    teams.forEach(team => {
-      const ref = db.collection('teams').doc();
-      batch.set(ref, {
-        name: team.name,
-        leagueId,
-        createdAt: new Date()
-      });
-    });
-
-    await batch.commit();
-
-    console.log("✅ Data seeded successfully");
-    process.exit();
-
-  } catch (error) {
-    console.error("❌ Seed error:", error);
+  if (process.env.ALLOW_FIRESTORE_SEED !== 'true') {
+    console.error('Firestore seeding is disabled. Set ALLOW_FIRESTORE_SEED=true to run this script.');
     process.exit(1);
   }
+
+  const db = require('../config/firebase');
+  const { COMPETITIONS } = require('../services/footballApi');
+  const { CLUBS } = require('../services/searchService');
+
+  const now = new Date();
+  const batch = db.batch();
+
+  Object.entries(COMPETITIONS).forEach(([code, info]) => {
+    batch.set(db.collection('competitions').doc(code), {
+      code,
+      ...info,
+      updatedAt: now
+    }, { merge: true });
+  });
+
+  Object.entries(CLUBS).forEach(([name, data]) => {
+    batch.set(db.collection('teams').doc(String(data.id)), {
+      name,
+      ...data,
+      updatedAt: now
+    }, { merge: true });
+  });
+
+  await batch.commit();
+
+  console.log(`Seeded ${Object.keys(COMPETITIONS).length} competitions and ${Object.keys(CLUBS).length} teams.`);
 };
 
-seed();
+if (require.main === module) {
+  seed().catch((error) => {
+    console.error('Seed error:', error);
+    process.exit(1);
+  });
+}
+
+module.exports = seed;

@@ -1,6 +1,10 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 const { getCached, setCache } = require('./cacheService');
+const {
+  normalizeCompetitionCode,
+  normalizeLimit
+} = require('../utils/sportsContracts');
 
 const BASE_URL = 'https://api.sofascore.com/api/v1';
 
@@ -13,19 +17,87 @@ const headers = {
 const TTL = {
   TEAM: 60 * 60 * 1000,       // 1 hour
   PLAYER: 24 * 60 * 60 * 1000, // 24 hours
+  SEARCH: 10 * 60 * 1000,     // 10 mins
   STANDINGS: 30 * 60 * 1000,  // 30 mins
+};
+
+const toText = (value, fallback = '') => {
+  if (value === undefined || value === null) return fallback;
+  return String(value).trim();
+};
+
+const toId = (value) => {
+  const text = toText(value);
+  return text || null;
+};
+
+const logoUrl = {
+  team: id => `https://api.sofascore.app/api/v1/team/${id}/image`,
+  player: id => `https://api.sofascore.app/api/v1/player/${id}/image`,
+};
+
+const isFootballEntity = (entity = {}) => {
+  const sport = toText(entity.sport?.slug || entity.sport?.name).toLowerCase();
+  return !sport || sport === 'football' || sport === 'soccer';
+};
+
+const normalizeSearchTeam = (entity = {}) => {
+  const id = toId(entity.id);
+  const name = toText(entity.name || entity.shortName);
+  if (!id || !name || !isFootballEntity(entity)) return null;
+
+  return {
+    id,
+    targetId: id,
+    provider: 'sofascore',
+    providerId: id,
+    name,
+    shortName: toText(entity.shortName, name),
+    league: toText(entity.primaryUniqueTournament?.name || entity.tournament?.name),
+    country: toText(entity.country?.name || entity.category?.name),
+    logo: logoUrl.team(id)
+  };
+};
+
+const normalizeSearchPlayer = (entity = {}) => {
+  const id = toId(entity.id);
+  const name = toText(entity.name || entity.shortName);
+  if (!id || !name || !isFootballEntity(entity)) return null;
+
+  const teamId = toId(entity.team?.id);
+
+  return {
+    id,
+    targetId: id,
+    provider: 'sofascore',
+    providerId: id,
+    name,
+    shortName: toText(entity.shortName, name),
+    team: toText(entity.team?.name),
+    teamId,
+    teamLogo: teamId ? logoUrl.team(teamId) : '',
+    position: toText(entity.position),
+    nationality: toText(entity.country?.name),
+    country: toText(entity.country?.name),
+    number: entity.jerseyNumber || null,
+    image: logoUrl.player(id)
+  };
 };
 
 // ==========================================
 // 🛡️ FETCH UTILITY
 // ==========================================
-const fetchAPI = async (endpoint) => {
+const fetchAPI = async (endpoint, options = {}) => {
+  const timeout = options.timeout || 5000;
+  const useProxy = options.useProxy !== false;
+  const logErrors = options.logErrors !== false;
+
   try {
     // Try direct first
-    const response = await axios.get(`${BASE_URL}${endpoint}`, { headers, timeout: 5000 });
+    const response = await axios.get(`${BASE_URL}${endpoint}`, { headers, timeout });
     return response.data;
   } catch (error) {
-    if (error.response?.status === 403 || error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+    if (useProxy && (error.response?.status === 403 || error.code === 'ECONNABORTED' || error.message.includes('timeout'))) {
       logger.warn(`⚠️ Direct fetch failed for ${endpoint}, trying via proxy...`);
       try {
         // Fallback to a different proxy if direct fails
@@ -37,8 +109,59 @@ const fetchAPI = async (endpoint) => {
         logger.error(`❌ Proxy fetch failed: ${proxyError.message}`);
       }
     }
-    logger.error(`❌ Sofascore fetch error [${endpoint}]: ${error.message}`);
+    if (logErrors) {
+      logger.error(`❌ Sofascore fetch error [${endpoint}]: ${error.message}`);
+    }
     return null;
+  }
+};
+
+// ==========================================
+// 🔎 SEARCH TEAMS & PLAYERS
+// ==========================================
+exports.search = async (query, limit = 10) => {
+  const q = toText(query);
+  if (!q) return { teams: [], players: [], leagues: [], matches: [] };
+
+  const safeLimit = normalizeLimit(limit, 10, 20);
+  const cacheKey = `sofascore_search:${q.toLowerCase()}:${safeLimit}`;
+  const cached = getCached(cacheKey, TTL.SEARCH);
+  if (cached) return cached;
+
+  try {
+    const data = await fetchAPI(`/search/all?q=${encodeURIComponent(q)}`, {
+      timeout: 3000,
+      useProxy: false,
+      logErrors: false
+    });
+    const rows = Array.isArray(data?.results) ? data.results : [];
+
+    const teams = [];
+    const players = [];
+
+    for (const row of rows) {
+      const type = toText(row.type).toLowerCase();
+      const entity = row.entity || {};
+
+      if (type === 'team' && teams.length < safeLimit) {
+        const team = normalizeSearchTeam(entity);
+        if (team) teams.push(team);
+      }
+
+      if (type === 'player' && players.length < safeLimit) {
+        const player = normalizeSearchPlayer(entity);
+        if (player) players.push(player);
+      }
+
+      if (teams.length >= safeLimit && players.length >= safeLimit) break;
+    }
+
+    const result = { teams, players, leagues: [], matches: [] };
+    setCache(cacheKey, result);
+    return result;
+  } catch (error) {
+    logger.warn(`Sofascore search failed for "${q}": ${error.message}`);
+    return { teams: [], players: [], leagues: [], matches: [] };
   }
 };
 
@@ -60,17 +183,6 @@ const resolveTeamIdByName = async (teamName) => {
         setCache(cacheKey, id);
         return id;
       }
-    }
-    
-    // Final fallback to TheSportsDB for search if Sofascore fails
-    logger.warn(`⚠️ Sofascore search failed for ${teamName}, trying TheSportsDB...`);
-    const tsdbRes = await axios.get(`https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(teamName)}`);
-    if (tsdbRes.data?.teams?.[0]) {
-      const team = tsdbRes.data.teams[0];
-      // We can't use TSDB ID for Sofascore, but we can store the TSDB data in cache
-      // and let the controller know we are using a different source.
-      // For now, return a special string or null.
-      return null; 
     }
 
     return null;
@@ -456,6 +568,9 @@ const SOFASCORE_LEAGUE_MAP = {
 };
 
 exports.getLeagueStandings = async (leagueCode) => {
+  leagueCode = normalizeCompetitionCode(leagueCode);
+  if (!leagueCode) return null;
+
   const tournamentId = SOFASCORE_LEAGUE_MAP[leagueCode];
   if (!tournamentId) return null;
 
@@ -498,6 +613,10 @@ exports.getLeagueStandings = async (leagueCode) => {
 };
 
 exports.getLeagueTopScorers = async (leagueCode, limit = 20) => {
+  leagueCode = normalizeCompetitionCode(leagueCode);
+  limit = normalizeLimit(limit, 20, 50);
+  if (!leagueCode) return null;
+
   const tournamentId = SOFASCORE_LEAGUE_MAP[leagueCode];
   if (!tournamentId) return null;
 

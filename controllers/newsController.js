@@ -3,7 +3,7 @@
  * @description Controller for the News API endpoints.
  */
 
-const { getLatestNews } = require('../services/newsService');
+const { getLatestNews, getNewsStatus } = require('../services/newsService');
 const logger = require('../utils/logger');
 
 /**
@@ -17,7 +17,8 @@ exports.getNews = async (req, res, next) => {
     
     res.json({
       success: true,
-      data: news
+      data: news,
+      meta: getNewsStatus()
     });
   } catch (error) {
     logger.error(`❌ News Controller Error: ${error.message}`);
