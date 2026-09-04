@@ -71,6 +71,23 @@ exports.getMatchDetails = async (matchId) => {
     logger.warn(`SportScore getMatchDetails failed: ${error.message}`);
   }
 
+  // 2. Fallback to footballApi (for numeric match IDs)
+  try {
+    const footballApi = require('./footballApi');
+    if (footballApi && typeof footballApi.fetchMatchDetails === 'function') {
+      const data = await footballApi.fetchMatchDetails(matchId);
+      if (data) {
+        return {
+          success: true,
+          source: 'football-data.org',
+          data
+        };
+      }
+    }
+  } catch (error) {
+    logger.warn(`footballApi fetchMatchDetails failed: ${error.message}`);
+  }
+
   return {
     success: false,
     source: 'empty',
