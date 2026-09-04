@@ -124,7 +124,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   : [];
 
 if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
-  throw new Error('ALLOWED_ORIGINS is required in production');
+  console.warn('⚠️ ALLOWED_ORIGINS not set in production, allowing all origins');
 }
 
 const corsAllowsAllOrigins = allowedOrigins.length === 0 || allowedOrigins.includes('*');
