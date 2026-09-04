@@ -431,6 +431,87 @@ exports.getH2H = async (team1Slug, team2Slug, limit = 20) => {
 // ═══════════════════════════════════════════════════════════════════
 // 📐 NORMALIZATION HELPERS
 // ═══════════════════════════════════════════════════════════════════
+// Known competition name → code mapping for proper identification
+// IMPORTANT: Use EXACT names as they come from SportScore API - no partial matching!
+const KNOWN_COMPETITIONS = {
+  // English
+  'premier league': { code: 'PL', name: 'Premier League', country: 'England' },
+  'english premier league': { code: 'PL', name: 'Premier League', country: 'England' },
+  'epl': { code: 'PL', name: 'Premier League', country: 'England' },
+  'championship': { code: 'ELC', name: 'Championship', country: 'England' },
+  'efl championship': { code: 'ELC', name: 'Championship', country: 'England' },
+  'english championship': { code: 'ELC', name: 'Championship', country: 'England' },
+  // Spanish
+  'la liga': { code: 'PD', name: 'La Liga', country: 'Spain' },
+  'spanish la liga': { code: 'PD', name: 'La Liga', country: 'Spain' },
+  'laliga': { code: 'PD', name: 'La Liga', country: 'Spain' },
+  'laliga ea sports': { code: 'PD', name: 'La Liga', country: 'Spain' },
+  // Italian
+  'serie a': { code: 'SA', name: 'Serie A', country: 'Italy' },
+  'italian serie a': { code: 'SA', name: 'Serie A', country: 'Italy' },
+  // German
+  'bundesliga': { code: 'BL1', name: 'Bundesliga', country: 'Germany' },
+  'german bundesliga': { code: 'BL1', name: 'Bundesliga', country: 'Germany' },
+  // French
+  'ligue 1': { code: 'FL1', name: 'Ligue 1', country: 'France' },
+  'french ligue 1': { code: 'FL1', name: 'Ligue 1', country: 'France' },
+  'ligue 1 uber eats': { code: 'FL1', name: 'Ligue 1', country: 'France' },
+  // UEFA
+  'champions league': { code: 'CL', name: 'UEFA Champions League', country: 'Europe' },
+  'uefa champions league': { code: 'CL', name: 'UEFA Champions League', country: 'Europe' },
+  'europa league': { code: 'EL', name: 'UEFA Europa League', country: 'Europe' },
+  'uefa europa league': { code: 'EL', name: 'UEFA Europa League', country: 'Europe' },
+  'conference league': { code: 'ECL', name: 'UEFA Conference League', country: 'Europe' },
+  'uefa europa conference league': { code: 'ECL', name: 'UEFA Conference League', country: 'Europe' },
+  // Other European
+  'eredivisie': { code: 'DED', name: 'Eredivisie', country: 'Netherlands' },
+  'netherlands eredivisie': { code: 'DED', name: 'Eredivisie', country: 'Netherlands' },
+  'primeira liga': { code: 'PPL', name: 'Primeira Liga', country: 'Portugal' },
+  'portuguese primeira liga': { code: 'PPL', name: 'Primeira Liga', country: 'Portugal' },
+  'liga portugal': { code: 'PPL', name: 'Primeira Liga', country: 'Portugal' },
+  'scottish premiership': { code: 'SPL2', name: 'Scottish Premiership', country: 'Scotland' },
+  'belgian pro league': { code: 'BPL', name: 'Belgian Pro League', country: 'Belgium' },
+  'super lig': { code: 'TSL', name: 'Süper Lig', country: 'Turkey' },
+  'turkish super lig': { code: 'TSL', name: 'Süper Lig', country: 'Turkey' },
+  // South America
+  'brasileirao serie a': { code: 'BSA', name: 'Brasileirão', country: 'Brazil' },
+  'brazilian serie a': { code: 'BSA', name: 'Brasileirão', country: 'Brazil' },
+  'brasileirao': { code: 'BSA', name: 'Brasileirão', country: 'Brazil' },
+  'copa libertadores': { code: 'CLI', name: 'Copa Libertadores', country: 'South America' },
+  'conmebol libertadores': { code: 'CLI', name: 'Copa Libertadores', country: 'South America' },
+  'copa sudamericana': { code: 'CSA', name: 'Copa Sudamericana', country: 'South America' },
+  'ligapro serie a': { code: 'ECUA', name: 'LigaPro Serie A', country: 'Ecuador' },
+  // Middle East
+  'saudi pro league': { code: 'SPL', name: 'Saudi Pro League', country: 'Saudi Arabia' },
+  'roshn saudi league': { code: 'SPL', name: 'Saudi Pro League', country: 'Saudi Arabia' },
+  'qatar stars league': { code: 'QSL', name: 'Qatar Stars League', country: 'Qatar' },
+  'united arab emirates adnoc pro-league': { code: 'UAE', name: 'UAE Pro League', country: 'UAE' },
+  // North America
+  'mls': { code: 'MLS', name: 'MLS', country: 'USA' },
+  'major league soccer': { code: 'MLS', name: 'MLS', country: 'USA' },
+  'liga mx': { code: 'LMX', name: 'Liga MX', country: 'Mexico' },
+  // International
+  'world cup': { code: 'WC', name: 'FIFA World Cup', country: 'International' },
+  'european championship': { code: 'EC', name: 'European Championship', country: 'Europe' },
+  'copa america': { code: 'COPA', name: 'Copa América', country: 'South America' },
+  'africa cup of nations': { code: 'AFCON', name: 'Africa Cup of Nations', country: 'Africa' },
+  'caf confederation cup': { code: 'CAFCC', name: 'CAF Confederation Cup', country: 'Africa' },
+  'caf champions league': { code: 'CAFCL', name: 'CAF Champions League', country: 'Africa' },
+  // Other
+  'ukrainian premier league': { code: 'UPL', name: 'Ukrainian Premier League', country: 'Ukraine' },
+  'categoría primera a': { code: 'COL', name: 'Liga BetPlay', country: 'Colombia' },
+};
+
+function resolveCompetition(competitionName) {
+  if (!competitionName) return null;
+  const lower = competitionName.toLowerCase().trim();
+  
+  // EXACT match only - no partial matching to avoid false positives
+  if (KNOWN_COMPETITIONS[lower]) return KNOWN_COMPETITIONS[lower];
+  
+  return null;
+}
+
 function normalizeSportScoreMatch(m) {
   const statusRaw = (m.status || '').toLowerCase();
   let normalizedStatus = 'TIMED';
@@ -458,6 +539,11 @@ function normalizeSportScoreMatch(m) {
       : null;
 
   const matchId = (m.url || m.slug || `${m.home}-vs-${m.away}`).replace('/football/match/', '').replace(/\//g, '');
+
+  // Resolve known competition
+  const knownComp = resolveCompetition(m.competition);
+  const compCode = knownComp ? knownComp.code : (m.competition ? m.competition.substring(0, 4).toUpperCase() : 'LEAG');
+  const compName = knownComp ? knownComp.name : (m.competition || 'Football Competition');
 
   return {
     id: matchId,
@@ -491,9 +577,9 @@ function normalizeSportScoreMatch(m) {
       }
     },
     competition: {
-      id: m.competition || 'League',
-      name: m.competition || 'Football Competition',
-      code: m.competition ? m.competition.substring(0, 4).toUpperCase() : 'LEAG',
+      id: compCode,
+      name: compName,
+      code: compCode,
       emblem: m.competition_logo || '',
       logo: m.competition_logo || ''
     },

@@ -22,6 +22,10 @@ const searchableMatchText = (match) => [
 // ==========================================
 // 📅 GET MATCHES BY DATE
 // ==========================================
+
+// Priority order for competitions
+const COMP_PRIORITY = ['CL', 'EL', 'ECL', 'WC', 'EC', 'PL', 'PD', 'SA', 'BL1', 'FL1', 'SPL', 'PPL', 'DED', 'BSA', 'ELC', 'TSL', 'MLS', 'LMX', 'CLI'];
+
 exports.getMatchesByDate = async (req, res) => {
   try {
     const date = req.query.date || 'TODAY';
@@ -49,12 +53,21 @@ exports.getMatchesByDate = async (req, res) => {
       grouped[key].matches.push(m);
     }
 
+    // Sort groups by priority (known leagues first, then unknown)
+    const sortedGroups = Object.values(grouped).sort((a, b) => {
+      const aIdx = COMP_PRIORITY.indexOf(a.competition.code);
+      const bIdx = COMP_PRIORITY.indexOf(b.competition.code);
+      const aPrio = aIdx !== -1 ? aIdx : 999;
+      const bPrio = bIdx !== -1 ? bIdx : 999;
+      return aPrio - bPrio;
+    });
+
     res.json({
       success: true,
       date,
       source: result.source,
       total: matches.length,
-      data: Object.values(grouped),
+      data: sortedGroups,
     });
   } catch (error) {
     logger.error(`❌ GET MATCHES BY DATE ERROR: ${error.message}`);

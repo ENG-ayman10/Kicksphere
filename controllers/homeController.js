@@ -41,7 +41,7 @@ exports.getHome = async (req, res) => {
     const liveMatches = await sportscoreService.getLiveMatches();
 
     // Sort today's matches by priority
-    const priority = ['CL', 'WC', 'EC', 'PL', 'PD', 'SA', 'BL1', 'FL1', 'PPL', 'ELC', 'DED', 'BSA'];
+    const priority = ['CL', 'EL', 'ECL', 'WC', 'EC', 'PL', 'PD', 'SA', 'BL1', 'FL1', 'SPL', 'PPL', 'DED', 'BSA', 'ELC', 'TSL', 'MLS', 'LMX', 'CLI'];
     todayMatches.sort((a, b) => {
       const aRank = priority.indexOf(a.competition?.code) !== -1 ? priority.indexOf(a.competition.code) : 99;
       const bRank = priority.indexOf(b.competition?.code) !== -1 ? priority.indexOf(b.competition.code) : 99;
