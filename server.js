@@ -61,6 +61,9 @@ const { saveMessage } = require('./services/chatService');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust reverse proxy (essential for Render / Cloudflare rate-limiting by actual client IP)
+app.set('trust proxy', 1);
+
 // ==========================================
 // 🛡️ 5. Global Middlewares
 // ==========================================
@@ -81,7 +84,7 @@ app.use(morgan('dev'));
 // General API limiter
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 1200,
   standardHeaders: true,
   legacyHeaders: false,
   message: {

@@ -99,58 +99,26 @@ exports.getHome = async (req, res) => {
       if (recommended.length < 2) {
         try {
           const teamsToFetch = preferredTeams.slice(0, 3); // Limit to 3 to prevent timeouts
-          const teamMatchPromises = teamsToFetch.map(teamName =>
-            sportscoreService.getTeamMatches(teamName).catch(err => {
-              logger.warn(`⚠️ Failed to fetch matches for ${teamName}: ${err.message}`);
-              return { recent: [], upcoming: [] };
+          const teamDetailPromises = teamsToFetch.map(teamName =>
+            sportscoreService.getTeamDetails(teamName).catch(err => {
+              logger.warn(`⚠️ Failed to fetch team details for ${teamName}: ${err.message}`);
+              return null;
             })
           );
 
-          const teamMatchResults = await Promise.all(teamMatchPromises);
+          const teamDetailResults = await Promise.all(teamDetailPromises);
 
-          const sofascoreMatches = [];
-          for (const result of teamMatchResults) {
-            const allEvents = [...(result.recent || []).slice(-3), ...(result.upcoming || []).slice(0, 3)];
-            for (const e of allEvents) {
-              sofascoreMatches.push({
-                id: e.id,
-                utcDate: e.startTimestamp ? new Date(e.startTimestamp * 1000).toISOString() : '',
-                status: e.status === 'Ended' ? 'FINISHED' : (e.status === 'Not started' ? 'TIMED' : (e.homeScore != null ? 'IN_PLAY' : 'TIMED')),
-                matchday: null,
-                stage: null,
-                minute: null,
-                competition: {
-                  code: '',
-                  name: e.tournament || '',
-                  emblem: e.tournamentLogo || '',
-                  country: '',
-                  countryFlag: '',
-                },
-                homeTeam: {
-                  id: e.homeTeamId,
-                  name: e.homeTeam || '',
-                  fullName: e.homeTeam || '',
-                  crest: e.homeTeamLogo || '',
-                },
-                awayTeam: {
-                  id: e.awayTeamId,
-                  name: e.awayTeam || '',
-                  fullName: e.awayTeam || '',
-                  crest: e.awayTeamLogo || '',
-                },
-                score: {
-                  winner: e.winnerCode === 1 ? 'HOME_TEAM' : (e.winnerCode === 2 ? 'AWAY_TEAM' : (e.winnerCode === 3 ? 'DRAW' : null)),
-                  fullTime: { home: e.homeScore ?? null, away: e.awayScore ?? null },
-                  halfTime: { home: null, away: null },
-                },
-              });
-            }
+          const fetchedMatches = [];
+          for (const result of teamDetailResults) {
+            if (!result?.matches) continue;
+            const matches = [...(result.matches.recent || []).slice(-3), ...(result.matches.upcoming || []).slice(0, 3)];
+            fetchedMatches.push(...matches);
           }
 
           // Deduplicate by ID and merge with existing recommended
           const existingIds = new Set(recommended.map(m => m.id));
-          for (const m of sofascoreMatches) {
-            if (!existingIds.has(m.id)) {
+          for (const m of fetchedMatches) {
+            if (m?.id && !existingIds.has(m.id)) {
               recommended.push(m);
               existingIds.add(m.id);
             }
@@ -164,9 +132,9 @@ exports.getHome = async (req, res) => {
           });
 
           recommended = recommended.slice(0, 10);
-          logger.info(`✅ Recommended (with Sofascore fallback): ${recommended.length} matches`);
+          logger.info(`✅ Recommended matches loaded: ${recommended.length} matches`);
         } catch (fallbackErr) {
-          logger.warn(`⚠️ Sofascore recommended fallback error: ${fallbackErr.message}`);
+          logger.warn(`⚠️ Recommended fallback error: ${fallbackErr.message}`);
         }
       }
     }

@@ -10,8 +10,8 @@ const errorHandler = (err, req, res, next) => {
     logger.error(`${requestLabel} failed: ${err.message}\n${err.stack}`);
   }
 
-  // Don't expose internal error details in production
-  const message = process.env.NODE_ENV === 'production'
+  // Don't expose internal error details in production for 5xx errors
+  const message = (process.env.NODE_ENV === 'production' && statusCode >= 500)
     ? "Internal Server Error"
     : err.message || "Server Error";
 

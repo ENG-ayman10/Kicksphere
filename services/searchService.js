@@ -259,7 +259,7 @@ const searchLocal = (q) => {
       player.nationality
     ].some(value => normalizeTerm(value).includes(q)));
 
-  const leagues = Object.entries(COMPETITIONS)
+  const leagues = Object.entries(COMPETITION_SLUGS)
     .map(mapLeague)
     .filter(league => [
       league.id,

@@ -343,7 +343,7 @@ exports.emitLiveEvents = async (io) => {
       }
     }
 
-    logger.info(`⚡ Live events emitted: ${eventsToEmit.length} (Sofascore: ${sofaLiveMatches.length} live matches tracked)`);
+    logger.info(`⚡ Live events emitted: ${eventsToEmit.length} (SportScore: ${liveMatches.length} live matches tracked)`);
 
   } catch (error) {
     logger.error(`❌ Live Events Error: ${error.message}`);

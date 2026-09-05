@@ -3,7 +3,7 @@
  * @description Football news provider facade.
  */
 
-const isDemoNewsEnabled = () => process.env.ENABLE_DEMO_NEWS === 'true';
+const isDemoNewsEnabled = () => process.env.ENABLE_DEMO_NEWS !== 'false';
 
 const demoNews = () => {
   const now = Date.now();

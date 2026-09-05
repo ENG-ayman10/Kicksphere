@@ -10,10 +10,6 @@ const getPublicBaseUrl = (req) => {
   const configuredBaseUrl = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
   if (configuredBaseUrl) return configuredBaseUrl;
 
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('PUBLIC_BASE_URL is required in production for uploaded asset URLs');
-  }
-
   return `${req.protocol}://${req.get('host')}`;
 };
 

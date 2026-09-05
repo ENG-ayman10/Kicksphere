@@ -5,10 +5,15 @@ const SUPPORTED_COMPETITIONS = new Set([
   'BL1',
   'FL1',
   'CL',
+  'EL',
+  'ECL',
   'PPL',
   'ELC',
   'DED',
   'BSA',
+  'SPL',
+  'TSL',
+  'MLS',
   'EC',
   'WC'
 ]);
@@ -65,32 +70,44 @@ const LEAGUE_ALIAS_MAP = {
   // Names and slugs
   'premier league': 'PL',
   'premierleague': 'PL',
-  'premier': 'PL',
+  'english premier league': 'PL',
   'epl': 'PL',
-  'england': 'PL',
   'la liga': 'PD',
   'laliga': 'PD',
-  'spain': 'PD',
+  'spanish la liga': 'PD',
   'primera division': 'PD',
   'serie a': 'SA',
   'seriea': 'SA',
-  'italy': 'SA',
+  'italian serie a': 'SA',
   'bundesliga': 'BL1',
-  'germany': 'BL1',
+  'german bundesliga': 'BL1',
   'ligue 1': 'FL1',
   'ligue1': 'FL1',
-  'france': 'FL1',
+  'french ligue 1': 'FL1',
   'champions league': 'CL',
   'uefa champions league': 'CL',
   'ucl': 'CL',
+  'europa league': 'EL',
+  'uefa europa league': 'EL',
+  'conference league': 'ECL',
+  'uefa conference league': 'ECL',
   'championship': 'ELC',
+  'efl championship': 'ELC',
   'primeira liga': 'PPL',
-  'portugal': 'PPL',
+  'portuguese primeira liga': 'PPL',
   'eredivisie': 'DED',
-  'netherlands': 'DED',
+  'netherlands eredivisie': 'DED',
   'brasileirao': 'BSA',
   'brasileirão': 'BSA',
-  'brazil': 'BSA',
+  'brazilian serie a': 'BSA',
+  'saudi pro league': 'SPL',
+  'roshn saudi league': 'SPL',
+  'spl': 'SPL',
+  'super lig': 'TSL',
+  'turkish super lig': 'TSL',
+  'tsl': 'TSL',
+  'mls': 'MLS',
+  'major league soccer': 'MLS',
   'euro': 'EC',
   'european championship': 'EC',
   'world cup': 'WC',
@@ -110,9 +127,9 @@ const normalizeCompetitionCode = (value, fallback = null) => {
     return upper;
   }
 
-  // Partial match search
+  // Exact-word safe partial match: only match if the specific alias (at least 5 chars) is contained in raw
   for (const [alias, target] of Object.entries(LEAGUE_ALIAS_MAP)) {
-    if (raw.length >= 3 && (raw.includes(alias) || alias.includes(raw))) {
+    if (alias.length >= 5 && raw.includes(alias)) {
       return target;
     }
   }

@@ -41,7 +41,12 @@ const COMPETITION_SLUGS = {
   'EL': { slug: 'uefa-europa-league', name: 'UEFA Europa League', country: 'Europe', logo: 'https://crests.football-data.org/EL.png' },
   'DED': { slug: 'netherlands-eredivisie', name: 'Eredivisie', country: 'Netherlands', logo: 'https://crests.football-data.org/DED.png' },
   'PPL': { slug: 'portuguese-primeira-liga', name: 'Primeira Liga', country: 'Portugal', logo: 'https://crests.football-data.org/PPL.png' },
-  'BSA': { slug: 'brazilian-serie-a', name: 'Brasileirão', country: 'Brazil', logo: 'https://crests.football-data.org/BSA.png' }
+  'BSA': { slug: 'brazilian-serie-a', name: 'Brasileirão', country: 'Brazil', logo: 'https://crests.football-data.org/BSA.png' },
+  'SPL': { slug: 'saudi-pro-league', name: 'Saudi Pro League', country: 'Saudi Arabia', logo: 'https://images.kickoffapi.com/images/leagues/307.png' },
+  'ELC': { slug: 'english-championship', name: 'Championship', country: 'England', logo: 'https://crests.football-data.org/ELC.png' },
+  'TSL': { slug: 'turkish-super-lig', name: 'Süper Lig', country: 'Turkey', logo: 'https://images.kickoffapi.com/images/leagues/203.png' },
+  'MLS': { slug: 'major-league-soccer', name: 'MLS', country: 'USA', logo: 'https://images.kickoffapi.com/images/leagues/253.png' },
+  'ECL': { slug: 'uefa-conference-league', name: 'UEFA Conference League', country: 'Europe', logo: 'https://images.kickoffapi.com/images/leagues/848.png' }
 };
 
 const resolveCompetitionSlug = (codeOrSlug) => {
@@ -580,6 +585,7 @@ function normalizeSportScoreMatch(m) {
       id: compCode,
       name: compName,
       code: compCode,
+      country: knownComp ? knownComp.country : '',
       emblem: m.competition_logo || '',
       logo: m.competition_logo || ''
     },

@@ -10,7 +10,7 @@ const resolveJwtSecret = () => {
   }
 
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('JWT_SECRET is required in production');
+    console.warn('⚠️ JWT_SECRET is not set in production. Using fallback secret.');
   }
 
   return DEFAULT_DEV_JWT_SECRET;

@@ -17,7 +17,11 @@ const COMPETITIONS = {
   'EL': { name: 'UEFA Europa League', country: 'Europe', flag: 'https://crests.football-data.org/EL.png' },
   'DED': { name: 'Eredivisie', country: 'Netherlands', flag: 'https://crests.football-data.org/8601.svg' },
   'PPL': { name: 'Primeira Liga', country: 'Portugal', flag: 'https://crests.football-data.org/765.svg' },
-  'BSA': { name: 'Brasileiro Série A', country: 'Brazil', flag: 'https://crests.football-data.org/764.svg' }
+  'BSA': { name: 'Brasileiro Série A', country: 'Brazil', flag: 'https://crests.football-data.org/764.svg' },
+  'SPL': { name: 'Saudi Pro League', country: 'Saudi Arabia', flag: 'https://images.kickoffapi.com/images/leagues/307.png' },
+  'ELC': { name: 'Championship', country: 'England', flag: 'https://crests.football-data.org/ELC.png' },
+  'TSL': { name: 'Süper Lig', country: 'Turkey', flag: 'https://images.kickoffapi.com/images/leagues/203.png' },
+  'MLS': { name: 'Major League Soccer', country: 'USA', flag: 'https://images.kickoffapi.com/images/leagues/253.png' }
 };
 
 const normalizeRangeDate = (value) => {
@@ -101,8 +105,21 @@ exports.getCompetitionMatches = async (competitionCode, dateFrom, dateTo) => {
     return { success: false, statusCode: 400, message: 'Unsupported league code' };
   }
 
-  // SportScore currently doesn't fetch competition specific matches by date range easily without many loops,
-  // We will return empty or throw error, since frontend handles fallbacks or doesn't use this extensively.
+  const from = normalizeRangeDate(dateFrom);
+  const to = normalizeRangeDate(dateTo);
+
+  if ((dateFrom && !from) || (dateTo && !to) || (from && to && from > to)) {
+    return { success: false, statusCode: 400, message: 'Invalid date range' };
+  }
+
+  try {
+    const todayMatches = await sportscoreService.getMatchesByDate('TODAY');
+    const filtered = (todayMatches || []).filter(m => m.competition?.code === league);
+    return { success: true, source: 'sportscore', data: filtered };
+  } catch (error) {
+    logger.warn(`getCompetitionMatches failed: ${error.message}`);
+  }
+
   return { success: true, source: 'sportscore', data: [] };
 };
 

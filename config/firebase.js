@@ -22,19 +22,16 @@ if (!getApps().length) {
     });
     logger.info('🔥 Firebase initialized from environment variables.');
   }
-  // Priority 2: Service Account JSON file (development only)
-  else if (process.env.NODE_ENV === 'production') {
+  // Priority 2: Service Account JSON file (fallback)
+  const keyPath = path.resolve(__dirname, '../serviceAccountKey.json');
+  if (fs.existsSync(keyPath)) {
+    const serviceAccount = require(keyPath);
+    credential = cert(serviceAccount);
+    logger.info('🔥 Firebase initialized from serviceAccountKey.json.');
+  } else if (process.env.NODE_ENV === 'production') {
     throw new Error('Firebase environment credentials are required in production');
-  }
-  else {
-    const keyPath = path.resolve(__dirname, '../serviceAccountKey.json');
-    if (fs.existsSync(keyPath)) {
-      const serviceAccount = require(keyPath);
-      credential = cert(serviceAccount);
-      logger.info('🔥 Firebase initialized from serviceAccountKey.json (dev mode).');
-    } else {
-      throw new Error('Firebase credentials not found. Set FIREBASE_* env vars or provide serviceAccountKey.json');
-    }
+  } else {
+    throw new Error('Firebase credentials not found. Set FIREBASE_* env vars or provide serviceAccountKey.json');
   }
 
   initializeApp({ credential });

@@ -70,6 +70,14 @@ const DEFAULT_STANDINGS = {
     { position: 6, team: { id: 3, name: 'Bayer 04 Leverkusen', shortName: 'Leverkusen', crest: 'https://crests.football-data.org/3.png' }, playedGames: 8, won: 5, draw: 1, lost: 2, points: 16, goalsFor: 15, goalsAgainst: 7, goalDifference: 8 },
     { position: 7, team: { id: 102, name: 'Atalanta BC', shortName: 'Atalanta', crest: 'https://crests.football-data.org/102.png' }, playedGames: 8, won: 4, draw: 3, lost: 1, points: 15, goalsFor: 20, goalsAgainst: 6, goalDifference: 14 },
     { position: 8, team: { id: 86, name: 'Real Madrid CF', shortName: 'Real Madrid', crest: 'https://crests.football-data.org/86.png' }, playedGames: 8, won: 5, draw: 0, lost: 3, points: 15, goalsFor: 20, goalsAgainst: 12, goalDifference: 8 }
+  ],
+  SPL: [
+    { position: 1, team: { id: 'al-hilal', name: 'Al-Hilal FC', shortName: 'Al-Hilal', crest: 'https://images.kickoffapi.com/images/logos/2566.png' }, playedGames: 22, won: 18, draw: 3, lost: 1, points: 57, goalsFor: 62, goalsAgainst: 21, goalDifference: 41 },
+    { position: 2, team: { id: 'al-ittihad', name: 'Al-Ittihad Club', shortName: 'Al-Ittihad', crest: 'https://images.kickoffapi.com/images/logos/2565.png' }, playedGames: 22, won: 18, draw: 2, lost: 2, points: 56, goalsFor: 53, goalsAgainst: 20, goalDifference: 33 },
+    { position: 3, team: { id: 'al-nassr', name: 'Al-Nassr FC', shortName: 'Al-Nassr', crest: 'https://images.kickoffapi.com/images/logos/2564.png' }, playedGames: 22, won: 14, draw: 5, lost: 3, points: 47, goalsFor: 49, goalsAgainst: 22, goalDifference: 27 },
+    { position: 4, team: { id: 'al-qadsiah', name: 'Al-Qadsiah FC', shortName: 'Al-Qadsiah', crest: 'https://images.kickoffapi.com/images/logos/2572.png' }, playedGames: 22, won: 14, draw: 2, lost: 6, points: 44, goalsFor: 36, goalsAgainst: 22, goalDifference: 14 },
+    { position: 5, team: { id: 'al-shabab', name: 'Al-Shabab FC', shortName: 'Al-Shabab', crest: 'https://images.kickoffapi.com/images/logos/2568.png' }, playedGames: 22, won: 12, draw: 4, lost: 6, points: 40, goalsFor: 34, goalsAgainst: 24, goalDifference: 10 },
+    { position: 6, team: { id: 'al-ahli', name: 'Al-Ahli Saudi FC', shortName: 'Al-Ahli', crest: 'https://images.kickoffapi.com/images/logos/2567.png' }, playedGames: 22, won: 12, draw: 3, lost: 7, points: 39, goalsFor: 37, goalsAgainst: 22, goalDifference: 15 }
   ]
 };
 
@@ -113,14 +121,22 @@ const DEFAULT_SCORERS = {
     { player: { id: 371, name: 'Robert Lewandowski', firstName: 'Robert', lastName: 'Lewandowski', nationality: 'Poland' }, team: { id: 81, name: 'FC Barcelona', crest: 'https://crests.football-data.org/81.png' }, goals: 8, assists: 1, penalties: 2 },
     { player: { id: 101, name: 'Harry Kane', firstName: 'Harry', lastName: 'Kane', nationality: 'England' }, team: { id: 5, name: 'FC Bayern München', crest: 'https://crests.football-data.org/5.png' }, goals: 6, assists: 2, penalties: 3 },
     { player: { id: 382, name: 'Erling Haaland', firstName: 'Erling', lastName: 'Haaland', nationality: 'Norway' }, team: { id: 65, name: 'Manchester City FC', crest: 'https://crests.football-data.org/65.png' }, goals: 6, assists: 1, penalties: 0 }
+  ],
+  SPL: [
+    { player: { id: 'mitrovic', name: 'Aleksandar Mitrović', firstName: 'Aleksandar', lastName: 'Mitrović', nationality: 'Serbia' }, team: { id: 'al-hilal', name: 'Al-Hilal FC', crest: 'https://images.kickoffapi.com/images/logos/2566.png' }, goals: 18, assists: 2, penalties: 4 },
+    { player: { id: 'ronaldo', name: 'Cristiano Ronaldo', firstName: 'Cristiano', lastName: 'Ronaldo', nationality: 'Portugal' }, team: { id: 'al-nassr', name: 'Al-Nassr FC', crest: 'https://images.kickoffapi.com/images/logos/2564.png' }, goals: 17, assists: 4, penalties: 6 },
+    { player: { id: 'benzema', name: 'Karim Benzema', firstName: 'Karim', lastName: 'Benzema', nationality: 'France' }, team: { id: 'al-ittihad', name: 'Al-Ittihad Club', crest: 'https://images.kickoffapi.com/images/logos/2565.png' }, goals: 15, assists: 5, penalties: 1 },
+    { player: { id: 'nkoudou', name: 'Georges-Kévin Nkoudou', firstName: 'Georges-Kévin', lastName: 'Nkoudou', nationality: 'Cameroon' }, team: { id: 'damac', name: 'Damac FC', crest: 'https://images.kickoffapi.com/images/logos/2573.png' }, goals: 11, assists: 3, penalties: 3 }
   ]
 };
 
 exports.getFallbackStandings = (leagueCode) => {
-  return DEFAULT_STANDINGS[leagueCode] || DEFAULT_STANDINGS.PL;
+  const code = String(leagueCode || '').toUpperCase();
+  return DEFAULT_STANDINGS[code] || [];
 };
 
 exports.getFallbackTopScorers = (leagueCode, limit = 20) => {
-  const scorers = DEFAULT_SCORERS[leagueCode] || DEFAULT_SCORERS.PL;
+  const code = String(leagueCode || '').toUpperCase();
+  const scorers = DEFAULT_SCORERS[code] || [];
   return scorers.slice(0, limit);
 };

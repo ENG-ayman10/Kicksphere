@@ -17,14 +17,17 @@ const logger = winston.createLogger({
   ]
 });
 
-// If we're not in production then log to the `console` with the format:
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({
-    format: winston.format.combine(
-      winston.format.colorize(),
-      winston.format.simple()
-    )
-  }));
-}
+// Always log to console (essential for cloud platforms like Render / Docker stdout)
+logger.add(new winston.transports.Console({
+  format: process.env.NODE_ENV === 'production'
+    ? winston.format.combine(
+        winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+        winston.format.simple()
+      )
+    : winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple()
+      )
+}));
 
 module.exports = logger;
