@@ -101,8 +101,8 @@ const fetchAPI = async (endpoint, options = {}) => {
       logger.warn(`⚠️ Direct fetch failed for ${endpoint}, trying via proxy...`);
       try {
         // Fallback to a different proxy if direct fails
-        // Using allorigins as a raw proxy
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(BASE_URL + endpoint)}`;
+        // Using codetabs as a raw proxy
+        const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(BASE_URL + endpoint)}`;
         const proxyResponse = await axios.get(proxyUrl, { timeout: 10000 });
         return proxyResponse.data;
       } catch (proxyError) {
