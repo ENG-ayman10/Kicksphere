@@ -40,13 +40,16 @@ const COMPETITION_SLUGS = {
   'CL': { slug: 'uefa-champions-league', name: 'UEFA Champions League', country: 'Europe', logo: 'https://crests.football-data.org/CL.png' },
   'EL': { slug: 'uefa-europa-league', name: 'UEFA Europa League', country: 'Europe', logo: 'https://crests.football-data.org/EL.png' },
   'DED': { slug: 'netherlands-eredivisie', name: 'Eredivisie', country: 'Netherlands', logo: 'https://crests.football-data.org/DED.png' },
-  'PPL': { slug: 'portuguese-primeira-liga', name: 'Primeira Liga', country: 'Portugal', logo: 'https://crests.football-data.org/PPL.png' },
+  'PPL': { slug: 'portuguese-primera-liga', name: 'Primeira Liga', country: 'Portugal', logo: 'https://crests.football-data.org/PPL.png' },
   'BSA': { slug: 'brazilian-serie-a', name: 'Brasileirão', country: 'Brazil', logo: 'https://crests.football-data.org/BSA.png' },
-  'SPL': { slug: 'saudi-pro-league', name: 'Saudi Pro League', country: 'Saudi Arabia', logo: 'https://images.kickoffapi.com/images/leagues/307.png' },
-  'ELC': { slug: 'english-championship', name: 'Championship', country: 'England', logo: 'https://crests.football-data.org/ELC.png' },
-  'TSL': { slug: 'turkish-super-lig', name: 'Süper Lig', country: 'Turkey', logo: 'https://images.kickoffapi.com/images/leagues/203.png' },
-  'MLS': { slug: 'major-league-soccer', name: 'MLS', country: 'USA', logo: 'https://images.kickoffapi.com/images/leagues/253.png' },
-  'ECL': { slug: 'uefa-conference-league', name: 'UEFA Conference League', country: 'Europe', logo: 'https://images.kickoffapi.com/images/leagues/848.png' }
+  'SPL': { slug: 'saudi-professional-league', name: 'Saudi Pro League', country: 'Saudi Arabia', logo: 'https://images.kickoffapi.com/images/leagues/307.png' },
+  'ELC': { slug: 'english-football-league-championship', name: 'Championship', country: 'England', logo: 'https://crests.football-data.org/ELC.png' },
+  'TSL': { slug: 'turkish-super-league', name: 'Süper Lig', country: 'Turkey', logo: 'https://images.kickoffapi.com/images/leagues/203.png' },
+  'MLS': { slug: 'united-states-major-league-soccer', name: 'MLS', country: 'USA', logo: 'https://images.kickoffapi.com/images/leagues/253.png' },
+  'ECL': { slug: 'uefa-europa-conference-league', name: 'UEFA Conference League', country: 'Europe', logo: 'https://images.kickoffapi.com/images/leagues/848.png' },
+  'UNL': { slug: 'uefa-nations-league', name: 'UEFA Nations League', country: 'Europe', logo: '' },
+  'WC': { slug: 'fifa-world-cup', name: 'FIFA World Cup', country: 'International', logo: '' },
+  'EC': { slug: 'uefa-european-championship', name: 'European Championship', country: 'Europe', logo: '' }
 };
 
 const resolveCompetitionSlug = (codeOrSlug) => {
@@ -61,6 +64,38 @@ const resolveCompetitionSlug = (codeOrSlug) => {
   }
   return lower;
 };
+
+function numericOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function normalizedRating(value) {
+  const number = numericOrNull(value);
+  // The public feed returned 949 and 6060 without a documented scale/aggregation.
+  // Keep the raw value for diagnosis; never turn it into a guessed 0–10 rating.
+  return number !== null && number >= 0 && number <= 10 ? number : null;
+}
+
+function sameEntity(a, b) {
+  const normalize = value => String(value || '').normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[-\s]+/g, ' ').trim();
+  return normalize(a) === normalize(b);
+}
+
+function deduplicateMatches(matches) {
+  const byFixture = new Map();
+  const statusRank = { FINISHED: 4, IN_PLAY: 3, POSTPONED: 2, TIMED: 1 };
+  for (const match of matches) {
+    const key = `${match.id}|${match.utcDate}`;
+    const previous = byFixture.get(key);
+    if (!previous || (statusRank[match.status] || 0) > (statusRank[previous.status] || 0)) {
+      byFixture.set(key, match);
+    }
+  }
+  return [...byFixture.values()];
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // 🌐 UNIFIED HTTP REQUEST HANDLER WITH 429 BACKOFF & CACHING
@@ -97,7 +132,7 @@ async function fetchSportScore(endpoint, params = {}, customTtl = TTL.DAILY_MATC
       timeout: 10000
     });
 
-    if (response.data) {
+    if (response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
       setCache(cacheKey, response.data, customTtl);
       return response.data;
     }
@@ -119,39 +154,43 @@ async function fetchSportScore(endpoint, params = {}, customTtl = TTL.DAILY_MATC
 // ═══════════════════════════════════════════════════════════════════
 exports.getLiveMatches = async () => {
   try {
-    const raw = await fetchSportScore('/api/widget/matches/', { limit: 50 }, TTL.LIVE_MATCHES);
-    if (!raw?.matches) return [];
+    // The widget is a capped mixed schedule, not a live-only feed. Filter upstream.
+    const raw = await fetchSportScore('/api/v1/fixtures/', {
+      date: new Date().toISOString().slice(0, 10), status: 'live', limit: 200
+    }, TTL.LIVE_MATCHES);
+    if (!Array.isArray(raw?.matches)) throw new Error('Live provider unavailable');
 
-    const liveOnly = raw.matches.filter(m => {
-      const status = (m.status || '').toLowerCase();
-      return status === 'live' || status === 'in_progress' || status === 'first_half' || status === 'second_half' || status === 'extra_time';
-    });
-
-    return (liveOnly.length > 0 ? liveOnly : raw.matches.slice(0, 15)).map(normalizeSportScoreMatch);
+    // Filtering and serialization share one status contract, including penalties.
+    return raw.matches.map(normalizeSportScoreMatch).filter(match => match.status === 'IN_PLAY');
   } catch (e) {
     logger.error(`[SportScore] getLiveMatches error: ${e.message}`);
-    return [];
+    throw e;
   }
 };
 
-exports.getMatchesByDate = async (dateStr) => {
+exports.getMatchesByDate = async (dateStr, { competition } = {}) => {
   try {
     let date = dateStr;
-    if (!date || date === 'TODAY' || date === 'today') {
-      date = new Date().toISOString().split('T')[0];
+    if (!date || ['TODAY', 'YESTERDAY', 'TOMORROW'].includes(String(date).toUpperCase())) {
+      const offset = { YESTERDAY: -1, TOMORROW: 1 }[String(date).toUpperCase()] || 0;
+      date = new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
     }
 
-    const raw = await fetchSportScore('/api/v1/fixtures/', { date, limit: 100 }, TTL.DAILY_MATCHES);
-    if (!raw?.matches) {
-      // Fallback to widget matches
-      const widgetData = await fetchSportScore('/api/widget/matches/', { limit: 50 }, TTL.DAILY_MATCHES);
-      return (widgetData?.matches || []).map(normalizeSportScoreMatch);
-    }
+    const params = { date, limit: 200 };
+    if (competition) params.competition = resolveCompetitionSlug(competition);
+    const raw = await fetchSportScore('/api/v1/fixtures/', params, TTL.DAILY_MATCHES);
+    if (!Array.isArray(raw?.matches)) throw new Error('Fixture provider unavailable');
 
-    return raw.matches.map(normalizeSportScoreMatch);
+    const matches = deduplicateMatches(raw.matches.map(normalizeSportScoreMatch));
+    // The documented provider contract has no cursor. Do not call a full page complete.
+    Object.defineProperty(matches, 'coverage', { value: {
+      limit: 200, returned: raw.matches.length, possiblyTruncated: raw.matches.length >= 200,
+      competition: params.competition || null
+    } });
+    return matches;
   } catch (e) {
     logger.error(`[SportScore] getMatchesByDate error: ${e.message}`);
-    return [];
+    throw e;
   }
 };
 
@@ -182,10 +221,10 @@ exports.getStandings = async (competitionCode) => {
   try {
     const slug = resolveCompetitionSlug(competitionCode);
     const raw = await fetchSportScore('/api/widget/standings/', { slug }, TTL.STANDINGS);
-    if (!raw?.tables?.[0]?.rows) return [];
+    if (!Array.isArray(raw?.tables)) return [];
 
-    const rows = raw.tables[0].rows;
-    return rows.map(r => ({
+    return raw.tables.flatMap(table => (table.rows || []).map(r => ({
+      group: table.group || '',
       position: r.pos || 0,
       team: {
         id: r.team_slug || String(r.pos),
@@ -205,7 +244,7 @@ exports.getStandings = async (competitionCode) => {
       promotion: r.promo_name || '',
       promoColor: r.promo_color || '',
       form: ''
-    }));
+    })));
   } catch (e) {
     logger.error(`[SportScore] getStandings error: ${e.message}`);
     return [];
@@ -244,7 +283,8 @@ exports.getTopScorers = async (competitionCode, limit = 20, stat = 'goals') => {
       assists: s.assists || 0,
       playedMatches: s.matches || 0,
       minutesPlayed: s.minutes || 0,
-      rating: s.rating ? (s.rating > 100 ? (s.rating / 1000).toFixed(2) : s.rating) : null
+      rating: normalizedRating(s.rating),
+      ratingRaw: numericOrNull(s.rating)
     }));
   } catch (e) {
     logger.error(`[SportScore] getTopScorers error: ${e.message}`);
@@ -266,8 +306,9 @@ exports.getPlayerDetails = async (playerSlugOrName) => {
     if (!raw?.player) {
       // Try searching player if direct slug fails
       const searchRes = await exports.searchEntities(playerSlugOrName);
-      if (searchRes?.players?.length > 0) {
-        const foundSlug = searchRes.players[0].slug;
+      const found = searchRes?.players?.find(p => sameEntity(p.name, playerSlugOrName) || p.slug === slug);
+      if (found) {
+        const foundSlug = found.slug;
         if (foundSlug && foundSlug !== slug) {
           return exports.getPlayerDetails(foundSlug);
         }
@@ -278,9 +319,6 @@ exports.getPlayerDetails = async (playerSlugOrName) => {
     const p = raw.player;
     const st = raw.stats || {};
 
-    const rawRating = st.rating ? Number(st.rating) : null;
-    const ratingDec = rawRating ? (rawRating > 100 ? (rawRating / 1000).toFixed(2) : String(rawRating)) : null;
-
     return {
       id: p.slug || slug,
       name: p.name || '',
@@ -289,21 +327,22 @@ exports.getPlayerDetails = async (playerSlugOrName) => {
       team: st.team || '',
       teamBadge: st.team_logo || '',
       competition: st.competition || '',
-      matches: st.matches || 0,
-      goals: st.goals || 0,
-      assists: st.assists || 0,
-      minutes: st.minutes || 0,
-      rating: ratingDec ? parseFloat(ratingDec) : null,
-      yellowCards: st.yellow_cards || 0,
-      redCards: st.red_cards || 0,
-      shots: st.shots || 0,
-      shotsOnTarget: st.shots_on_target || 0,
-      passes: st.passes || 0,
-      passesAccuracy: st.passes_accuracy || 0,
-      tackles: st.tackles || 0,
-      interceptions: st.interceptions || 0,
-      dribbles: st.dribbles || 0,
-      keyPasses: st.key_passes || 0,
+      matches: numericOrNull(st.matches),
+      goals: numericOrNull(st.goals),
+      assists: numericOrNull(st.assists),
+      minutes: numericOrNull(st.minutes),
+      rating: normalizedRating(st.rating),
+      ratingRaw: numericOrNull(st.rating),
+      yellowCards: numericOrNull(st.yellow_cards),
+      redCards: numericOrNull(st.red_cards),
+      shots: numericOrNull(st.shots),
+      shotsOnTarget: numericOrNull(st.shots_on_target),
+      passes: numericOrNull(st.passes),
+      passesAccuracy: numericOrNull(st.passes_accuracy),
+      tackles: numericOrNull(st.tackles),
+      interceptions: numericOrNull(st.interceptions),
+      dribbles: numericOrNull(st.dribbles),
+      keyPasses: numericOrNull(st.key_passes),
       source: 'sportscore'
     };
   } catch (e) {
@@ -326,8 +365,9 @@ exports.getTeamDetails = async (teamSlugOrName) => {
     if (!raw?.team) {
       // Try search fallback
       const searchRes = await exports.searchEntities(teamSlugOrName);
-      if (searchRes?.teams?.length > 0) {
-        const foundSlug = searchRes.teams[0].slug;
+      const found = searchRes?.teams?.find(t => sameEntity(t.name, teamSlugOrName) || t.slug === slug);
+      if (found) {
+        const foundSlug = found.slug;
         if (foundSlug && foundSlug !== slug) {
           return exports.getTeamDetails(foundSlug);
         }
@@ -336,10 +376,10 @@ exports.getTeamDetails = async (teamSlugOrName) => {
     }
 
     const team = raw.team;
-    const matches = (raw.matches || []).map(normalizeSportScoreMatch);
+    const matches = deduplicateMatches((raw.matches || []).map(normalizeSportScoreMatch));
 
-    const recent = matches.filter(m => m.status === 'FINISHED' || m.status === 'finished');
-    const upcoming = matches.filter(m => m.status === 'TIMED' || m.status === 'SCHEDULED' || m.status === 'upcoming');
+    const recent = matches.filter(m => m.status === 'FINISHED').sort((a, b) => String(b.utcDate).localeCompare(String(a.utcDate)));
+    const upcoming = matches.filter(m => ['TIMED', 'SCHEDULED'].includes(m.status)).sort((a, b) => String(a.utcDate).localeCompare(String(b.utcDate)));
 
     return {
       info: {
@@ -396,10 +436,20 @@ exports.searchEntities = async (query, limit = 15) => {
       provider: 'sportscore'
     }));
 
+    const players = (raw.players || []).map(p => ({
+      id: p.slug || p.name, name: p.name, shortName: p.name,
+      logo: p.logo || '', image: p.logo || '', slug: p.slug || '',
+      url: p.url || '', type: 'player', provider: 'sportscore'
+    })).sort((a, b) => {
+      const imageRank = Number(Boolean(b.logo)) - Number(Boolean(a.logo));
+      if (imageRank !== 0) return imageRank;
+      return String(a.name || '').length - String(b.name || '').length;
+    });
+
     return {
       teams,
       competitions,
-      players: []
+      players
     };
   } catch (e) {
     logger.error(`[SportScore] searchEntities error: ${e.message}`);
@@ -513,6 +563,14 @@ function resolveCompetition(competitionName) {
   
   // EXACT match only - no partial matching to avoid false positives
   if (KNOWN_COMPETITIONS[lower]) return KNOWN_COMPETITIONS[lower];
+  const entry = Object.entries(COMPETITION_SLUGS).find(([, value]) => value.slug === lower.replace(/\s+/g, '-'));
+  if (entry) return { code: entry[0], name: entry[1].name, country: entry[1].country };
+  const namedEntry = Object.entries(COMPETITION_SLUGS).find(([, value]) =>
+    value.name.toLowerCase() === lower,
+  );
+  if (namedEntry) return {
+    code: namedEntry[0], name: namedEntry[1].name, country: namedEntry[1].country,
+  };
   
   return null;
 }
@@ -526,7 +584,7 @@ function normalizeSportScoreMatch(m) {
   if (statusRaw === 'finished' || statusRaw === 'ft' || statusRaw === 'aet' || statusRaw === 'pen') {
     normalizedStatus = 'FINISHED';
     isFinished = true;
-  } else if (statusRaw === 'live' || statusRaw === 'in_progress' || statusRaw === '1h' || statusRaw === '2h' || statusRaw === 'ht') {
+  } else if (statusRaw === 'live' || statusRaw === 'in_progress' || statusRaw === '1h' || statusRaw === '2h' || statusRaw === 'ht' || ['first_half', 'second_half', 'extra_time', 'halftime', 'penalty_shootout'].includes(statusRaw)) {
     normalizedStatus = 'IN_PLAY';
     isLive = true;
   } else if (statusRaw === 'postponed' || statusRaw === 'cancelled') {
@@ -547,13 +605,14 @@ function normalizeSportScoreMatch(m) {
 
   // Resolve known competition
   const knownComp = resolveCompetition(m.competition);
-  const compCode = knownComp ? knownComp.code : (m.competition ? m.competition.substring(0, 4).toUpperCase() : 'LEAG');
+  // Four-letter prefixes merged unrelated leagues (e.g. every UEFA competition).
+  const compCode = knownComp ? knownComp.code : `SC:${String(m.competition || 'unknown').trim().toLowerCase()}`;
   const compName = knownComp ? knownComp.name : (m.competition || 'Football Competition');
 
   return {
     id: matchId,
     slug: matchId,
-    utcDate: m.time || new Date().toISOString(),
+    utcDate: m.time || null,
     status: normalizedStatus,
     statusText: m.status_text || (isFinished ? 'Finished' : (isLive ? 'Live' : 'Upcoming')),
     minute: m.live_minute || null,
@@ -605,12 +664,12 @@ function normalizeSportScoreMatchDetail(m, slug) {
     if (inc.is_goal || typeStr.includes('goal')) {
       type = 'goal';
       icon = '⚽';
-    } else if (inc.is_card || typeStr.includes('yellow')) {
-      type = 'yellow_card';
-      icon = '🟨';
     } else if (typeStr.includes('red')) {
       type = 'red_card';
-      icon = '🟥';
+      icon = '\uD83D\uDFE5';
+    } else if (inc.is_card || typeStr.includes('yellow')) {
+      type = 'yellow_card';
+      icon = '\uD83D\uDFE8';
     } else if (typeStr.includes('sub')) {
       type = 'substitution';
       icon = '🔄';
@@ -658,6 +717,7 @@ function normalizeSportScoreMatchDetail(m, slug) {
     ...base,
     slug,
     timeline,
+    providerStatistics: Array.isArray(m.stats) ? m.stats : [],
     lineups: {
       homeFormation: lineups.home_formation || '',
       awayFormation: lineups.away_formation || '',
@@ -684,5 +744,7 @@ module.exports = {
   getTeamDetails: exports.getTeamDetails,
   searchEntities: exports.searchEntities,
   getH2H: exports.getH2H,
-  COMPETITION_SLUGS
+  COMPETITION_SLUGS,
+  normalizeMatch: normalizeSportScoreMatch,
+  normalizeMatchDetail: normalizeSportScoreMatchDetail
 };

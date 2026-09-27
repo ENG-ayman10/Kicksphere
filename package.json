@@ -8,7 +8,7 @@
     "dev": "nodemon server.js",
     "check": "node scripts/check-js.js",
     "seed": "node scripts/seedData.js",
-    "test": "node scripts/validate-contracts.js && node scripts/check-js.js",
+    "test": "node scripts/validate-contracts.js && node scripts/check-js.js && node --test test/*.test.js",
     "audit:prod": "npm audit --omit=dev --omit=optional"
   },
   "engines": {

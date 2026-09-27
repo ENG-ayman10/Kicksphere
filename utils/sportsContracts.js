@@ -15,7 +15,8 @@ const SUPPORTED_COMPETITIONS = new Set([
   'TSL',
   'MLS',
   'EC',
-  'WC'
+  'WC',
+  'UNL'
 ]);
 
 const toText = (value, fallback = '') => {
@@ -111,7 +112,15 @@ const LEAGUE_ALIAS_MAP = {
   'euro': 'EC',
   'european championship': 'EC',
   'world cup': 'WC',
-  'fifa world cup': 'WC'
+  'fifa world cup': 'WC',
+  'uefa nations league': 'UNL',
+  'uefa european championship': 'EC',
+  'portuguese primera liga': 'PPL',
+  'english football league championship': 'ELC',
+  'saudi professional league': 'SPL',
+  'turkish super league': 'TSL',
+  'united states major league soccer': 'MLS',
+  'uefa europa conference league': 'ECL'
 };
 
 const normalizeCompetitionCode = (value, fallback = null) => {
@@ -127,12 +136,7 @@ const normalizeCompetitionCode = (value, fallback = null) => {
     return upper;
   }
 
-  // Exact-word safe partial match: only match if the specific alias (at least 5 chars) is contained in raw
-  for (const [alias, target] of Object.entries(LEAGUE_ALIAS_MAP)) {
-    if (alias.length >= 5 && raw.includes(alias)) {
-      return target;
-    }
-  }
+  // Provider slugs are accepted only when they have an explicit alias above.
 
   return fallback;
 };

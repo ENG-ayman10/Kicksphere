@@ -38,27 +38,27 @@ exports.getMatchesByDate = async (date) => {
 
   try {
     const sportscoreMatches = await sportscoreService.getMatchesByDate(normalizedDate);
-    if (sportscoreMatches && sportscoreMatches.length > 0) {
-      return { success: true, source: 'sportscore', data: sportscoreMatches };
+    if (Array.isArray(sportscoreMatches)) {
+      return { success: true, source: 'sportscore', data: sportscoreMatches, coverage: sportscoreMatches.coverage };
     }
   } catch (error) {
     logger.warn(`SportScore getMatchesByDate failed: ${error.message}`);
   }
 
-  return { success: true, source: 'empty', data: [] };
+  return { success: false, statusCode: 503, source: 'unavailable', message: 'Fixture provider unavailable', data: [] };
 };
 
 exports.getLiveMatches = async () => {
   try {
     const liveMatches = await sportscoreService.getLiveMatches();
-    if (liveMatches && liveMatches.length > 0) {
+    if (Array.isArray(liveMatches)) {
       return { success: true, source: 'sportscore', data: liveMatches };
     }
   } catch (error) {
     logger.warn(`SportScore getLiveMatches failed: ${error.message}`);
   }
 
-  return { success: true, source: 'empty', data: [] };
+  return { success: false, statusCode: 503, source: 'unavailable', message: 'Live provider unavailable', data: [] };
 };
 
 exports.getMatchDetails = async (matchId) => {
@@ -113,14 +113,39 @@ exports.getCompetitionMatches = async (competitionCode, dateFrom, dateTo) => {
   }
 
   try {
-    const todayMatches = await sportscoreService.getMatchesByDate('TODAY');
-    const filtered = (todayMatches || []).filter(m => m.competition?.code === league);
+    const today = new Date().toISOString().slice(0, 10);
+    const first = from || to || today;
+    const last = to || from || today;
+    const days = Math.round((Date.parse(last) - Date.parse(first)) / 86400000) + 1;
+    if (days > 7) return { success: false, statusCode: 400, message: 'Date range cannot exceed 7 days' };
+    const results = new Array(days);
+    let nextDay = 0;
+    // Bound provider load while avoiding seven sequential network timeouts.
+    await Promise.all(Array.from({ length: Math.min(3, days) }, async () => {
+      while (nextDay < days) {
+        const day = nextDay++;
+        const date = new Date(Date.parse(first) + day * 86400000).toISOString().slice(0, 10);
+        // Filter upstream: the unfiltered day feed may stop before this league's games.
+        const result = await sportscoreService.getMatchesByDate(date, { competition: league });
+        if (!Array.isArray(result)) throw new Error('Invalid fixture response');
+        results[day] = result;
+      }
+    }));
+    const matches = results.flat();
+    const seen = new Set();
+    const filtered = matches.filter(m => {
+      const date = String(m.utcDate || '').slice(0, 10);
+      const key = `${m.id}|${m.utcDate}`;
+      if (date < first || date > last || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     return { success: true, source: 'sportscore', data: filtered };
   } catch (error) {
     logger.warn(`getCompetitionMatches failed: ${error.message}`);
   }
 
-  return { success: true, source: 'sportscore', data: [] };
+  return { success: false, statusCode: 503, source: 'unavailable', message: 'Fixture provider unavailable', data: [] };
 };
 
 exports.getStandings = async (competitionCode) => {
@@ -138,12 +163,7 @@ exports.getStandings = async (competitionCode) => {
     logger.warn(`SportScore getStandings failed: ${error.message}`);
   }
 
-  const { getFallbackStandings } = require('./defaultSportsData');
-  return {
-    success: true,
-    source: 'verified_2025_2026',
-    data: getFallbackStandings(league)
-  };
+  return { success: true, source: 'unavailable', data: [] };
 };
 
 exports.getTopScorers = async (competitionCode, limit, stat = 'goals') => {
@@ -163,20 +183,17 @@ exports.getTopScorers = async (competitionCode, limit, stat = 'goals') => {
     logger.warn(`SportScore getTopScorers failed: ${error.message}`);
   }
 
-  const { getFallbackTopScorers } = require('./defaultSportsData');
-  return {
-    success: true,
-    source: 'verified_2025_2026',
-    data: getFallbackTopScorers(league, safeLimit)
-  };
+  return { success: true, source: 'unavailable', data: [] };
 };
 
 exports.getSupportedCompetitions = () => {
-  return Object.entries(COMPETITIONS).map(([code, info]) => ({
+  return Object.entries(sportscoreService.COMPETITION_SLUGS).map(([code, info]) => ({
     id: code,
     code,
     name: info.name,
     country: info.country,
-    flag: info.flag
+    flag: COMPETITIONS[code]?.flag || '',
+    logo: info.logo,
+    slug: info.slug
   }));
 };

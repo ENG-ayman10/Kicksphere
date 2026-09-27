@@ -1,19 +1,15 @@
 const { getAuth } = require('firebase-admin/auth');
 const jwt = require('jsonwebtoken');
 
-const DEFAULT_DEV_JWT_SECRET = 'kicksphere_super_secret_key_CHANGE_IN_PRODUCTION';
+const { randomBytes } = require('node:crypto');
 const JWT_EXPIRY = process.env.JWT_EXPIRY || '30d';
 
 const resolveJwtSecret = () => {
-  if (process.env.JWT_SECRET) {
-    return process.env.JWT_SECRET;
-  }
-
-  if (process.env.NODE_ENV === 'production') {
-    console.warn('⚠️ JWT_SECRET is not set in production. Using fallback secret.');
-  }
-
-  return DEFAULT_DEV_JWT_SECRET;
+  const secret = process.env.JWT_SECRET;
+  if (secret && Buffer.byteLength(secret) >= 32 && secret !== 'kicksphere_super_secret_key_CHANGE_IN_PRODUCTION') return secret;
+  if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET must contain at least 32 bytes of unpredictable secret material');
+  console.warn('JWT_SECRET is missing or weak. Development sessions will expire when this process restarts.');
+  return randomBytes(48).toString('hex');
 };
 
 const JWT_SECRET = resolveJwtSecret();
@@ -62,6 +58,7 @@ const signJwtForUser = (user = {}) => {
     id: String(user.id),
     email: user.email,
     name: user.name,
+    tokenVersion: user.tokenVersion || 0,
     role,
     roles
   };
@@ -77,7 +74,13 @@ const verifyAuthToken = async (token) => {
   let jwtError;
 
   try {
-    return normalizeUser(jwt.verify(token, JWT_SECRET));
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    const db = require('../config/firebase');
+    const user = await db.collection('users').doc(String(decoded.id)).get();
+    if (!user.exists || (user.data().tokenVersion || 0) !== (decoded.tokenVersion || 0)) {
+      throw new Error('Session revoked');
+    }
+    return normalizeUser(decoded);
   } catch (error) {
     jwtError = error;
   }

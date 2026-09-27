@@ -1,11 +1,16 @@
 const bcrypt = require('bcryptjs');
+const { randomInt, randomBytes, createHash, timingSafeEqual } = require('node:crypto');
 const db = require('../config/firebase');
 const { signJwtForUser } = require('../utils/auth');
+const { userRoom } = require('../utils/socketRooms');
 const logger = require('../utils/logger');
 
 const MIN_PASSWORD_LENGTH = 6;
 const MAX_NAME_LENGTH = 80;
 const MAX_EMAIL_LENGTH = 254;
+const PASSWORD_FORMAT_VERSION = 2;
+const isLegacyPassword = user => user.passwordFormatVersion === undefined || user.passwordFormatVersion === 1;
+const legacyPasswordValue = password => password.replace(/<[^>]*>/g, '').trim();
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const normalizeName = (name) => String(name || '').trim().replace(/\s+/g, ' ');
@@ -71,10 +76,10 @@ exports.register = async (req, res) => {
       });
     }
 
-    if (password.length < MIN_PASSWORD_LENGTH || password.length > 128) {
+    if (password.length < MIN_PASSWORD_LENGTH || Buffer.byteLength(password) > 72) {
       return res.status(400).json({
         success: false,
-        message: `Password must be between ${MIN_PASSWORD_LENGTH} and 128 characters`
+        message: `Password must be between ${MIN_PASSWORD_LENGTH} characters and 72 UTF-8 bytes`
       });
     }
 
@@ -94,6 +99,7 @@ exports.register = async (req, res) => {
       email,
       emailLower: email,
       password: hashedPassword,
+      passwordFormatVersion: PASSWORD_FORMAT_VERSION,
       role: 'user',
       roles: ['user'],
       createdAt: new Date(),
@@ -137,7 +143,34 @@ exports.login = async (req, res) => {
       });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    let isMatch = await bcrypt.compare(password, user.password);
+    // Older registrations hashed the globally sanitized value. Migrate only
+    // those accounts, once, after verifying their previous password semantics.
+    if (!isMatch && isLegacyPassword(user)) {
+      const legacyPassword = legacyPasswordValue(password);
+      if (legacyPassword !== password && await bcrypt.compare(legacyPassword, user.password)) {
+        if (Buffer.byteLength(password) > 72) {
+          return res.status(400).json({
+            success: false,
+            message: 'Please reset your password to a value of 72 UTF-8 bytes or fewer'
+          });
+        }
+        const upgradedHash = await bcrypt.hash(password, 12);
+        const userRef = db.collection('users').doc(user.id);
+        isMatch = await db.runTransaction(async tx => {
+          const current = await tx.get(userRef);
+          if (!current.exists || current.data().password !== user.password ||
+              !isLegacyPassword(current.data()) ||
+              (current.data().tokenVersion || 0) !== (user.tokenVersion || 0)) return false;
+          tx.update(userRef, {
+            password: upgradedHash,
+            passwordFormatVersion: PASSWORD_FORMAT_VERSION,
+            updatedAt: new Date()
+          });
+          return true;
+        });
+      }
+    }
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -169,53 +202,37 @@ exports.login = async (req, res) => {
 
 const emailService = require('../services/emailService');
 
+const resetResponse = { success: true, message: 'If this email has an account, a verification code will be sent.' };
+const hashCode = (code, salt) => createHash('sha256').update(salt + ':' + code).digest('hex');
+
 exports.forgotPassword = async (req, res) => {
   try {
     const email = normalizeEmail(req.body.email);
-
-    if (!email || !isValidEmail(email)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide a valid email address'
-      });
-    }
-
+    if (!isValidEmail(email)) return res.status(400).json({ success: false, message: 'Please provide a valid email address' });
+    if (!emailService.isConfigured()) return res.status(503).json({ success: false, message: 'Password recovery is temporarily unavailable' });
     const user = await findUserByEmail(email);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'No account found with this email address'
+    if (!user) return res.status(200).json(resetResponse);
+    const code = randomInt(100000, 1000000).toString();
+    const salt = randomBytes(24).toString('hex');
+    const codeHash = hashCode(code, salt);
+    const ref = db.collection('password_resets').doc(email);
+    const reserved = await db.runTransaction(async tx => {
+      const previous = await tx.get(ref);
+      if (previous.exists && Date.now() - (previous.data().createdAtMs || 0) < 60000) return false;
+      tx.set(ref, { email, codeHash, salt, attempts: 0, expiresAt: Date.now() + 15 * 60000, createdAtMs: Date.now() });
+      return true;
+    });
+    if (reserved) {
+      const result = await emailService.sendResetPasswordEmail(email, code, user.name || 'Fan');
+      if (!result.sent) await db.runTransaction(async tx => {
+        const current = await tx.get(ref);
+        if (current.exists && current.data().codeHash === codeHash) tx.delete(ref);
       });
     }
-
-    // Generate 6-digit random code
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
-
-    // Save to Firestore
-    await db.collection('password_resets').doc(email).set({
-      email,
-      code,
-      expiresAt,
-      createdAt: new Date()
-    });
-
-    // Send email
-    const emailResult = await emailService.sendResetPasswordEmail(email, code, user.name || 'Fan');
-
-    return res.status(200).json({
-      success: true,
-      message: 'Verification code has been sent to your email',
-      email,
-      isEmailSent: emailResult.sent,
-      devCode: emailResult.devCode || undefined
-    });
+    return res.status(200).json(resetResponse);
   } catch (error) {
-    logger.error(`Forgot Password Error: ${error.message}`);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    logger.error('Forgot password request failed');
+    return res.status(500).json({ success: false, message: 'Password recovery is temporarily unavailable' });
   }
 };
 
@@ -224,72 +241,61 @@ exports.resetPassword = async (req, res) => {
     const email = normalizeEmail(req.body.email);
     const code = String(req.body.code || '').trim();
     const newPassword = String(req.body.newPassword || '');
-
-    if (!email || !code || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide email, verification code, and new password'
-      });
+    if (!isValidEmail(email) || !/^\d{6}$/.test(code) || newPassword.length < MIN_PASSWORD_LENGTH || Buffer.byteLength(newPassword) > 72) {
+      return res.status(400).json({ success: false, message: 'Provide a valid email, six-digit code, and password between 6 characters and 72 UTF-8 bytes' });
     }
-
-    if (newPassword.length < MIN_PASSWORD_LENGTH || newPassword.length > 128) {
-      return res.status(400).json({
-        success: false,
-        message: `Password must be between ${MIN_PASSWORD_LENGTH} and 128 characters`
-      });
-    }
-
-    const resetDoc = await db.collection('password_resets').doc(email).get();
-    if (!resetDoc.exists) {
-      return res.status(400).json({
-        success: false,
-        message: 'No reset request found. Please request a new verification code.'
-      });
-    }
-
-    const resetData = resetDoc.data();
-    if (Date.now() > resetData.expiresAt) {
-      await db.collection('password_resets').doc(email).delete();
-      return res.status(400).json({
-        success: false,
-        message: 'Verification code has expired. Please request a new one.'
-      });
-    }
-
-    if (String(resetData.code).trim() !== code) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid verification code. Please check and try again.'
-      });
-    }
-
     const user = await findUserByEmail(email);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User account not found'
-      });
-    }
+    if (!user) return res.status(400).json({ success: false, message: 'Invalid or expired verification code' });
+    const ref = db.collection('password_resets').doc(email);
+    const userRef = db.collection('users').doc(user.id);
+    // Check and account for each attempt before performing expensive bcrypt
+    // work. Keep locked records so a failed attempt cannot bypass resend limits.
+    const verifiedRequest = await db.runTransaction(async tx => {
+      const doc = await tx.get(ref);
+      if (!doc.exists) return null;
+      const data = doc.data();
+      if (!Number.isFinite(data.expiresAt) || Date.now() >= data.expiresAt ||
+          (data.attempts || 0) >= 5 || !data.codeHash || !data.salt) return null;
+      tx.update(ref, { attempts: (data.attempts || 0) + 1 });
+      const expected = Buffer.from(data.codeHash, 'hex');
+      const actual = Buffer.from(hashCode(code, data.salt), 'hex');
+      if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
+      return { codeHash: data.codeHash, salt: data.salt };
+    });
+    if (!verifiedRequest) return res.status(400).json({ success: false, message: 'Invalid or expired verification code' });
 
     const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await db.collection('users').doc(user.id).update({
-      password: hashedPassword,
-      updatedAt: new Date()
+    // A resend or another successful reset may race with hashing. Compare the
+    // exact challenge again and consume it atomically with the password change.
+    const changed = await db.runTransaction(async tx => {
+      const doc = await tx.get(ref);
+      const userDoc = await tx.get(userRef);
+      if (!doc.exists || !userDoc.exists) return false;
+      const current = doc.data();
+      if (current.codeHash !== verifiedRequest.codeHash || current.salt !== verifiedRequest.salt ||
+          !Number.isFinite(current.expiresAt) || Date.now() >= current.expiresAt) return false;
+      tx.update(userRef, {
+        password: hashedPassword,
+        passwordFormatVersion: PASSWORD_FORMAT_VERSION,
+        tokenVersion: (userDoc.data().tokenVersion || 0) + 1,
+        updatedAt: new Date()
+      });
+      tx.delete(ref);
+      return true;
     });
-
-    await db.collection('password_resets').doc(email).delete();
-
-    logger.info(`✅ Password successfully reset for user ${email}`);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Password has been reset successfully. You can now log in.'
-    });
+    if (changed) {
+      try {
+        req.app?.get('io')?.in(userRoom(user.id)).disconnectSockets(true);
+      } catch (error) {
+        // The password is already committed. Keep recovery successful even if
+        // the realtime adapter is temporarily unavailable.
+        logger.warn('Password reset completed; realtime session disconnect failed');
+      }
+    }
+    return res.status(changed ? 200 : 400).json({ success: changed,
+      message: changed ? 'Password reset. Sign in with your new password.' : 'Invalid or expired verification code' });
   } catch (error) {
-    logger.error(`Reset Password Error: ${error.message}`);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    logger.error('Password reset failed');
+    return res.status(500).json({ success: false, message: 'Password recovery is temporarily unavailable' });
   }
 };

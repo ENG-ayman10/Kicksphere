@@ -1,10 +1,8 @@
 /**
- * @file liveEventsService.js
- * @description Detects live match events (goals, cards, subs) by polling Sofascore
- * and comparing states. Sends real-time notifications to subscribed users.
- * Ultra-fast 30s polling for near real-time performance.
+ * Detect observed match transitions without replaying historical events.
+ * The live feed stays live-only; today's fixtures establish scheduled states,
+ * and bounded detail lookups follow active games that disappear from that feed.
  */
-
 const db = require('../config/firebase');
 const sportscoreService = require('./sportscoreService');
 const { saveNotification } = require('./notificationService');
@@ -12,340 +10,223 @@ const { sendPushNotification } = require('./pushNotificationService');
 const logger = require('../utils/logger');
 const { matchRoom, teamRoom, userRoom } = require('../utils/socketRooms');
 
-// ==========================================
-// 🧠 STATE TRACKING
-// ==========================================
-const processedEvents = new Map();
-const MAX_PROCESSED_EVENTS = 10000;
-const previousMatchScores = new Map();
-const previousIncidents = new Map(); // Track incidents per match
 const MAX_TRACKED_MATCHES = 500;
+const MAX_PROCESSED_EVENTS = 10000;
+const MAX_DETAIL_REQUESTS = 6;
+const RECIPIENT_PAGE_SIZE = 200;
+const STATE_TTL = 6 * 60 * 60 * 1000;
+const activeStatuses = new Set(['IN_PLAY', 'PAUSED']);
+const scheduledStatuses = new Set(['TIMED', 'SCHEDULED']);
 
-// Cleanup functions to prevent memory leaks
-const cleanupProcessedEvents = () => {
-  if (processedEvents.size > MAX_PROCESSED_EVENTS) {
-    let count = 0;
-    const now = Date.now();
-    for (const [key, timestamp] of processedEvents.entries()) {
-      // Remove events older than 4 hours
-      if (now - timestamp > 4 * 60 * 60 * 1000) {
-        processedEvents.delete(key);
-        count++;
-      }
-    }
-    logger.info(`🧹 Cleaned ${count} old events (remaining: ${processedEvents.size})`);
-  }
-};
+async function mapConcurrent(items, limit, action) {
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) await action(items[cursor++]);
+  }));
+}
 
-const cleanupPreviousScores = () => {
-  if (previousMatchScores.size > MAX_TRACKED_MATCHES) {
-    const toDelete = Math.floor(previousMatchScores.size / 2);
-    let count = 0;
-    for (const [key] of previousMatchScores) {
-      if (count >= toDelete) break;
-      previousMatchScores.delete(key);
-      count++;
-    }
-    logger.info(`🧹 Cleaned ${count} old match scores`);
-  }
-};
+const scoreValue = value => value === null || value === undefined || value === ''
+  ? null : (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null);
+const incidentKey = incident => JSON.stringify([
+  incident.id || null, incident.minute, incident.type, incident.side, incident.player, incident.label
+]);
 
-// ==========================================
-// 🔥 FETCH SPORTSCORE LIVE MATCHES
-// ==========================================
-const fetchLiveMatches = async () => {
-  try {
-    return await sportscoreService.getLiveMatches() || [];
-  } catch (err) {
-    logger.warn(`⚠️ SportScore live fetch failed: ${err.message}`);
-    return [];
-  }
-};
+// Factory keeps state isolated in offline tests; the exported poller is a singleton.
+function createLiveEventsEmitter() {
+  const previousMatches = new Map();
+  const previousIncidents = new Map();
+  const processedEvents = new Map();
+  const detailChecks = new Map();
+  let running = false;
 
-// ==========================================
-// 🔍 FETCH MATCH INCIDENTS (Goals, Cards, Subs)
-// ==========================================
-const fetchMatchIncidents = async (eventId) => {
-  try {
-    const details = await sportscoreService.getMatchDetails(eventId);
-    return details?.timeline || [];
-  } catch (err) {
-    logger.error(`⚠️ SportScore incidents fetch failed: ${err.message}`);
-    return [];
-  }
-};
+  const forget = id => {
+    previousMatches.delete(id);
+    previousIncidents.delete(id);
+    detailChecks.delete(id);
+  };
 
-// ==========================================
-// 🔥 MAIN: EMIT LIVE EVENTS (called every 30s)
-// ==========================================
-exports.emitLiveEvents = async (io) => {
-  try {
-    cleanupProcessedEvents();
-    cleanupPreviousScores();
-
-    // ===========================
-    // 1. Fetch live matches from SportScore (FAST)
-    // ===========================
-    const liveMatches = await fetchLiveMatches();
-
-    const eventsToEmit = [];
-
-    // ===========================
-    // 2. Process SportScore live matches
-    // ===========================
-    for (const match of liveMatches) {
-      if (!match.id) continue;
-
-      const matchId = String(match.id);
-      const homeTeam = match.homeTeam?.name || 'Unknown';
-      const awayTeam = match.awayTeam?.name || 'Unknown';
-      const homeScore = match.score?.fullTime?.home ?? 0;
-      const awayScore = match.score?.fullTime?.away ?? 0;
-      const homeTeamId = match.homeTeam?.id;
-      const awayTeamId = match.awayTeam?.id;
-      const tournament = match.competition?.name || '';
-      const statusCode = match.status === 'IN_PLAY' ? 6 : (match.status === 'FINISHED' ? 100 : 0);
-
-      // Track score changes for goal detection
-      const prevScores = previousMatchScores.get(matchId);
-
-      // Check for detailed alerts subscription
-      const matchAlertsRoom = `matchAlerts_${matchId}`;
-      const hasSubscribers = io.sockets.adapter.rooms.get(matchAlertsRoom)?.size > 0;
-
-      if (hasSubscribers) {
-        const incidents = await fetchMatchIncidents(matchId);
-        if (incidents.length > 0) {
-          for (const inc of incidents) {
-            const uniqueKey = `${matchId}_inc_${inc.minute}_${inc.type}_${inc.player}`;
-            if (!processedEvents.has(uniqueKey)) {
-              processedEvents.set(uniqueKey, Date.now());
-              
-              const teamName = inc.side === 'home' ? homeTeam : awayTeam;
-              let title = '';
-              let message = '';
-
-              if (inc.type === 'goal') {
-                title = `⚽ GOAL for ${teamName}!`;
-                message = inc.player || 'Goal scored';
-                if (inc.assist) message += ` (Assist: ${inc.assist})`;
-                if ((inc.label || '').toLowerCase().includes('penalty')) message += ' (Penalty)';
-              } else if (inc.type === 'red_card') {
-                title = `🟥 RED CARD - ${teamName}`;
-                message = inc.player || 'Red card given';
-              } else if (inc.type === 'incident' && (inc.label || '').toLowerCase().includes('var')) {
-                title = `🖥️ VAR Decision`;
-                message = `Goal Cancelled or Penalty checked`;
-              } else if (inc.type === 'incident' && ((inc.label || '').includes('HT') || (inc.label || '').includes('Half Time'))) {
-                title = '⏱️ Half Time';
-                message = `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`;
-              } else if (inc.type === 'incident' && ((inc.label || '').includes('FT') || (inc.label || '').includes('Full Time'))) {
-                title = '🏁 Full Time';
-                message = `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`;
-              }
-
-              if (title) {
-                eventsToEmit.push({
-                  matchId,
-                  type: 'detailed_incident',
-                  title,
-                  message,
-                  team: teamName,
-                  score: `${homeScore} - ${awayScore}`,
-                  tournament,
-                  createdAt: new Date(),
-                  isDetailed: true
-                });
-              }
-            }
-          }
-        }
-      }
-
-      if (prevScores) {
-        // 🔥 GOAL DETECTED — Home team
-        if (homeScore > prevScores.homeScore) {
-          const uniqueKey = `${matchId}_goal_home_${homeScore}`;
-          if (!processedEvents.has(uniqueKey)) {
-            processedEvents.set(uniqueKey, Date.now());
-            eventsToEmit.push({
-              matchId,
-              type: 'goal',
-              team: homeTeam,
-              teamId: homeTeamId,
-              against: awayTeam,
-              score: `${homeScore} - ${awayScore}`,
-              tournament,
-              player: 'Unknown',
-              minute: match.time?.currentPeriodStartTimestamp
-                  ? Math.max(0, Math.floor((Date.now() / 1000 - match.time.currentPeriodStartTimestamp) / 60))
-                  : (match.statusTime?.max ? Math.floor(match.statusTime.max / 60) : 0),
-              createdAt: new Date(),
-            });
-          }
-        }
-
-        // 🔥 GOAL DETECTED — Away team
-        if (awayScore > prevScores.awayScore) {
-          const uniqueKey = `${matchId}_goal_away_${awayScore}`;
-          if (!processedEvents.has(uniqueKey)) {
-            processedEvents.set(uniqueKey, Date.now());
-            eventsToEmit.push({
-              matchId,
-              type: 'goal',
-              team: awayTeam,
-              teamId: awayTeamId,
-              against: homeTeam,
-              score: `${homeScore} - ${awayScore}`,
-              tournament,
-              player: 'Unknown',
-              minute: 0,
-              createdAt: new Date(),
-            });
-          }
-        }
-
-        // 🏟️ Match Started (status changed to live)
-        if (prevScores.statusCode !== 6 && statusCode === 6) {
-          const uniqueKey = `${matchId}_started`;
-          if (!processedEvents.has(uniqueKey)) {
-            processedEvents.set(uniqueKey, Date.now());
-            eventsToEmit.push({
-              matchId,
-              type: 'matchStart',
-              team: homeTeam,
-              teamId: homeTeamId,
-              against: awayTeam,
-              awayTeamId,
-              tournament,
-              createdAt: new Date(),
-            });
-          }
-        }
-
-        // 🏁 Match Ended (status changed to finished)
-        if (prevScores.statusCode !== 100 && statusCode === 100) {
-          const uniqueKey = `${matchId}_ended`;
-          if (!processedEvents.has(uniqueKey)) {
-            processedEvents.set(uniqueKey, Date.now());
-            eventsToEmit.push({
-              matchId,
-              type: 'matchEnd',
-              team: homeTeam,
-              teamId: homeTeamId,
-              against: awayTeam,
-              awayTeamId,
-              score: `${homeScore} - ${awayScore}`,
-              tournament,
-              createdAt: new Date(),
-            });
-          }
-        }
-      }
-
-      // Save current state
-      previousMatchScores.set(matchId, { homeScore, awayScore, statusCode });
-    }
-
-    if (eventsToEmit.length === 0) return;
-
-    // ===========================
-    // 4. Broadcast to match rooms
-    // ===========================
-    eventsToEmit.forEach(event => {
-      if (event.isDetailed) {
-        io.to(`matchAlerts_${event.matchId}`).emit('detailedAlert', event);
-      } else {
-        io.to(matchRoom(event.matchId)).emit('liveEvent', event);
-        if (event.team) io.to(teamRoom(event.team)).emit('liveEvent', event);
-        if (event.against) io.to(teamRoom(event.against)).emit('liveEvent', event);
-      }
-    });
-
-    // ===========================
-    // 5. Save to Firestore & Notify subscribed users
-    // ===========================
+  return async function emitLiveEvents(io) {
+    if (running) return;
+    running = true;
     try {
-      const batch = db.batch();
-      eventsToEmit.forEach(event => {
-        const ref = db.collection('events').doc();
-        batch.set(ref, event);
+      const now = Date.now();
+      for (const [id, state] of previousMatches) {
+        if (now - state.seenAt > STATE_TTL) forget(id);
+      }
+      for (const [id, time] of processedEvents) {
+        if (now - time > STATE_TTL) processedEvents.delete(id);
+      }
+
+      const [fixtures, live] = await Promise.allSettled([
+        sportscoreService.getMatchesByDate('TODAY'), sportscoreService.getLiveMatches()
+      ]);
+      const matches = new Map();
+      for (const result of [fixtures, live]) {
+        if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+          for (const match of result.value) if (match?.id) matches.set(String(match.id), match);
+        } else if (result.status === 'rejected') {
+          logger.warn(`Live snapshot unavailable: ${result.reason?.message}`);
+        }
+      }
+
+      const details = new Map();
+      const candidates = new Set();
+      // An empty live response is never evidence that a match has finished.
+      for (const [id, state] of previousMatches) {
+        if (activeStatuses.has(state.status) && !matches.has(id)) candidates.add(id);
+      }
+      for (const [id, match] of matches) {
+        if (activeStatuses.has(match.status) && io.sockets.adapter.rooms.get(`matchAlerts_${id}`)?.size) {
+          candidates.add(id);
+        }
+      }
+      const lookups = [...candidates]
+        .sort((a, b) => (detailChecks.get(a) || 0) - (detailChecks.get(b) || 0))
+        .slice(0, MAX_DETAIL_REQUESTS);
+      await mapConcurrent(lookups, 3, async id => {
+        detailChecks.set(id, now);
+        try {
+          const detail = await sportscoreService.getMatchDetails(id);
+          if (detail) {
+            details.set(id, detail);
+            // Preserve the identity used by existing subscriptions.
+            if (!matches.has(id) || detail.status === 'FINISHED') matches.set(id, { ...detail, id });
+          }
+        } catch (error) {
+          logger.warn(`Live detail unavailable for ${id}: ${error.message}`);
+        }
       });
-      await batch.commit();
-    } catch (dbErr) {
-      logger.warn(`⚠️ Firestore batch save failed: ${dbErr.message}`);
-    }
 
-    // Notify users with matching favorite teams
-    const eventTeams = [...new Set(eventsToEmit.flatMap(e => [e.team, e.against].filter(Boolean)))];
+      const events = [];
+      const record = (event, key) => {
+        if (processedEvents.has(key)) return;
+        processedEvents.set(key, now);
+        events.push({ ...event, eventId: key, createdAt: new Date(now) });
+      };
 
-    for (const teamName of eventTeams) {
-      try {
-        const usersSnapshot = await db.collection('users')
-          .where('preferences.teams', 'array-contains', teamName)
-          .limit(200)
-          .get();
-
-        const teamEvents = eventsToEmit.filter(e => e.team === teamName || e.against === teamName);
-
-        for (const userDoc of usersSnapshot.docs) {
-          const user = userDoc.data();
-          const userId = userDoc.id;
-
-          for (const ev of teamEvents) {
-            let title, message;
-
-            switch (ev.type) {
-              case 'goal':
-                title = '⚽ GOAL!';
-                message = `${ev.team} scored! ${ev.score} (${ev.tournament})`;
-                break;
-              case 'matchStart':
-                title = '🏟️ Match Started!';
-                message = `${ev.team} vs ${ev.against} — ${ev.tournament}`;
-                break;
-              case 'matchEnd':
-                title = '🏁 Full Time!';
-                message = `${ev.team} vs ${ev.against} — Final: ${ev.score}`;
-                break;
-              default:
-                title = '📢 Match Event';
-                message = `${ev.team} — ${ev.type}`;
+      for (const [id, match] of matches) {
+        const previous = previousMatches.get(id);
+        const home = scoreValue(match.score?.fullTime?.home);
+        const away = scoreValue(match.score?.fullTime?.away);
+        const homeTeam = match.homeTeam?.name || previous?.homeTeam || '';
+        const awayTeam = match.awayTeam?.name || previous?.awayTeam || '';
+        const score = `${home ?? '-'} - ${away ?? '-'}`;
+        const base = {
+          matchId: id, team: homeTeam, against: awayTeam,
+          teamId: match.homeTeam?.id || homeTeam, awayTeamId: match.awayTeam?.id || awayTeam,
+          score, tournament: match.competition?.name || '', minute: match.minute ?? null
+        };
+        if (previous) {
+          if (scheduledStatuses.has(previous.status) && activeStatuses.has(match.status)) {
+            record({ ...base, type: 'matchStart' }, `${id}:start`);
+          }
+          if (activeStatuses.has(previous.status) && match.status === 'FINISHED') {
+            record({ ...base, type: 'matchEnd' }, `${id}:end`);
+          }
+          // Missing scores and first sightings are not 0-0 baselines. Scores
+          // that decrease (for example after VAR) are updates, not new goals.
+          if (activeStatuses.has(previous.status) && (activeStatuses.has(match.status) || match.status === 'FINISHED')) {
+            if (home !== null && previous.home !== null && home > previous.home) {
+              record({ ...base, type: 'goal', player: '' }, `${id}:goal:home:${home}:${away}`);
             }
-
-            // Save notification
-            await saveNotification(userId, {
-              title,
-              message,
-              matchId: ev.matchId,
-              type: ev.type,
-            });
-
-            // Socket push to user's personal room
-            io.to(userRoom(userId)).emit('notification', {
-              title,
-              message,
-              matchId: ev.matchId,
-              type: ev.type,
-              team: ev.team,
-              score: ev.score,
-              tournament: ev.tournament,
-            });
-
-            // FCM push notification
-            if (user.fcmToken) {
-              await sendPushNotification(user.fcmToken, title, message);
+            if (away !== null && previous.away !== null && away > previous.away) {
+              record({ ...base, team: awayTeam, against: homeTeam, teamId: match.awayTeam?.id || awayTeam,
+                type: 'goal', player: '' }, `${id}:goal:away:${home}:${away}`);
             }
           }
         }
-      } catch (err) {
-        logger.error(`❌ Notification query error for ${teamName}: ${err.message}`);
+
+        const timeline = details.get(id)?.timeline;
+        if (Array.isArray(timeline)) {
+          const prior = previousIncidents.get(id);
+          const seen = prior || new Set();
+          for (const incident of timeline) {
+            const key = incidentKey(incident);
+            if (prior && !seen.has(key)) {
+              // Score/status events already reach detailed-alert subscribers.
+              const team = incident.side === 'away' ? awayTeam : homeTeam;
+              if (incident.type === 'red_card' || (incident.type === 'incident' && /var/i.test(incident.label || ''))) {
+                record({ ...base, team, against: incident.side === 'away' ? homeTeam : awayTeam,
+                  teamId: incident.side === 'away' ? match.awayTeam?.id || awayTeam : match.homeTeam?.id || homeTeam,
+                  type: 'detailed_incident', isDetailed: true,
+                  title: incident.type === 'red_card' ? `🟥 Red card — ${team}` : 'VAR update',
+                  message: incident.player || incident.label || '', minute: incident.minute ?? null
+                }, `${id}:incident:${key}`);
+              }
+            }
+            seen.add(key);
+          }
+          previousIncidents.set(id, seen);
+        }
+        previousMatches.set(id, { status: match.status, home, away, homeTeam, awayTeam, seenAt: now });
       }
-    }
+      while (previousMatches.size > MAX_TRACKED_MATCHES) forget(previousMatches.keys().next().value);
+      while (processedEvents.size > MAX_PROCESSED_EVENTS) processedEvents.delete(processedEvents.keys().next().value);
+      if (!events.length) return;
 
-    logger.info(`⚡ Live events emitted: ${eventsToEmit.length} (SportScore: ${liveMatches.length} live matches tracked)`);
+      const eventRooms = event => [...new Set([
+        matchRoom(event.matchId), `matchAlerts_${event.matchId}`,
+        ...[event.team, event.against].filter(Boolean).map(teamRoom)
+      ])];
+      for (const event of events) {
+        if (event.isDetailed) io.to(`matchAlerts_${event.matchId}`).emit('detailedAlert', event);
+        else io.to(eventRooms(event)).emit('liveEvent', event);
+      }
+      try {
+        // Firestore batches support at most 500 writes.
+        for (let i = 0; i < events.length; i += 500) {
+          const batch = db.batch();
+          for (const event of events.slice(i, i + 500)) batch.set(db.collection('events').doc(), event);
+          await batch.commit();
+        }
+      } catch (error) { logger.warn(`Event persistence failed: ${error.message}`); }
 
-  } catch (error) {
-    logger.error(`❌ Live Events Error: ${error.message}`);
-  }
-};
+      const publicEvents = events.filter(event => !event.isDetailed);
+      const recipients = new Map();
+      const teams = [...new Set(publicEvents.flatMap(event => [event.team, event.against]).filter(Boolean))];
+      await mapConcurrent(teams, 3, async team => {
+        try {
+          const query = db.collection('users')
+            .where('preferences.teams', 'array-contains', team)
+            .orderBy('__name__')
+            .limit(RECIPIENT_PAGE_SIZE);
+          const teamEvents = publicEvents.filter(event => event.team === team || event.against === team);
+          let page = query;
+          // The limit bounds each read, not the audience. Document snapshots
+          // provide a stable cursor; do not skip fans after the first page.
+          while (true) {
+            const snapshot = await page.get();
+            for (const doc of snapshot.docs) {
+              const recipient = recipients.get(doc.id) || { user: doc.data(), events: new Map() };
+              for (const event of teamEvents) recipient.events.set(event.eventId, event);
+              recipients.set(doc.id, recipient);
+            }
+            if (snapshot.docs.length < RECIPIENT_PAGE_SIZE) break;
+            page = query.startAfter(snapshot.docs[snapshot.docs.length - 1]);
+          }
+        } catch (error) { logger.warn(`Favorite recipients unavailable: ${error.message}`); }
+      });
+
+      await mapConcurrent([...recipients], 4, async ([userId, recipient]) => {
+        for (const event of recipient.events.values()) {
+          const title = event.type === 'goal' ? '⚽ Goal!' : event.type === 'matchStart' ? '🟢 Match started' : '🏁 Full time';
+          const message = `${event.team} vs ${event.against} — ${event.score}`;
+          const notification = { ...event, title, message };
+          try {
+            await saveNotification(userId, notification);
+            // A socket already in a match/team/alert room received liveEvent.
+            io.to(userRoom(userId)).except(eventRooms(event)).emit('notification', notification);
+            if (recipient.user.fcmToken && !io.sockets.adapter.rooms.get(userRoom(userId))?.size) {
+              await sendPushNotification(recipient.user.fcmToken, title, message);
+            }
+          } catch (error) { logger.warn(`Event notification failed: ${error.message}`); }
+        }
+      });
+      logger.info(`Live events emitted: ${events.length}; tracked matches: ${previousMatches.size}`);
+    } catch (error) {
+      logger.error(`Live events error: ${error.message}`);
+    } finally { running = false; }
+  };
+}
+
+module.exports = { createLiveEventsEmitter, emitLiveEvents: createLiveEventsEmitter() };

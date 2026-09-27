@@ -6,6 +6,7 @@
 const logger = require('../utils/logger');
 const sportscoreService = require('./sportscoreService');
 const { COMPETITION_SLUGS } = require('./sportscoreService');
+const { normalizeCompetitionCode } = require('../utils/sportsContracts');
 
 const normalizeTerm = (value) => String(value || '')
   .normalize('NFKD')
@@ -217,13 +218,11 @@ const mapLocalPlayer = (player) => {
     providerId: player.id || null,
     name: player.name,
     shortName: player.name,
-    team: player.team,
-    teamId: team.id || null,
-    teamLogo: team.logo || '',
     position: player.position,
     nationality: player.nationality,
     country: player.nationality,
-    number: player.number
+    // Local identities do not establish a player's current club or shirt number.
+    detailsAvailable: false
   };
 };
 
@@ -333,9 +332,9 @@ exports.searchAll = async (query, options = {}) => {
              slug: p.slug || ''
           })),
           leagues: (scResult.competitions || []).map(c => ({
-            id: c.slug || c.id,
-            targetId: c.slug || c.id,
-            code: c.slug,
+            id: normalizeCompetitionCode(c.slug) || c.slug || c.id,
+            targetId: normalizeCompetitionCode(c.slug) || c.slug || c.id,
+            code: normalizeCompetitionCode(c.slug) || c.slug,
             provider: 'sportscore',
             providerId: c.slug,
             name: c.name,
@@ -357,7 +356,7 @@ exports.searchAll = async (query, options = {}) => {
 
   const teams = mergeUnique(provider.teams, fallback.teams, ['name']).slice(0, 10);
   const players = mergeUnique(provider.players, fallback.players, ['name']).slice(0, 10);
-  const leagues = mergeUnique(provider.leagues || [], fallback.leagues, ['name']).slice(0, 8);
+  const leagues = mergeUnique(provider.leagues || [], fallback.leagues, ['id']).slice(0, 8);
 
   return {
     teams,

@@ -268,6 +268,7 @@ io.use(async (socket, next) => {
 });
 
 io.on('connection', (socket) => {
+  if (socket.user?.id) socket.join(userRoom(String(socket.user.id)));
 
   logger.info(`🔥 Client connected: ${socket.id}`);
 
@@ -315,6 +316,11 @@ io.on('connection', (socket) => {
   /**
    * 🔔 Subscribe to detailed match alerts
    */
+  socket.on('leaveMatch', matchId => {
+    const id = normalizeRoomValue(matchId);
+    if (id) socket.leave(matchRoom(id));
+  });
+
   socket.on('subscribeMatchAlerts', (matchId) => {
     const roomMatchId = normalizeRoomValue(matchId);
     if (!roomMatchId) return;
@@ -339,6 +345,7 @@ io.on('connection', (socket) => {
     if (!data) return;
     const { teams, userId } = data;
     if (Array.isArray(teams)) {
+      for (const room of socket.rooms) { if (room.startsWith('team:')) socket.leave(room); }
       const safeTeams = teams
         .map(team => normalizeRoomValue(team))
         .filter(Boolean)
@@ -363,7 +370,11 @@ io.on('connection', (socket) => {
   /**
    * 💬 Match Chat Messaging
    */
-  socket.on('sendMessage', async (data) => {
+  let lastChatAt = 0;
+  socket.on('sendMessage', async (data, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (Date.now() - lastChatAt < 1500) return reply({ success: false, message: 'Please wait before sending again' });
+    lastChatAt = Date.now();
 
     try {
 
@@ -411,6 +422,7 @@ io.on('connection', (socket) => {
       });
 
       io.to(matchRoom(roomMatchId)).emit('newMessage', saved);
+      reply({ success: true, data: saved });
 
     } catch (error) {
 

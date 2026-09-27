@@ -67,6 +67,7 @@ exports.getMatchesByDate = async (req, res) => {
       date,
       source: result.source,
       total: matches.length,
+      coverage: result.coverage,
       data: sortedGroups,
     });
   } catch (error) {
@@ -81,6 +82,9 @@ exports.getMatchesByDate = async (req, res) => {
 exports.getLiveMatches = async (req, res) => {
   try {
     const result = await sportsDataService.getLiveMatches();
+    if (!result.success) {
+      return res.status(result.statusCode || 503).json({ success: false, message: result.message });
+    }
     const matches = result.data;
 
     res.json({

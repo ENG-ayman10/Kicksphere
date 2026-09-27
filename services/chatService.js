@@ -18,6 +18,7 @@ exports.saveMessage = async (matchId, messageData) => {
 
   const payload = {
     ...messageData,
+    matchId,
     timestamp: new Date()
   };
 

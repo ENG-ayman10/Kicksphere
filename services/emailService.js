@@ -32,22 +32,16 @@ exports.isConfigured = () => {
 exports.sendResetPasswordEmail = async (toEmail, code, userName = 'Fan') => {
   const transporter = getTransporter();
 
-  // Log in server console for easy dev inspection
-  logger.info(`🔑 [RESET PASSWORD OTP] Code for ${toEmail}: [ ${code} ]`);
-
   if (!transporter) {
-    logger.warn(`⚠️ SMTP is not configured in .env. Email not sent, code is: ${code}`);
-    return {
-      sent: false,
-      reason: 'SMTP_NOT_CONFIGURED',
-      devCode: code
-    };
+    logger.warn('Password reset email unavailable: SMTP is not configured.');
+    return { sent: false, reason: 'SMTP_NOT_CONFIGURED' };
   }
+  const safeName = String(userName).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
   const mailOptions = {
     from: process.env.SMTP_FROM || `"KickSphere" <${process.env.SMTP_USER}>`,
     to: toEmail,
-    subject: `⚽ KickSphere — Password Reset Code: ${code}`,
+    subject: `⚽ KickSphere — Password Reset`,
     html: `
       <div style="font-family: Arial, sans-serif; background-color: #0A0F0D; color: #FFFFFF; padding: 30px; border-radius: 12px; max-width: 500px; margin: auto;">
         <div style="text-align: center; margin-bottom: 20px;">
@@ -57,7 +51,7 @@ exports.sendResetPasswordEmail = async (toEmail, code, userName = 'Fan') => {
         <div style="background-color: #141E18; border: 1px solid #23352B; border-radius: 10px; padding: 25px; text-align: center;">
           <h2 style="color: #FFFFFF; margin-top: 0;">Password Reset Code</h2>
           <p style="color: #B0C4B8; font-size: 14px; line-height: 1.5;">
-            Hello <strong>${userName}</strong>,<br>
+            Hello <strong>${safeName}</strong>,<br>
             We received a request to reset your password. Use the verification code below to set a new password:
           </p>
           <div style="background: #00FF87; color: #000000; font-size: 32px; font-weight: 900; letter-spacing: 8px; padding: 14px; border-radius: 8px; margin: 25px 0; display: inline-block;">
@@ -81,6 +75,6 @@ exports.sendResetPasswordEmail = async (toEmail, code, userName = 'Fan') => {
     return { sent: true, messageId: info.messageId };
   } catch (error) {
     logger.error(`❌ Failed to send password reset email to ${toEmail}: ${error.message}`);
-    return { sent: false, reason: error.message, devCode: code };
+    return { sent: false, reason: 'DELIVERY_FAILED' };
   }
 };

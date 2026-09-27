@@ -24,13 +24,13 @@ if (!getApps().length) {
   }
   // Priority 2: Service Account JSON file (fallback)
   const keyPath = path.resolve(__dirname, '../serviceAccountKey.json');
-  if (fs.existsSync(keyPath)) {
+  if (!credential && fs.existsSync(keyPath)) {
     const serviceAccount = require(keyPath);
     credential = cert(serviceAccount);
     logger.info('🔥 Firebase initialized from serviceAccountKey.json.');
-  } else if (process.env.NODE_ENV === 'production') {
+  } else if (!credential && process.env.NODE_ENV === 'production') {
     throw new Error('Firebase environment credentials are required in production');
-  } else {
+  } else if (!credential) {
     throw new Error('Firebase credentials not found. Set FIREBASE_* env vars or provide serviceAccountKey.json');
   }
 

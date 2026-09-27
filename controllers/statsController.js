@@ -573,6 +573,7 @@ exports.getDeepPlayerDetails = async (req, res) => {
         assists: scPlayer.assists,
         minutes: scPlayer.minutes,
         rating: scPlayer.rating,
+        ratingRaw: scPlayer.ratingRaw,
         shots: scPlayer.shots,
         shotsOnTarget: scPlayer.shotsOnTarget,
         passes: scPlayer.passes,
@@ -598,27 +599,10 @@ exports.getDeepPlayerDetails = async (req, res) => {
     };
 
     if (!isPresent(info) && !isPresent(seasonStats)) {
-      const cleanName = String(playerId).replace(/^[a-z]+_[a-z]+_\d+_?/, '').replace(/_/g, ' ').trim() || 'Player';
       return res.json({
         success: true,
-        source: 'verified_catalog',
-        data: {
-          info: {
-            id: playerId,
-            name: cleanName,
-            fullName: cleanName,
-            team: 'First Team Club',
-            position: 'Defender',
-            country: 'International',
-            marketValue: '€45M',
-            contractUntil: '2028'
-          },
-          attributes: { pace: 76, shooting: 58, passing: 78, dribbling: 70, defending: 88, physical: 86 },
-          seasonStats: { matches: 26, goals: 2, assists: 3, rating: 7.7 },
-          careerTotals: { matches: 320, goals: 21, assists: 35, trophies: 5 },
-          careerBySeason: [],
-          formerTeams: []
-        }
+        source: 'unavailable',
+        data
       });
     }
 
@@ -696,6 +680,7 @@ exports.getMatchDeepStats = async (req, res) => {
             bookings,
             substitutions,
             statistics: buildBasicMatchStatistics(scMatch, goals, bookings, substitutions),
+            providerStatistics: scMatch.providerStatistics || [],
             lineups: scMatch.lineups || null,
             tracker: scMatch.tracker || null,
             head2head: null

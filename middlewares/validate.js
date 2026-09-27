@@ -30,7 +30,9 @@ const sanitizeObject = (obj, depth = 0) => {
 
   const sanitized = {};
   for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === 'string') {
+    if (['password', 'newPassword', 'currentPassword', 'confirmPassword', 'token'].includes(key)) {
+      sanitized[key] = value;
+    } else if (typeof value === 'string') {
       sanitized[key] = sanitizeString(value);
     } else if (typeof value === 'object' && value !== null) {
       sanitized[key] = sanitizeObject(value, depth + 1);

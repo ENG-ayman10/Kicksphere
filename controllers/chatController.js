@@ -17,6 +17,7 @@ exports.sendMessage = async (req, res) => {
         const displayName = req.user.name || req.user.email || req.user.id;
 
         const newMessage = {
+            matchId: safeMatchId,
             userId: req.user.id,
             username: String(displayName).slice(0, 80),
             text: text.trim(),
@@ -50,9 +51,12 @@ exports.getMatchMessages = async (req, res) => {
         const safeMatchId = normalizeRoomValue(matchId);
         if (!safeMatchId) return res.status(400).json({ success: false, message: "Invalid match id" });
 
-        const snapshot = await db.collection('chat_rooms').doc(safeMatchId).collection('messages').orderBy('timestamp', 'asc').limit(50).get();
+        const snapshot = await db.collection('chat_rooms').doc(safeMatchId).collection('messages').orderBy('timestamp', 'desc').limit(50).get();
         
-        const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const messages = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return { id: doc.id, ...data, matchId: safeMatchId, timestamp: data.timestamp?.toDate?.().toISOString() || data.timestamp };
+        }).reverse();
         res.status(200).json({ success: true, data: messages });
     } catch (error) {
         logger.error(`Chat fetch error: ${error.message}`);

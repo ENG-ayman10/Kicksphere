@@ -3,7 +3,7 @@
  * @description Football news provider facade.
  */
 
-const isDemoNewsEnabled = () => process.env.ENABLE_DEMO_NEWS !== 'false';
+const isDemoNewsEnabled = () => process.env.NODE_ENV !== 'production' && process.env.ENABLE_DEMO_NEWS === 'true';
 
 const demoNews = () => {
   const now = Date.now();
@@ -22,7 +22,7 @@ const demoNews = () => {
       source: 'KickSphere News',
       tags: ['UCL', 'ChampionsLeague', 'Football'],
       isDemo: true,
-      sourceType: 'verified'
+      sourceType: 'demo', isDemo: true
     },
     {
       id: 'news_pl_title_race',
@@ -37,7 +37,7 @@ const demoNews = () => {
       source: 'KickSphere Sports',
       tags: ['PremierLeague', 'TitleRace', 'England'],
       isDemo: true,
-      sourceType: 'verified'
+      sourceType: 'demo', isDemo: true
     },
     {
       id: 'news_el_clasico',
@@ -52,7 +52,7 @@ const demoNews = () => {
       source: 'Marca Global',
       tags: ['LaLiga', 'ElClasico', 'Spain'],
       isDemo: true,
-      sourceType: 'verified'
+      sourceType: 'demo', isDemo: true
     },
     {
       id: 'news_transfer_window',
@@ -67,7 +67,7 @@ const demoNews = () => {
       source: 'Transfer Hub',
       tags: ['Transfers', 'Rumours', 'Mercato'],
       isDemo: true,
-      sourceType: 'verified'
+      sourceType: 'demo', isDemo: true
     },
     {
       id: 'news_tactical_breakdown',
@@ -82,7 +82,7 @@ const demoNews = () => {
       source: 'Football Analytics',
       tags: ['Tactics', 'Analysis', 'Coaching'],
       isDemo: true,
-      sourceType: 'verified'
+      sourceType: 'demo', isDemo: true
     }
   ];
 };
