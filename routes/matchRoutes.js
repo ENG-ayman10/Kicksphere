@@ -8,6 +8,8 @@ const {
   getCompetitionMatches,
   getMatchDetails,
   getMatchesByDate,
+  getPredictions,
+  getMatchPrediction
 } = require('../controllers/matchControllers');
 
 
@@ -37,6 +39,12 @@ router.get('/search', searchMatches);
 router.get('/competition/:code', getCompetitionMatches);
 
 // ==========================================
+
+// ==========================================
+// 🔮 AI & ML MATCH PREDICTIONS
+// ==========================================
+router.get('/predictions', getPredictions);
+router.get('/:id/prediction', getMatchPrediction);
 // 🔍 MATCH DETAILS (must be last — catches :id)
 // ==========================================
 router.get('/:id', getMatchDetails);

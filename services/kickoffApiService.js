@@ -20,7 +20,76 @@ const currentFootballSeason = (date = new Date()) => {
   return month >= 6 ? date.getUTCFullYear() : date.getUTCFullYear() - 1;
 };
 
+const ageFromBirthDate = (dateBorn, currentDate = new Date()) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateBorn || ''))) return null;
+  const birth = new Date(`${dateBorn}T00:00:00Z`);
+  if (!Number.isFinite(birth.getTime()) || birth.toISOString().slice(0, 10) !== dateBorn) return null;
+  let age = currentDate.getUTCFullYear() - birth.getUTCFullYear();
+  if (currentDate.getUTCMonth() < birth.getUTCMonth() ||
+    (currentDate.getUTCMonth() === birth.getUTCMonth() && currentDate.getUTCDate() < birth.getUTCDate())) age--;
+  return age >= 0 && age <= 100 ? age : null;
+};
+
 // League ID mapping (API-Football / KickOff API standard IDs)
+
+const FAMOUS_CLUBS_MAP = {
+  'arsenal': 42,
+  'chelsea': 49,
+  'liverpool': 40,
+  'manchester city': 50,
+  'manchester-city': 50,
+  'manchester united': 33,
+  'manchester-united': 33,
+  'tottenham': 47,
+  'tottenham hotspur': 47,
+  'newcastle': 34,
+  'newcastle united': 34,
+  'aston villa': 66,
+  'real madrid': 541,
+  'real-madrid': 541,
+  'barcelona': 529,
+  'atletico madrid': 530,
+  'atletico-madrid': 530,
+  'bayern munich': 157,
+  'bayern-munich': 157,
+  'bayern': 157,
+  'borussia dortmund': 165,
+  'dortmund': 165,
+  'bayer leverkusen': 168,
+  'leverkusen': 168,
+  'paris saint-germain': 85,
+  'paris saint germain': 85,
+  'psg': 85,
+  'juventus': 496,
+  'inter': 505,
+  'inter milan': 505,
+  'ac milan': 489,
+  'milan': 489,
+  'roma': 497,
+  'as roma': 497,
+  'napoli': 492,
+  'al-hilal': 2542,
+  'al hilal': 2542,
+  'al-nassr': 2544,
+  'al nassr': 2544,
+  'al-ittihad': 2543,
+  'al ittihad': 2543,
+  'al-ahli': 2541,
+  'al ahli': 2541,
+  'benfica': 211,
+  'porto': 212,
+  'sporting cp': 228,
+  'ajax': 194,
+  'feyenoord': 197,
+  'galatasaray': 645,
+  'fenerbahce': 611,
+  'flamengo': 127,
+  'palmeiras': 121,
+  'boca juniors': 451,
+  'river plate': 435,
+  'inter miami': 9568
+};
+
 const LEAGUE_MAP = {
   // Football-Data code -> KickOff API League ID
   PL: 39,       // Premier League
@@ -64,16 +133,28 @@ const client = axios.create({
   },
 });
 
+let isQuotaExhausted = false;
+let quotaExhaustedUntil = 0;
+
 /**
- * Safe fetch with logging and error handling
+ * Safe fetch with logging, error handling and 429 rate limit backoff
  */
 const safeFetch = async (endpoint, params = {}) => {
   if (!isConfigured()) return null;
+  if (isQuotaExhausted && Date.now() < quotaExhaustedUntil) {
+    return null;
+  }
 
   try {
     const response = await client.get(endpoint, { params });
     return response.data;
   } catch (error) {
+    if (error.response?.status === 429) {
+      isQuotaExhausted = true;
+      quotaExhaustedUntil = Date.now() + 60 * 60 * 1000;
+      logger.warn(`[KickOff API] Free allowance exhausted or rate limited (429). Backing off for 1 hour.`);
+      return null;
+    }
     logger.error(`KickOff API error on ${endpoint}: ${error.message}`);
     return null;
   }
@@ -150,6 +231,28 @@ exports.getMatchesByDate = async (dateStr) => {
 };
 
 /**
+ * Fetch Upcoming Fixtures for a League
+ */
+exports.getLeagueFixtures = async (leagueCode, count = 15) => {
+  if (!isConfigured()) return [];
+
+  const leagueId = LEAGUE_MAP[String(leagueCode).toUpperCase()] || Number(leagueCode);
+  if (!leagueId) return [];
+
+  const cacheKey = `kickoff:league_fixtures:${leagueId}:${count}`;
+  const cached = getCached(cacheKey, TTL.FIXTURES_DAY);
+  if (cached) return cached;
+
+  const data = await safeFetch('/api/v1/fixtures', { league: leagueId, next: count });
+  const rawList = data?.response || [];
+
+  const formatted = rawList.map(item => normalizeKickoffFixture(item)).filter(Boolean);
+  setCache(cacheKey, formatted);
+  logger.info(`✅ KickOff API: ${formatted.length} upcoming fixtures for league ${leagueCode} (${leagueId})`);
+  return formatted;
+};
+
+/**
  * 4. Fetch League Standings
  */
 exports.getStandings = async (leagueCode = 'PL', season = currentFootballSeason()) => {
@@ -162,31 +265,31 @@ exports.getStandings = async (leagueCode = 'PL', season = currentFootballSeason(
   const cached = getCached(cacheKey, TTL.STANDINGS);
   if (cached) return cached;
 
-  // Try requested season first, then the previous season if the new table is not populated yet.
-  let data = await safeFetch('/api/v1/standings', { league: leagueId, season });
-  if (!data?.response || data.response.length === 0) {
-    data = await safeFetch('/api/v1/standings', { league: leagueId, season: season - 1 });
-  }
+  const data = await safeFetch('/api/v1/standings', { league: leagueId, season });
 
   const rawLeague = data?.response?.[0]?.league;
   const table = rawLeague?.standings?.[0] || data?.response || [];
 
   const formatted = table.map((item, idx) => ({
-    position: item.rank || item.position || idx + 1,
+    position: item.rank ?? item.position ?? null,
+    season,
+    competition: leagueCode,
     team: {
-      id: item.team?.id?.toString() || item.teamId?.toString() || '',
+      id: item.team?.id || item.teamId ? 'ko_t_' + String(item.team?.id || item.teamId) : '',
+      provider: 'kickoffapi',
+      providerId: item.team?.id?.toString() || item.teamId?.toString() || '',
       name: item.team?.name || 'Unknown Team',
       shortName: item.team?.name || '',
       crest: item.team?.logo || `https://images.kickoffapi.com/images/logos/${item.teamId}.png`,
     },
-    playedGames: item.allPlayed ?? item.all?.played ?? item.played ?? 0,
-    won: item.allWin ?? item.all?.win ?? item.won ?? 0,
-    draw: item.allDraw ?? item.all?.draw ?? item.draw ?? 0,
-    lost: item.allLose ?? item.all?.lose ?? item.lost ?? 0,
-    points: item.points ?? 0,
-    goalsFor: item.allGoalsFor ?? item.all?.goals?.for ?? item.goalsFor ?? 0,
-    goalsAgainst: item.allGoalsAgainst ?? item.all?.goals?.against ?? item.goalsAgainst ?? 0,
-    goalDifference: item.goalsDiff ?? item.goalDifference ?? 0,
+    playedGames: item.allPlayed ?? item.all?.played ?? item.played ?? null,
+    won: item.allWin ?? item.all?.win ?? item.won ?? null,
+    draw: item.allDraw ?? item.all?.draw ?? item.draw ?? null,
+    lost: item.allLose ?? item.all?.lose ?? item.lost ?? null,
+    points: item.points ?? null,
+    goalsFor: item.allGoalsFor ?? item.all?.goals?.for ?? item.goalsFor ?? null,
+    goalsAgainst: item.allGoalsAgainst ?? item.all?.goals?.against ?? item.goalsAgainst ?? null,
+    goalDifference: item.goalsDiff ?? item.goalDifference ?? null,
     form: item.form || '',
     description: item.description || '',
   })).filter(row => row.team.name);
@@ -209,28 +312,31 @@ exports.getTopScorers = async (leagueCode = 'PL', limit = 20, season = currentFo
   const cached = getCached(cacheKey, TTL.SCORERS);
   if (cached) return cached;
 
-  let data = await safeFetch('/api/v1/players/topscorers', { league: leagueId, season });
-  if (!data?.response || data.response.length === 0) {
-    data = await safeFetch('/api/v1/players/topscorers', { league: leagueId, season: season - 1 });
-  }
+  const data = await safeFetch('/api/v1/players/topscorers', { league: leagueId, season });
   const rawList = data?.response || [];
 
   const formatted = rawList.slice(0, limit).map((item, idx) => ({
     rank: idx + 1,
+    season,
+    competition: leagueCode,
     player: {
-      id: item.player?.id?.toString() || item.playerId?.toString() || '',
+      id: item.player?.id || item.playerId ? 'ko_p_' + String(item.player?.id || item.playerId) : '',
+      provider: 'kickoffapi',
+      providerId: item.player?.id?.toString() || item.playerId?.toString() || '',
       name: item.player?.name || 'Player',
       photo: item.photo || item.player?.photo || '',
       nationality: item.player?.nationality || '',
-      age: item.player?.age || null,
+      age: ageFromBirthDate(item.player?.birth?.date) ?? item.player?.age ?? null,
     },
     team: {
-      id: item.team?.id?.toString() || item.teamId?.toString() || '',
+      id: item.team?.id || item.teamId ? 'ko_t_' + String(item.team?.id || item.teamId) : '',
+      provider: 'kickoffapi',
+      providerId: item.team?.id?.toString() || item.teamId?.toString() || '',
       name: item.team?.name || '',
       crest: item.team?.logo || '',
     },
-    goals: item.goals ?? item.statistics?.[0]?.goals?.total ?? 0,
-    assists: item.assists ?? item.statistics?.[0]?.goals?.assists ?? 0,
+    goals: item.goals ?? item.statistics?.[0]?.goals?.total ?? null,
+    assists: item.assists ?? item.statistics?.[0]?.goals?.assists ?? null,
     playedMatches: item.statistics?.[0]?.games?.appearences ?? null,
   }));
 
@@ -245,10 +351,11 @@ exports.getTopScorers = async (leagueCode = 'PL', limit = 20, season = currentFo
 exports.getTeamSquad = async (teamIdOrName) => {
   if (!isConfigured()) return [];
 
-  let numericId = parseInt(teamIdOrName, 10);
+  const rawTeamId = String(teamIdOrName || '').replace(/^ko_t_/, '');
+  let numericId = /^\d+$/.test(rawTeamId) ? Number(rawTeamId) : null;
   if (!numericId) {
     const team = await exports.getTeamDetails(teamIdOrName);
-    numericId = parseInt(team?.id, 10);
+    numericId = Number(team?.providerId || String(team?.id || "").replace(/^ko_t_/, ""));
   }
   if (!numericId) return [];
 
@@ -269,14 +376,17 @@ exports.getTeamSquad = async (teamIdOrName) => {
   const formatted = players.map(item => {
     const p = item.player || item;
     return {
-      id: p.id?.toString() || item.playerId?.toString() || '',
+      id: p.id || item.playerId ? 'ko_p_' + String(p.id || item.playerId) : '',
+      provider: 'kickoffapi',
+      providerId: p.id?.toString() || item.playerId?.toString() || '',
       name: p.name || `${p.firstname || ''} ${p.lastname || ''}`.trim() || 'Player',
       position: item.position || p.position || '',
+      number: item.number || p.number || null,
       jerseyNumber: item.number || p.number || null,
       country: p.nationality || p.birth?.country || '',
       nationality: p.nationality || '',
       dateBorn: p.birth?.date || '',
-      age: p.age || null,
+      age: ageFromBirthDate(p.birth?.date) ?? p.age ?? null,
       image: p.photo || (p.id ? `https://images.kickoffapi.com/images/players/${p.id}.png` : ''),
     };
   });
@@ -299,8 +409,12 @@ exports.getTeamDetails = async (teamIdOrName) => {
   let endpoint = '/api/v1/teams';
   let params = {};
 
-  if (!isNaN(teamIdOrName)) {
-    params.id = Number(teamIdOrName);
+  const rawTeamId = String(teamIdOrName || '').replace(/^ko_t_/, '');
+  const cleanTeamName = rawTeamId.toLowerCase().trim();
+  if (/^\d+$/.test(rawTeamId)) {
+    params.id = Number(rawTeamId);
+  } else if (FAMOUS_CLUBS_MAP[cleanTeamName]) {
+    params.id = FAMOUS_CLUBS_MAP[cleanTeamName];
   } else {
     params.search = teamIdOrName.replace(/-/g, ' ');
   }
@@ -323,14 +437,16 @@ exports.getTeamDetails = async (teamIdOrName) => {
     return !n.includes('u21') && !n.includes('u19') && !n.includes('u23') && !n.includes('women') && !n.includes(' w');
   });
 
-  const raw = exact || senior || rawList[0];
+  const raw = params.id ? rawList.find(item => Number((item.team || item).id) === params.id) : (exact || (rawList.length === 1 ? senior : null));
   if (!raw) return null;
 
   const team = raw.team || raw;
   const venue = raw.venue || team.venue;
 
   const formatted = {
-    id: team.id?.toString() || '',
+    id: team.id ? 'ko_t_' + String(team.id) : '',
+    provider: 'kickoffapi',
+    providerId: team.id?.toString() || '',
     name: team.name || '',
     shortName: team.name || '',
     logo: team.logo || (team.id ? `https://images.kickoffapi.com/images/logos/${team.id}.png` : ''),
@@ -352,10 +468,11 @@ exports.getTeamDetails = async (teamIdOrName) => {
 exports.getTeamFixtures = async (teamIdOrName) => {
   if (!isConfigured()) return { recent: [], upcoming: [] };
 
-  let numericId = parseInt(teamIdOrName, 10);
+  const rawTeamId = String(teamIdOrName || '').replace(/^ko_t_/, '');
+  let numericId = /^\d+$/.test(rawTeamId) ? Number(rawTeamId) : null;
   if (!numericId) {
     const team = await exports.getTeamDetails(teamIdOrName);
-    numericId = parseInt(team?.id, 10);
+    numericId = Number(team?.providerId || String(team?.id || "").replace(/^ko_t_/, ""));
   }
   if (!numericId) return { recent: [], upcoming: [] };
 
@@ -386,30 +503,16 @@ exports.getPlayerDetails = async (playerIdOrName) => {
 
   const season = currentFootballSeason();
   let params = { season };
-  if (!isNaN(playerIdOrName)) {
-    params.id = Number(playerIdOrName);
+  const rawPlayerId = String(playerIdOrName || '').replace(/^ko_p_/, '');
+  if (/^\d+$/.test(rawPlayerId)) {
+    params.id = Number(rawPlayerId);
   } else {
-    params.search = String(playerIdOrName).replace(/-/g, ' ').trim();
+    params.search = rawPlayerId.replace(/-/g, ' ').trim();
   }
 
   let data = await safeFetch('/api/v1/players', params);
   
-  // Check if player has 0 appearances in current season, if so try previous season
-  let hasAppearances = false;
-  if (data?.response && data.response.length > 0) {
-    const st = data.response[0]?.statistics?.[0] || {};
-    const app = st.games?.appearences ?? st.games?.appearances ?? 0;
-    if (Number(app) > 0) hasAppearances = true;
-  }
-
-  let actualSeason = season;
-  if (!data?.response || data.response.length === 0 || !hasAppearances) {
-    const prevData = await safeFetch('/api/v1/players', { ...params, season: season - 1 });
-    if (prevData?.response && prevData.response.length > 0) {
-      data = prevData;
-      actualSeason = season - 1;
-    }
-  }
+  const actualSeason = season;
 
   const rawList = data?.response || [];
   if (rawList.length === 0) return null;
@@ -428,10 +531,10 @@ exports.getPlayerDetails = async (playerIdOrName) => {
     const p = item.player || item;
     const fn = removeAccentsAndDashes(`${p.firstname || ''} ${p.lastname || ''}`.toLowerCase());
     const n = removeAccentsAndDashes((p.name || '').toLowerCase());
-    return fn.includes(searchStr) || n.includes(searchStr) || searchStr.includes(n);
+    return fn.trim() === removeAccentsAndDashes(searchStr).trim() || n.trim() === removeAccentsAndDashes(searchStr).trim();
   });
 
-  const raw = exact || rawList[0];
+  const raw = params.id ? rawList.find(item => Number((item.player || item).id) === params.id) : (exact || (rawList.length === 1 ? rawList[0] : null));
   if (!raw) return null;
 
   const player = raw.player || raw;
@@ -452,7 +555,9 @@ exports.getPlayerDetails = async (playerIdOrName) => {
   };
 
   const formatted = {
-    id: player.id?.toString() || '',
+    id: player.id ? 'ko_p_' + String(player.id) : '',
+    provider: 'kickoffapi',
+    providerId: player.id?.toString() || '',
     name: `${player.firstname || ''} ${player.lastname || ''}`.trim() || player.name || '',
     shortName: player.name || '',
     team: team.name || '',
@@ -462,6 +567,7 @@ exports.getPlayerDetails = async (playerIdOrName) => {
     country: player.nationality || player.birth?.country || '',
     flag: '',
     dateBorn: player.birth?.date || '',
+    age: ageFromBirthDate(player.birth?.date) ?? player.age ?? null,
     birthLocation: player.birth?.place || '',
     height: player.height || '',
     weight: player.weight || '',
@@ -473,22 +579,24 @@ exports.getPlayerDetails = async (playerIdOrName) => {
     description: '',
     seasonStats: {
       season: `${actualSeason}/${actualSeason + 1}`,
-      matches: appearances ?? 0,
-      minutes: games.minutes ?? 0,
-      goals: goals.total ?? 0,
-      assists: goals.assists ?? 0,
+      matches: appearances ?? null,
+      minutes: games.minutes ?? null,
+      goals: goals.total ?? null,
+      assists: goals.assists ?? null,
       rating: games.rating ? parseFloat(games.rating) : null,
       shotsPerGame: perGame(shots.total),
-      passAccuracy: passes.accuracy ? parseFloat(passes.accuracy) : null,
+      // Provider passes.accuracy is an opaque raw metric, not a verified percentage.
+      passAccuracy: null,
+      passesAccuracyRaw: passes.accuracy ?? null,
       keyPassesPerGame: perGame(passes.key),
       dribblesPerGame: perGame(dribbles.success),
       tacklesPerGame: perGame(tackles.total),
-      yellowCards: cards.yellow || 0,
-      redCards: cards.red || 0,
-      goalContributions: (goals.total || 0) + (goals.assists || 0),
-      penaltyGoals: stat.penalty?.scored || 0,
+      yellowCards: cards.yellow ?? null,
+      redCards: cards.red ?? null,
+      goalContributions: goals.total !== undefined && goals.total !== null && goals.assists !== undefined && goals.assists !== null ? Number(goals.total) + Number(goals.assists) : null,
+      penaltyGoals: stat.penalty?.scored ?? null,
       cleanSheets: games.position === 'Goalkeeper' ? (games.cleanSheets ?? null) : null,
-      saves: goals.saves || 0,
+      saves: goals.saves ?? null,
     },
     formerTeams: (raw.transfers || []).map(tr => ({
       team: tr.teams?.out?.name || '',
@@ -513,6 +621,9 @@ exports.getPlayerDetails = async (playerIdOrName) => {
  */
 function normalizeKickoffFixture(item) {
   if (!item) return null;
+  const rawId = item.fixture?.id || item.id;
+  const date = item.fixture?.date || item.date;
+  if (!rawId || !date || !Number.isFinite(Date.parse(date))) return null;
 
   // Support both fixture-wrapped and flat format
   const f = item.fixture || item;
@@ -533,13 +644,19 @@ function normalizeKickoffFixture(item) {
     mappedStatus = 'IN_PLAY';
   } else if (['FT', 'AET', 'PEN'].includes(statusShort)) {
     mappedStatus = 'FINISHED';
-  } else if (['POST', 'CANC', 'ABD'].includes(statusShort)) {
+  } else if (statusShort === 'PST' || statusShort === 'POST') {
     mappedStatus = 'POSTPONED';
+  } else if (statusShort === 'CANC') {
+    mappedStatus = 'CANCELLED';
+  } else if (statusShort === 'ABD') {
+    mappedStatus = 'ABANDONED';
+  } else if (statusShort === 'SUSP' || statusShort === 'INT') {
+    mappedStatus = 'SUSPENDED';
   }
 
   // Determine winner
   let winner = null;
-  if (homeScore !== null && awayScore !== null) {
+  if (mappedStatus === "FINISHED" && homeScore !== null && awayScore !== null) {
     if (homeScore > awayScore) winner = 'HOME_TEAM';
     else if (awayScore > homeScore) winner = 'AWAY_TEAM';
     else winner = 'DRAW';
@@ -548,8 +665,10 @@ function normalizeKickoffFixture(item) {
   const leagueCode = REVERSE_LEAGUE_MAP[league.id || item.leagueId] || 'OTHER';
 
   return {
-    id: f.id?.toString() || item.id?.toString() || `${Date.now()}-${Math.random()}`,
-    utcDate: f.date || item.date || new Date().toISOString(),
+    id: 'ko_' + String(rawId),
+    provider: 'kickoffapi',
+    providerId: String(rawId),
+    utcDate: date,
     status: mappedStatus,
     statusShort,
     statusLong,
@@ -562,13 +681,17 @@ function normalizeKickoffFixture(item) {
       country: league.country || 'International',
     },
     homeTeam: {
-      id: h.id?.toString() || '',
+      id: h.id ? 'ko_t_' + String(h.id) : (h.name || ''),
+      provider: 'kickoffapi',
+      providerId: h.id?.toString() || '',
       name: h.name || 'Home Team',
       shortName: h.name || 'Home',
       crest: h.logo || `https://images.kickoffapi.com/images/logos/${h.id}.png`,
     },
     awayTeam: {
-      id: a.id?.toString() || '',
+      id: a.id ? 'ko_t_' + String(a.id) : (a.name || ''),
+      provider: 'kickoffapi',
+      providerId: a.id?.toString() || '',
       name: a.name || 'Away Team',
       shortName: a.name || 'Away',
       crest: a.logo || `https://images.kickoffapi.com/images/logos/${a.id}.png`,
@@ -588,9 +711,35 @@ function normalizeKickoffFixture(item) {
   };
 }
 
+/**
+ * Fetch Single Fixture Details
+ */
+exports.getMatchDetails = async (fixtureId) => {
+  if (!isConfigured()) return null;
+  const rawFixtureId = String(fixtureId).replace(/^ko_/, '');
+  if (!/^\d+$/.test(rawFixtureId)) return null;
+  const numId = Number(rawFixtureId);
+  if (!Number.isSafeInteger(numId) || numId <= 0) return null;
+
+  const cacheKey = `kickoff:match:${numId}`;
+  const cached = getCached(cacheKey, TTL.FIXTURES_DAY);
+  if (cached) return cached;
+
+  const data = await safeFetch('/api/v1/fixtures', { id: numId });
+  const raw = data?.response?.[0];
+  if (!raw) return null;
+
+  const formatted = normalizeKickoffFixture(raw);
+  setCache(cacheKey, formatted);
+  return formatted;
+};
+
+
 module.exports = {
   ...exports,
   isConfigured,
   currentFootballSeason,
+  ageFromBirthDate,
   LEAGUE_MAP,
+  normalizeFixture: normalizeKickoffFixture,
 };

@@ -1,5 +1,6 @@
 const db = require('../config/firebase');
 const logger = require('../utils/logger');
+const { normalizeToken } = require('../utils/notificationContracts');
 const {
   normalizeFavoriteItem,
   normalizePreferences,
@@ -21,6 +22,10 @@ exports.savePreferences = async (req, res) => {
     const { userId } = req.params;
     const { fcmToken } = req.body;
     const preferences = normalizePreferences(req.body);
+    if (fcmToken !== undefined && String(req.user?.id || '') !== userId) {
+      return res.status(403).json({ success: false, message: 'Only the account owner may update a push token.' });
+    }
+    if (fcmToken !== undefined && fcmToken !== null) normalizeToken(fcmToken);
 
     if (!userId) {
       return res.status(400).json({
@@ -29,18 +34,23 @@ exports.savePreferences = async (req, res) => {
       });
     }
 
+    const userRef = db.collection('users').doc(userId);
+    const previous = await userRef.get();
+    const previousPreferences = previous.exists ? previous.data().preferences || {} : {};
     const update = {
-      preferences,
+      // Old clients may still send only legacy names. Preserve the verified ID
+      // index unless the client explicitly sends the new identity fields.
+      preferences: { ...previousPreferences, ...preferences },
       updatedAt: new Date()
     };
 
-    if (typeof fcmToken === 'string' && fcmToken.trim()) {
+    if (!previous.data()?.notificationDeviceVersion && typeof fcmToken === 'string' && fcmToken.trim()) {
       update.fcmToken = fcmToken.trim();
     } else if (fcmToken === null) {
       update.fcmToken = null;
     }
 
-    await db.collection('users').doc(userId).set(update, { merge: true });
+    await userRef.set(update, { merge: true });
 
     res.json({
       success: true,
@@ -48,11 +58,11 @@ exports.savePreferences = async (req, res) => {
     });
 
   } catch (error) {
-    logger.error("❌ SAVE PREF ERROR:", error);
+    logger.warn('User preference update failed.');
 
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Server Error'
+      message: error.statusCode ? error.message : 'Server Error'
     });
   }
 };

@@ -6,19 +6,47 @@ the realtime Socket.io events exposed by the backend.
 
 ## Base URL
 
-The Flutter app points to:
-
-```text
-https://kicksphere.onrender.com/api
-```
-
-For local development:
+The current development builds point to the local backend; the previous Render
+deployment is stopped. The production URL remains an explicit build setting.
+For local Android development through `adb reverse tcp:3000 tcp:3000`:
 
 ```bash
-flutter run --dart-define=KICKSPHERE_API_BASE_URL=http://localhost:3000/api
+flutter run --dart-define=KICKSPHERE_ENV=development --dart-define=KICKSPHERE_API_BASE_URL=http://127.0.0.1:3000/api
 ```
 
 The Socket.io URL is the API base origin without `/api`.
+
+## Verified alternative fixture identities
+
+Merged fixture rows may contain `providerIdentities`, an ordered array of two or
+three descriptors. The first descriptor anchors the displayed fixture; each
+descriptor contains `id`, `provider`, `utcDate`, `competitionCode`,
+`homeTeamId`, and `awayTeamId`. Native IDs, participant orientation, score and
+kickoff are retained from one complete preferred provider row. Alternative
+descriptors preserve the other provider's original IDs and kickoff.
+
+Joining requires a unique cross-provider candidate with the same oriented teams
+and competition context. Exact-name joins retain the existing exact-kickoff rule.
+The independently verified senior MLS identities `bsd_t_302` /
+`sc_t_seattle-sounders` and `bsd_t_299` /
+`sc_t_sporting-kansas-city` additionally permit at most the observed ten-minute
+kickoff disagreement. Country, gender, age, reserve and provider contradictions
+reject a join. Ambiguous fixtures and distinct same-provider IDs remain separate.
+This is not a global name alias or a general kickoff tolerance.
+
+Consumers validate the canonical anchor, bounded scoped IDs, distinct providers,
+competition and kickoff before using alternatives for bells, favorite filtering,
+socket rooms or installation delivery. Old subscriptions are read as stored;
+reading a fixture does not migrate preferences. Explicitly disabling its bell
+removes the known subscribed alternatives; enabling adds only the displayed ID.
+Native `/api/matches/:id` routes continue to return that provider's own fixture.
+An old SportScore notification therefore still opens its SportScore route.
+
+Validated match events carry the same array plus `utcDate` and `competitionCode`.
+These fields also survive compact `data.event` FCM serialization. One canonical
+`eventId` is retained across socket, personal inbox and push delivery; matching
+both clubs or multiple alternative IDs does not produce an additional event for
+the same installation. Missing or invalid provenance adds no subscription IDs.
 
 ## Request Conventions
 
@@ -86,12 +114,13 @@ Common status codes:
 | `409` | Duplicate user registration |
 | `429` | Rate limited |
 | `500` | Server/provider configuration error |
+| `503` | Requested data unavailable or server draining |
 
 Rate limits:
 
 | Area | Limit |
 | --- | --- |
-| General API | 200 requests per 15 minutes |
+| General API | 1200 requests per 15 minutes |
 | Auth routes | 20 requests per 15 minutes |
 | Search routes | 60 requests per minute |
 
@@ -104,6 +133,7 @@ The current Flutter app calls these backend routes directly:
 | `AuthService.login` | `POST /api/auth/login` |
 | `AuthService.register` | `POST /api/auth/register` |
 | `LocalBackendService.getMatchesByDate` | `GET /api/matches?date=YYYY-MM-DD` |
+| `LocalBackendService.getMatchesForLocalDay` | `GET /api/matches?from=<UTC-ISO>&to=<UTC-ISO>` |
 | `LocalBackendService.getMatchDetails` | `GET /api/matches/:id` |
 | `LocalBackendService.getMatchTimeline` | `GET /api/stats/matches/:id/timeline` |
 | `LocalBackendService.getMatchLineups` | `GET /api/stats/matches/:id/lineups` |
@@ -155,7 +185,7 @@ The canonical app-facing match shape is:
 
 ```json
 {
-  "id": "497410",
+  "id": "arsenal-vs-chelsea-opaque-fixture-id",
   "slug": "arsenal-vs-chelsea",
   "utcDate": "2026-08-29T16:30:00Z",
   "status": "TIMED",
@@ -177,7 +207,8 @@ The canonical app-facing match shape is:
     "countryFlag": ""
   },
   "homeTeam": {
-    "id": "57",
+    "id": "sc_t_arsenal",
+    "provider": "sportscore",
     "name": "Arsenal",
     "shortName": "Arsenal",
     "fullName": "Arsenal FC",
@@ -185,13 +216,16 @@ The canonical app-facing match shape is:
     "logo": "https://example.com/crest.png"
   },
   "awayTeam": {
-    "id": "61",
+    "id": "sc_t_chelsea",
+    "provider": "sportscore",
     "name": "Chelsea",
     "shortName": "Chelsea",
     "fullName": "Chelsea FC",
     "crest": "https://example.com/crest.png",
     "logo": "https://example.com/crest.png"
   },
+  "provider": "sportscore",
+  "source": "sportscore",
   "score": {
     "winner": null,
     "fullTime": { "home": null, "away": null },
@@ -207,6 +241,8 @@ TIMED, SCHEDULED, IN_PLAY, LIVE, PAUSED, HALFTIME, FINISHED, FT, AET, PEN, POSTP
 ```
 
 For upcoming matches, scores should stay `null` instead of artificial `0 - 0`.
+
+Club IDs are nullable when the provider supplies only a display name. Verified IDs use `sc_t_<exact-provider-id-or-slug>`, `ko_t_<positive-provider-integer>` or `bsd_t_<positive-provider-integer>`; canonical IDs are at most 120 characters (raw SportScore/KickOff IDs at most 115, raw BSD IDs at most 114). Leading-zero/zero numeric IDs and contradictory provider metadata are rejected. A missing club ID never authorizes a guessed slug, name-only favorite match or another provider lookup. See [provider club identity limits](production-readiness.md#provider-club-identity-limits).
 
 ### Timeline Event
 
@@ -346,10 +382,10 @@ Canonical favorite item:
 ```json
 {
   "type": "team",
-  "targetId": "Arsenal",
+  "targetId": "sc_t_arsenal",
   "displayName": "Arsenal",
-  "provider": "football-data.org",
-  "providerId": "57",
+  "provider": "sportscore",
+  "providerId": "arsenal",
   "imageUrl": "https://example.com/badge.png",
   "metadata": {
     "league": "Premier League"
@@ -360,7 +396,9 @@ Canonical favorite item:
 Required fields:
 
 - `type`: `team`, `competition`, or `athlete`.
-- `targetId`: stable app-facing id.
+- `targetId`: stable app-facing id. Team IDs must be scoped as `sc_t_<exact-provider-slug>`, `ko_t_<numeric-provider-id>` or `bsd_t_<numeric-provider-id>` for matching/subscriptions.
+
+`name`/`logo` are accepted as `displayName`/`imageUrl` aliases. Legacy name-only team favorites remain readable but cannot select recommendations or notifications until a genuine provider identity is resolved. Saving a legacy record does not silently convert its name into a slug.
 
 Accepted legacy aliases:
 
@@ -393,6 +431,12 @@ Response:
   "environment": "development"
 }
 ```
+
+## Readiness
+
+### `GET /api/ready`
+
+Startup readiness returns `success: true`, `status: "ready"`, initialization/configuration checks and `providerReachabilityChecked: false`; HTTP 503 is returned while draining. This endpoint triggers no provider or database request and does not prove upstream availability or data completeness. See [production release gates](production-readiness.md).
 
 ## Authentication
 
@@ -500,7 +544,7 @@ All arrays contain match objects.
 
 ### `GET /api/matches?date=:date`
 
-Returns grouped matches for a date.
+Returns grouped matches for a provider UTC date. This legacy selector is preserved; local calendar screens use the explicit interval contract below.
 
 Allowed date values:
 
@@ -538,11 +582,65 @@ Compatibility alias:
 GET /api/matches/date?date=:date
 ```
 
+### `GET /api/matches?from=<UTC-ISO>&to=<UTC-ISO>`
+
+Returns grouped fixtures inside the caller's half-open interval `[from, to)`. The backend fetches every overlapping provider UTC date, filters actual kickoff instants, removes duplicate fixture IDs and sorts fixtures within the interval. The end instant is exclusive, so a match at the next local midnight belongs to the next day.
+
+Rules:
+
+- Both bounds are required, must be exact UTC ISO timestamps ending in `Z`, and must identify valid instants.
+- The duration must be positive and no greater than 26 hours. A calendar day may last 23 or 25 hours at a daylight-saving transition.
+- `date` cannot be mixed with `from`/`to`. Invalid, missing, reversed, non-UTC or oversized bounds return HTTP `400` before provider reads.
+- The response echoes normalized `range.from`, `range.to` and `range.toExclusive: true`; it does not return a misleading single UTC `date` selector.
+
+For **1 October 2026 in Asia/Riyadh**, local midnight-to-midnight is:
+
+```http
+GET /api/matches?from=2026-09-30T21:00:00.000Z&to=2026-10-01T21:00:00.000Z
+```
+
+Flutter constructs both local calendar midnights using `MatchdayWindow.forLocalDate`, then calls `LocalBackendService.getMatchesForLocalDay`. It validates the echoed bounds, filters kickoff instants defensively and caches the result under a key containing the local date and both UTC bounds. Calendar days use the next local midnight instead of adding a fixed 24 hours. Saved coverage is retained even for an empty fixture list.
+
+Example HTTP `200` with one available UTC day and one unavailable UTC day:
+
+```json
+{
+  "success": true,
+  "source": "sportscore",
+  "range": {
+    "from": "2026-09-30T21:00:00.000Z",
+    "to": "2026-10-01T21:00:00.000Z",
+    "toExclusive": true
+  },
+  "total": 0,
+  "coverage": {
+    "available": true,
+    "complete": false,
+    "partial": true,
+    "possiblyTruncated": false,
+    "returned": 0,
+    "utcDays": [
+      {"date":"2026-09-30","source":"sportscore","available":true,"returned":0,"complete":true,"possiblyTruncated":false},
+      {"date":"2026-10-01","source":"unavailable","available":false,"returned":0,"complete":false,"possiblyTruncated":false}
+    ]
+  },
+  "data": []
+}
+```
+
+`data` uses the same competition groups as the legacy endpoint. A partially available interval returns HTTP `200` with usable groups and explicit `partial: true`, `complete: false`; an empty partial list does not prove that no games were scheduled. When all overlapping UTC days are unavailable, HTTP `503` returns `success: false`, `source: "unavailable"`, the echoed range, `total: 0`, `data: []` and `coverage.available: false`. A successful authoritative empty provider response remains HTTP `200`.
+
+Coverage aggregates the availability and cap metadata of both general and supplemental league queries. A provider page at its 200-fixture limit, failed supplement or uncertified completeness cannot become `complete: true` merely because other fixtures merged successfully. These fields describe fixture-feed coverage; they do not certify worldwide coverage, club identity completeness, roster availability or advanced statistics.
+
+SportScore documents no pagination cursor, page or offset for `/api/v1/fixtures/`. A capped daily read makes at most three additional fixture-batch requests using its documented `live`, `finished` and `upcoming` filters, retaining the original feed and merging exact fixture identities. Every batch is checked against the requested UTC day, competition and status before it is cached as a fixture. Initial or partition caps remain `possiblyTruncated: true`, `complete: false`; status partitions cannot certify coverage of postponed/cancelled or unlisted fixtures. Concurrent identical upstream reads share one request, and successful batches retain the existing short cache lifetime. All SportScore HTTP reads, including optional shared standings lookups for club identity, use at most three active slots with at most 128 distinct pending reads; queue exhaustion stays unavailable/partial. These bounds limit bursts and duplicate reads, but do not replace a daily-quota monitor.
+
+Each query may additionally report `upstreamReturned`, `accepted`, `recovered`, `invalidRecords`, `outsideDate`, `outsideCompetition`, `outsideStatus`, `reason` and up to three `partitions`. `returned` is the merged usable row count; `upstreamReturned` includes duplicate records across batches. Each partition reports its requested status, availability, raw/accepted counts, cap flag and rejected-record counts. Rejection counts describe reads rather than unique fixtures, so a wrong record repeated in multiple batches may be counted more than once. The day-level `invalidRecords` and `outsideDate` totals preserve records already rejected by the adapter instead of disappearing during merging.
+
 ### `GET /api/matches/live`
 
-Returns live matches. If the primary live provider has no live matches, the
-service may return a limited set of active/recent matches depending on provider
-fallbacks.
+Returns live matches. A successful empty primary feed remains HTTP `200` with an empty list; a provider outage with no usable fallback returns HTTP `503`. Finished fixtures are not used to fabricate a live list.
+
+SportScore live reads retain genuinely active fixtures that kicked off on the previous UTC day, so a midnight boundary does not silently remove an ongoing match. Daily calendar partitions remain strictly scoped to their selected UTC day. Live query coverage includes caps and malformed/out-of-scope provider rows.
 
 Response:
 
@@ -635,7 +733,7 @@ Response:
 
 These endpoints are backend-managed provider facades for Flutter detail screens.
 Flutter should not call SportScore, SofaScore, TheSportsDB, football-data.org,
-KickOff, or RapidAPI directly.
+KickOff, BSD, or RapidAPI directly.
 
 ### `GET /api/stats/leagues`
 
@@ -1013,7 +1111,8 @@ Request:
 
 ```json
 {
-  "teams": ["Arsenal", "Real Madrid"],
+  "teamIds": ["sc_t_arsenal", "sc_t_real-madrid"],
+  "teamsV2": [{"targetId":"sc_t_real-madrid","provider":"sportscore","name":"Real Madrid"}],
   "leagues": ["PL", "PD"],
   "content": ["goals", "lineups"],
   "fcmToken": "optional-device-token"
@@ -1022,7 +1121,9 @@ Request:
 
 Normalization:
 
-- `teams` and `leagues`: unique strings, empty values removed, max 50.
+- `teamIds`: up to 50 exact scoped IDs used for targeted notifications/recommendations. Records in `teams`, `teamsV2` or `teamRecords` also contribute verified IDs.
+- `teamsV2`: display records normalized with the favorite item contract.
+- Legacy `teams` and `leagues`: unique strings, empty values removed, max 50. Legacy names cannot route alerts. Omitting new fields preserves an existing verified index; explicitly empty new arrays clear it.
 - `content`: unique strings, empty values removed, max 20.
 - `fcmToken`: saved when a non-empty string, cleared when `null`.
 
@@ -1443,12 +1544,12 @@ Payload:
 
 ```json
 {
-  "teams": ["Arsenal", "Real Madrid"],
+  "teams": ["sc_t_arsenal", {"targetId":"ko_t_541","provider":"kickoffapi","name":"Real Madrid"}],
   "userId": "user-id"
 }
 ```
 
-Subscribes to up to 50 team rooms. The user room part requires self/admin access.
+Subscribes to up to 50 rooms using exact scoped IDs. Legacy names and ambiguous bare numeric IDs are ignored. The user room part requires self/admin access.
 
 #### `sendMessage`
 
@@ -1507,7 +1608,8 @@ Emitted to match and team rooms when a live event is detected.
   "matchId": "497410",
   "type": "goal",
   "team": "Arsenal",
-  "teamId": "57",
+  "teamId": "sc_t_arsenal",
+  "againstTeamId": "sc_t_chelsea",
   "against": "Chelsea",
   "score": "1 - 0",
   "tournament": "Premier League",
@@ -1560,6 +1662,8 @@ Optional provider settings:
 ```text
 FOOTBALL_DATA_API_KEY
 KICKOFF_API_KEY
+BSD_API_TOKEN
+BSD_BASE_URL=https://sports.bzzoiro.com
 ENABLE_SOFASCORE_PROXY=false
 ENABLE_LIVE_POLLING=false
 ALLOW_FIRESTORE_SEED=false
@@ -1571,8 +1675,17 @@ ENABLE_DEMO_NEWS=false
 
 Provider behavior:
 
-- SportScore is attempted first for live matches, details, standings, top
-  scorers, search, and simple team/player facades.
+- Configured BSD v2 is preferred for covered fixtures, standings and scorers;
+  SportScore supplements wider fixture coverage. Match, club and player details
+  retain their exact source identity; no name-only joins remap provider IDs.
+- BSD detail IDs are `bsd_<event>`, `bsd_t_<team>` and `bsd_p_<player>`.
+  The actual catalog retains known codes and uses `BSD:<league-id>` for other
+  entries. Valid empty reads are authoritative; failed reads remain unavailable.
+- Predicted lineups are explicitly labeled and retain supplied confidence;
+  estimated xG retains its provenance. Missing fields are not zero values.
+- Player current-season totals include only the selected club/competition/season
+  context. Career and transfer rows are separate from these totals.
+- SportScore continues to serve its own IDs and available fallback data.
 - KickOff API is used for richer team/player, squad, standings, fixtures, and
   match fallback data when configured.
 - football-data.org is the stable fallback for supported competitions.
@@ -1580,6 +1693,10 @@ Provider behavior:
 - News returns an empty list unless demo mode or a real provider is enabled.
 
 ## Verification
+
+### Public BSD images
+
+`GET /api/images/bsd/:type/:id` serves public BSD PNG/JPEG/WebP images for Flutter Web. `type` is restricted to `team`, `player`, `league`, `manager` or `venue`; `id` is a positive safe integer. The upstream host is fixed, redirects are disabled, and no API token is forwarded. Requests are coalesced and the cache is limited to 16 MiB/128 images. Missing images return `404`, invalid type/ID returns `400`, and unavailable or invalid upstream image bytes return `502` (or `503` when the concurrency bound is reached). Web responses use the normal app origin policy.
 
 Run the backend contract checks with:
 

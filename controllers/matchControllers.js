@@ -5,6 +5,8 @@
  */
 
 const sportsDataService = require('../services/sportsDataService');
+const bsdSportsService = require('../services/bsdSportsService');
+const { normalizeLimit } = require('../utils/sportsContracts');
 const logger = require('../utils/logger');
 
 const serverError = (res) => res.status(500).json({ success: false, message: 'Server Error' });
@@ -28,22 +30,29 @@ const COMP_PRIORITY = ['CL', 'EL', 'ECL', 'WC', 'EC', 'PL', 'PD', 'SA', 'BL1', '
 
 exports.getMatchesByDate = async (req, res) => {
   try {
-    const date = req.query.date || 'TODAY';
-    const result = await sportsDataService.getMatchesByDate(date);
+    const query = req.query || {};
+    const hasInterval = Object.hasOwn(query, 'from') || Object.hasOwn(query, 'to');
+    if (hasInterval && Object.hasOwn(query, 'date')) {
+      return res.status(400).json({ success: false, message: 'Use either date or from/to, not both' });
+    }
+    const date = query.date || 'TODAY';
+    const result = hasInterval ? await sportsDataService.getMatchesInInterval(query.from, query.to) :
+      await sportsDataService.getMatchesByDate(date);
 
     if (!result.success) {
       return res.status(result.statusCode || 400).json({
         success: false,
-        message: result.message
+        message: result.message,
+        ...(result.range ? { source: result.source, range: result.range, total: 0, coverage: result.coverage, data: [] } : {}),
       });
     }
 
     const matches = result.data;
 
     // Group by competition
-    const grouped = {};
+    const grouped = Object.create(null);
     for (const m of matches) {
-      const key = m.competition.code || 'OTHER';
+      const key = m.competition?.code || 'OTHER';
       if (!grouped[key]) {
         grouped[key] = {
           competition: m.competition,
@@ -55,8 +64,8 @@ exports.getMatchesByDate = async (req, res) => {
 
     // Sort groups by priority (known leagues first, then unknown)
     const sortedGroups = Object.values(grouped).sort((a, b) => {
-      const aIdx = COMP_PRIORITY.indexOf(a.competition.code);
-      const bIdx = COMP_PRIORITY.indexOf(b.competition.code);
+      const aIdx = COMP_PRIORITY.indexOf(a.competition?.code);
+      const bIdx = COMP_PRIORITY.indexOf(b.competition?.code);
       const aPrio = aIdx !== -1 ? aIdx : 999;
       const bPrio = bIdx !== -1 ? bIdx : 999;
       return aPrio - bPrio;
@@ -64,7 +73,7 @@ exports.getMatchesByDate = async (req, res) => {
 
     res.json({
       success: true,
-      date,
+      ...(hasInterval ? { range: result.range } : { date }),
       source: result.source,
       total: matches.length,
       coverage: result.coverage,
@@ -91,6 +100,7 @@ exports.getLiveMatches = async (req, res) => {
       success: true,
       source: result.source,
       count: matches.length,
+      coverage: result.coverage,
       data: matches,
     });
   } catch (error) {
@@ -120,6 +130,7 @@ exports.getCompetitionMatches = async (req, res) => {
       success: true,
       source: result.source,
       count: result.data.length,
+      coverage: result.coverage,
       data: result.data,
     });
   } catch (error) {
@@ -136,7 +147,10 @@ exports.getMatchDetails = async (req, res) => {
     const { id } = req.params;
 
     const result = await sportsDataService.getMatchDetails(id);
-    const data = result.data;
+    let data = result?.data;
+    let source = result?.source || 'sportsdata';
+
+    // Request hints are not proof a fixture exists.
 
     if (!data) {
       return res.status(404).json({
@@ -145,7 +159,7 @@ exports.getMatchDetails = async (req, res) => {
       });
     }
 
-    res.json({ success: true, source: result.source, data });
+    res.json({ success: true, source, coverage: result.coverage, data });
   } catch (error) {
     logger.error(`❌ MATCH DETAILS ERROR: ${error.message}`);
     serverError(res);
@@ -180,3 +194,45 @@ exports.searchMatches = async (req, res) => {
 
 // Keep backward compat
 exports.getMatches = exports.getMatchesByDate;
+
+// ==========================================
+// 🔮 ML & AI PREDICTIONS (Powered by CatBoost & BSD)
+// ==========================================
+exports.getPredictions = async (req, res) => {
+  try {
+    const limit = normalizeLimit(req.query.limit, 50, 100);
+    const predictions = await bsdSportsService.getPredictions({ limit });
+    if (!Array.isArray(predictions)) return res.status(503).json({ success: false, source: 'unavailable',
+      message: 'Predictions provider unavailable', data: [] });
+    res.json({
+      success: true,
+      source: 'bsd_catboost_ml',
+      total: predictions.length,
+      coverage: predictions.coverage,
+      data: predictions
+    });
+  } catch (error) {
+    logger.error(`❌ GET PREDICTIONS ERROR: ${error.message}`);
+    serverError(res);
+  }
+};
+
+exports.getMatchPrediction = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const homeTeam = req.query.home || '';
+    const awayTeam = req.query.away || '';
+    const prediction = await bsdSportsService.getPredictionForMatch(id, homeTeam, awayTeam);
+    if (!prediction) {
+      return res.status(404).json({ success: false, message: 'Prediction not found for this match' });
+    }
+    res.json({
+      success: true,
+      source: 'bsd_catboost_ml',
+      data: prediction
+    });
+  } catch (error) {
+    logger.error(`❌ GET MATCH PREDICTION ERROR: ${error.message}`);
+    serverError(res);
+  }
+};

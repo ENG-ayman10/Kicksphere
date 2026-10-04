@@ -10,6 +10,7 @@ const FAVORITE_TYPE_ALIASES = {
 const MAX_STRING_LENGTH = 160;
 const MAX_TARGET_ID_LENGTH = 120;
 const MAX_METADATA_KEYS = 20;
+const { favoriteTeamId, favoriteTeamIds } = require('./teamIdentity');
 
 const createValidationError = (message) => {
   const error = new Error(message);
@@ -64,29 +65,35 @@ const normalizeFavoriteItem = (item) => {
     throw createValidationError('Favorite item type must be team, competition, or athlete.');
   }
 
-  const targetId = toTrimmedString(
-    item.targetId || item.id || item.providerId || item.externalId,
-    MAX_TARGET_ID_LENGTH
-  );
+  const rawTargetId = String(item.targetId || item.id || item.providerId || item.externalId || '').trim();
+  if (rawTargetId.length > MAX_TARGET_ID_LENGTH) {
+    throw createValidationError('Favorite item targetId is too long.');
+  }
+  const targetId = rawTargetId;
 
   if (!targetId) {
     throw createValidationError('Favorite item targetId is required.');
   }
 
+  const provider = toTrimmedString(item.provider || item.source || item.externalProvider, 60);
+  const scopedId = type === 'team' ? favoriteTeamId({ ...item, targetId, provider }) : null;
+  if (type === 'team' && /^((ko|sc|bsd)_t_)/.test(targetId) && !scopedId) {
+    throw createValidationError('Favorite team provider does not match its scoped targetId.');
+  }
   const favorite = {
     type,
-    targetId,
-    canonicalKey: `${type}:${targetId.toLowerCase()}`
+    targetId: scopedId || targetId,
+    canonicalKey: `${type}:${(scopedId || targetId).toLowerCase()}`
   };
 
   const displayName = toTrimmedString(item.displayName || item.name || item.title);
-  const provider = toTrimmedString(item.provider || item.source || item.externalProvider, 60);
   const providerId = toTrimmedString(item.providerId || item.externalId, MAX_TARGET_ID_LENGTH);
   const imageUrl = toTrimmedString(item.imageUrl || item.logo || item.avatar || item.image, 2048);
   const metadata = normalizeMetadata(item.metadata);
 
   if (displayName) favorite.displayName = displayName;
-  if (provider) favorite.provider = provider;
+  if (provider || scopedId) favorite.provider = scopedId?.startsWith('ko_t_') ? 'kickoffapi' :
+    scopedId?.startsWith('bsd_t_') ? 'bsd' : scopedId ? 'sportscore' : provider;
   if (providerId) favorite.providerId = providerId;
   if (imageUrl) favorite.imageUrl = imageUrl;
   if (Object.keys(metadata).length > 0) favorite.metadata = metadata;
@@ -114,6 +121,7 @@ const normalizeStringArray = (value, maxItems = 50) => {
   const normalized = [];
 
   for (const item of value) {
+    if (!['string', 'number'].includes(typeof item)) continue;
     const text = toTrimmedString(item, MAX_TARGET_ID_LENGTH);
     const key = text.toLowerCase();
 
@@ -133,11 +141,25 @@ const normalizeStringArray = (value, maxItems = 50) => {
 };
 
 const normalizePreferences = (body = {}) => {
-  return {
+  const preferences = {
     teams: normalizeStringArray(body.teams),
     leagues: normalizeStringArray(body.leagues),
     content: normalizeStringArray(body.content, 20)
   };
+  const records = [...(Array.isArray(body.teams) ? body.teams : []),
+    ...(Array.isArray(body.teamIds) ? body.teamIds : []),
+    ...(Array.isArray(body.teamsV2) ? body.teamsV2 : []),
+    ...(Array.isArray(body.teamRecords) ? body.teamRecords : [])];
+  if (Object.hasOwn(body, 'teamIds') || Object.hasOwn(body, 'teamsV2') || Object.hasOwn(body, 'teamRecords') ||
+      records.some(item => favoriteTeamId(item))) {
+    preferences.teamIds = favoriteTeamIds(records);
+    const seen = new Set();
+    preferences.teamsV2 = records.filter(record => record && typeof record === 'object' && favoriteTeamId(record))
+      .map(record => normalizeFavoriteItem({ ...record, type: 'team' }))
+      .filter(record => { if (seen.has(record.targetId)) return false; seen.add(record.targetId); return true; })
+      .slice(0, 50);
+  }
+  return preferences;
 };
 
 module.exports = {

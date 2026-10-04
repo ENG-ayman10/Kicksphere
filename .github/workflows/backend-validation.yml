@@ -1,0 +1,22 @@
+name: Backend validation
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  offline-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+        env:
+          NODE_ENV: test
+          ENABLE_LIVE_POLLING: 'false'
+      - run: npm run audit:prod

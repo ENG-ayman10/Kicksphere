@@ -3,13 +3,15 @@
  * @description Stats endpoints — SportScore primary with robust fallbacks.
  */
 
-const axios = require('axios');
 const sportscoreService = require('../services/sportscoreService');
 const sportsDataService = require('../services/sportsDataService');
 const kickoffApiService = require('../services/kickoffApiService');
-const { resolveLocalTeam } = require('../services/teamService');
+const bsdSportsService = require('../services/bsdSportsService');
+const { resolveLocalTeam, resolveProviderTeamLookup } = require('../services/teamService');
 const { getCached, setCache } = require('../services/cacheService');
 const logger = require('../utils/logger');
+const { scopedTeamId } = require('../utils/teamIdentity');
+const { filterPresentedTimeline } = require('../utils/matchTimelineTiming');
 
 const serverError = (res) => res.status(500).json({ success: false, message: 'Server Error' });
 
@@ -54,23 +56,12 @@ const callProvider = async (label, fn) => {
 };
 
 const normalizeTeamInfo = (localTeam, ...providerInfos) => {
-  const info = mergePresent(localTeam || {}, ...providerInfos);
-
-  if (localTeam) {
-    info.id = localTeam.id;
-    info.targetId = localTeam.targetId;
-    info.name = localTeam.name;
-    info.shortName = localTeam.shortName;
-    info.logo = info.logo || info.crest || localTeam.logo;
-    info.crest = info.crest || info.logo || localTeam.crest;
-    info.league = info.league || localTeam.league;
-    info.leagueCode = info.leagueCode || localTeam.leagueCode;
-    info.country = info.country || localTeam.country;
-  }
-
+  const provided = providerInfos.filter(value => value && value.name);
+  // Static aliases cannot override the name, ID, country, or league of a
+  // provider entity. This matters for namesakes such as Barcelona clubs.
+  const info = provided.length ? mergePresent(...provided) : mergePresent(localTeam || {});
   if (!info.manager && info.coach) info.manager = info.coach;
   if (!info.coach && info.manager) info.coach = info.manager;
-
   return info;
 };
 
@@ -94,7 +85,7 @@ const eventBelongsToSide = (event, side, teamNames = []) => {
   return Boolean(team) && teamNames.some(name => String(name || '').trim().toLowerCase() === team);
 };
 
-const hydrateTimelineTeams = (timeline = [], matchInfo = {}) => timeline.map(event => {
+const hydrateTimelineTeams = (timeline = [], matchInfo = {}) => filterPresentedTimeline(timeline, matchInfo).map(event => {
   if (event?.team) return event;
 
   const side = String(event?.side || '').toLowerCase();
@@ -108,63 +99,127 @@ const hydrateTimelineTeams = (timeline = [], matchInfo = {}) => timeline.map(eve
   };
 });
 
-const buildBasicMatchStatistics = (matchInfo, goals = [], bookings = [], substitutions = []) => {
-  const homeNames = [
-    matchInfo?.homeTeam?.name,
-    matchInfo?.homeTeam?.fullName,
-    matchInfo?.homeTeam?.shortName
-  ].filter(Boolean);
-  const awayNames = [
-    matchInfo?.awayTeam?.name,
-    matchInfo?.awayTeam?.fullName,
-    matchInfo?.awayTeam?.shortName
-  ].filter(Boolean);
-
-  const timeline = Array.isArray(matchInfo?.timeline) ? matchInfo.timeline : [];
-  const allGoals = hasItems(goals) ? goals : timeline.filter(event => event?.type === 'goal');
-  const allBookings = hasItems(bookings)
-    ? bookings
-    : timeline.filter(event => ['yellow_card', 'red_card'].includes(event?.type));
-  const allSubs = hasItems(substitutions)
-    ? substitutions
-    : timeline.filter(event => event?.type === 'substitution');
-
-  const homeScore = toNumberOrNull(matchInfo?.score?.fullTime?.home ?? matchInfo?.homeScore);
-  const awayScore = toNumberOrNull(matchInfo?.score?.fullTime?.away ?? matchInfo?.awayScore);
-  const homeHalf = toNumberOrNull(matchInfo?.score?.halfTime?.home);
-  const awayHalf = toNumberOrNull(matchInfo?.score?.halfTime?.away);
-
-  const countFor = (events, side, predicate = () => true) => events
-    .filter(event => predicate(event) && eventBelongsToSide(event, side, side === 'home' ? homeNames : awayNames))
-    .length;
-
-  const homeGoals = homeScore ?? countFor(allGoals, 'home');
-  const awayGoals = awayScore ?? countFor(allGoals, 'away');
-
-  return {
-    goals: { home: homeGoals, away: awayGoals },
-    yellowCards: {
-      home: countFor(allBookings, 'home', event => String(event?.card || event?.type || '').toUpperCase() !== 'RED_CARD' && String(event?.card || '').toUpperCase() !== 'RED'),
-      away: countFor(allBookings, 'away', event => String(event?.card || event?.type || '').toUpperCase() !== 'RED_CARD' && String(event?.card || '').toUpperCase() !== 'RED'),
-    },
-    redCards: {
-      home: countFor(allBookings, 'home', event => String(event?.card || event?.type || '').toUpperCase() === 'RED_CARD' || String(event?.card || '').toUpperCase() === 'RED'),
-      away: countFor(allBookings, 'away', event => String(event?.card || event?.type || '').toUpperCase() === 'RED_CARD' || String(event?.card || '').toUpperCase() === 'RED'),
-    },
-    substitutions: {
-      home: countFor(allSubs, 'home'),
-      away: countFor(allSubs, 'away'),
-    },
-    halfTimeScore: {
-      home: homeHalf,
-      away: awayHalf,
-    },
-    fullTimeScore: {
-      home: homeScore,
-      away: awayScore,
-    },
-    hasAdvancedStats: false,
+const buildBasicMatchStatistics = (matchInfo = {}, goals = [], bookings = [], substitutions = []) => {
+  // Event feeds can be partial. Unknown totals stay unknown unless the provider
+  // explicitly confirms complete incident coverage; a missing list is not zero.
+  const timeline = Array.isArray(matchInfo.timeline) ? matchInfo.timeline : [];
+  const allBookings = hasItems(bookings) ? bookings : timeline.filter(e => ['yellow_card', 'red_card'].includes(e?.type));
+  const allSubs = hasItems(substitutions) ? substitutions : timeline.filter(e => e?.type === 'substitution');
+  const complete = matchInfo.incidentsComplete === true;
+  const countFor = (events, side, predicate = () => true) => complete ? events.filter(e =>
+    predicate(e) && eventBelongsToSide(e, side, [matchInfo[side + 'Team']?.name, matchInfo[side + 'Team']?.shortName])
+  ).length : null;
+  const stats = Array.isArray(matchInfo.providerStatistics) ? matchInfo.providerStatistics : [];
+  const label = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const read = (names, side) => {
+    const row = stats.find(s => names.some(name => label(s.label || s.name) === label(name)));
+    if (!row) return null;
+    const value = row[side];
+    if (typeof value === 'string' && /^-?\d+(?:\.\d+)?%$/.test(value.trim())) return toNumberOrNull(value.trim().slice(0,-1));
+    return toNumberOrNull(value);
   };
+  const sideStats = side => {
+    const yellow = read(['Yellow Cards'], side) ?? countFor(allBookings, side, e => !['RED','RED_CARD'].includes(String(e.card || e.type || '').toUpperCase()));
+    const red = read(['Red Cards'], side) ?? countFor(allBookings, side, e => ['RED','RED_CARD'].includes(String(e.card || e.type || '').toUpperCase()));
+    const onTarget = read(['Shots on Target', 'Shots on Goal'], side);
+    const offTarget = read(['Shots off Target', 'Shots off Goal'], side);
+    const possession = read(['Ball Possession', 'Possession'], side);
+    return {
+      ballPossession: possession,
+      ballPossessionText: possession === null ? null : String(possession) + '%',
+      expectedGoals: read(['Expected Goals (xG)', 'Expected Goals', 'xG'], side),
+      totalShots: read(['Total Shots', 'Shots Total'], side) ?? (onTarget !== null && offTarget !== null ? onTarget + offTarget : null),
+      shotsOnTarget: onTarget,
+      bigChances: read(['Big Chances'], side),
+      corners: read(['Corner Kicks', 'Corners'], side),
+      offsides: read(['Offsides'], side),
+      passesTotal: read(['Passes', 'Total Passes'], side),
+      passesAccuracy: read(['Pass Accuracy', 'Passes Accuracy', 'Pass Accuracy %'], side),
+      tackles: read(['Tackles', 'Total Tackles'], side),
+      interceptions: read(['Interceptions'], side),
+      saves: read(['Total Saves', 'Goalkeeper Saves', 'Saves'], side),
+      fouls: read(['Fouls'], side),
+      yellowCards: yellow,
+      redCards: red
+    };
+  };
+  const home = sideStats('home'), away = sideStats('away');
+  const homeScore = toNumberOrNull(matchInfo.score?.fullTime?.home ?? matchInfo.homeScore);
+  const awayScore = toNumberOrNull(matchInfo.score?.fullTime?.away ?? matchInfo.awayScore);
+  return {
+    goals: { home: homeScore, away: awayScore },
+    yellowCards: { home: home.yellowCards, away: away.yellowCards },
+    redCards: { home: home.redCards, away: away.redCards },
+    substitutions: { home: countFor(allSubs, 'home'), away: countFor(allSubs, 'away') },
+    halfTimeScore: { home: toNumberOrNull(matchInfo.score?.halfTime?.home), away: toNumberOrNull(matchInfo.score?.halfTime?.away) },
+    fullTimeScore: { home: homeScore, away: awayScore },
+    hasAdvancedStats: Object.values(home).some(isPresent) || Object.values(away).some(isPresent),
+    team1: home,
+    team2: away
+  };
+};
+
+const headToHeadForMatch = (raw, match) => {
+  if (!raw) return null;
+  if (!Array.isArray(raw)) return typeof raw === 'object' ? raw : null;
+  const homeId = match.homeTeam?.id, awayId = match.awayTeam?.id;
+  const finished = raw.filter(row => row?.status === 'FINISHED' && row.id !== match.id &&
+    homeId && awayId && ((row.homeTeam?.id === homeId && row.awayTeam?.id === awayId) ||
+      (row.homeTeam?.id === awayId && row.awayTeam?.id === homeId)) &&
+    toNumberOrNull(row.score?.fullTime?.home) !== null && toNumberOrNull(row.score?.fullTime?.away) !== null);
+  let homeWins = 0, awayWins = 0, draws = 0;
+  for (const row of finished) {
+    const home = Number(row.score.fullTime.home), away = Number(row.score.fullTime.away);
+    if (home === away) draws++;
+    else if ((home > away && row.homeTeam.id === homeId) || (away > home && row.awayTeam.id === homeId)) homeWins++;
+    else awayWins++;
+  }
+  return { matches: raw, numberOfMatches: finished.length, homeTeam: { id: homeId, wins: homeWins, draws },
+    awayTeam: { id: awayId, wins: awayWins, draws }, scope: 'returnedFinishedFixtures', complete: raw.coverage?.complete === true };
+};
+
+const buildBsdDeepMatch = (details, prediction) => {
+  const matchInfo = { ...details.matchInfo,
+    providerStatistics: Array.isArray(details.statistics) ? details.statistics : details.matchInfo.providerStatistics || [],
+    venue: details.matchInfo.venue && typeof details.matchInfo.venue === 'object'
+      ? details.matchInfo.venue.name || null : details.matchInfo.venue,
+    venueInfo: details.venue || details.matchInfo.venueInfo || null,
+  };
+  const timeline = hydrateTimelineTeams(details.timeline || details.incidents || [], matchInfo);
+  const goals = timeline.filter(event => event.type === 'goal').map(event => ({ ...event,
+    scorer: event.player || '', type: event.label || 'Goal' }));
+  const bookings = timeline.filter(event => event.rescinded !== true && ['yellow_card', 'red_card'].includes(event.type)).map(event => ({ ...event,
+    card: event.type === 'red_card' ? 'RED' : 'YELLOW' }));
+  const substitutions = timeline.filter(event => event.type === 'substitution');
+  const statistics = details.statistics?.team1 ? details.statistics : buildBasicMatchStatistics(matchInfo, goals, bookings, substitutions);
+  const xgRow = matchInfo.providerStatistics.find(row => /xg|expected goals/i.test(row.label || row.name || ''));
+  const sideFlags = ['home', 'away'].map(side => matchInfo.xg?.[side + 'Estimated'] ?? xgRow?.[side + 'Estimated']);
+  // A single estimated shot does not make two explicitly measured team totals estimates.
+  const teamXgEstimated = sideFlags.some(flag => flag === true) ||
+    (sideFlags.some(flag => typeof flag !== 'boolean') &&
+      (xgRow?.estimated === true || details.xgEstimated === true || matchInfo.xg?.estimated === true));
+  Object.assign(statistics, { xgEstimated: teamXgEstimated,
+    xgClassification: teamXgEstimated ? 'estimated' : sideFlags.every(flag => flag === false) ? 'actual' : 'unknown' });
+  for (const [side, key] of [['home', 'team1'], ['away', 'team2']]) {
+    const flag = matchInfo.xg?.[side + 'Estimated'] ?? xgRow?.[side + 'Estimated'];
+    if (typeof flag === 'boolean' && statistics[key]) Object.assign(statistics[key], {
+      xgEstimated: flag, expectedGoalsEstimated: flag,
+    });
+  }
+  const head2head = headToHeadForMatch(details.h2h || details.head2head, matchInfo);
+  matchInfo.head2head = head2head;
+  return { matchInfo, timeline, goals, bookings, substitutions, statistics,
+    providerStatistics: matchInfo.providerStatistics, lineups: details.lineups || matchInfo.lineups || null,
+    playerStatistics: details.playerStatistics || [], head2head,
+    shotMap: details.shotMap || details.shotmap || details.shots || null,
+    pressure: details.pressure || details.momentum || null,
+    momentum: details.momentum || [], averagePositions: details.averagePositions || null,
+    xgEstimated: teamXgEstimated, shotMapEstimated: details.xgEstimated === true,
+    tracker: details.tracker || null, prediction: prediction || null,
+    aiPreview: details.aiPreview || null, venue: matchInfo.venue || null, venueInfo: details.venue || null,
+    coaches: { home: details.homeCoach || null, away: details.awayCoach || null },
+    availability: details.availability || {}, coverage: details.coverage || {},
+    source: 'bsd' };
 };
 
 // ==========================================
@@ -182,7 +237,7 @@ exports.getTopPlayers = async (req, res) => {
       });
     }
 
-    res.json({ success: true, source: result.source, data: result.data });
+    res.json({ success: true, source: result.source, coverage: result.coverage, data: result.data });
   } catch (error) {
     logger.error(`❌ TOP PLAYERS ERROR: ${error.message}`);
     serverError(res);
@@ -203,7 +258,7 @@ exports.getTopTeams = async (req, res) => {
       });
     }
 
-    res.json({ success: true, source: result.source, data: result.data });
+    res.json({ success: true, source: result.source, coverage: result.coverage, data: result.data });
   } catch (error) {
     logger.error(`❌ STANDINGS ERROR: ${error.message}`);
     serverError(res);
@@ -215,7 +270,7 @@ exports.getTopTeams = async (req, res) => {
 // ==========================================
 exports.getLeaguesStandings = async (req, res) => {
   try {
-    const leagues = sportsDataService.getSupportedCompetitions();
+    const leagues = await sportsDataService.getCompetitionCatalog();
     res.json({ success: true, data: leagues });
   } catch (error) {
     logger.error(`❌ LEAGUES ERROR: ${error.message}`);
@@ -229,6 +284,14 @@ exports.getLeaguesStandings = async (req, res) => {
 exports.getMatchTimeline = async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (/^bsd_[1-9]\d*$/.test(String(id))) {
+      const details = await callProvider('BSD match timeline', () => bsdSportsService.getMatchDetails(id));
+      if (!details?.matchInfo) return res.status(404).json({ success: false, message: 'Match not found' });
+      return res.json({ success: true, source: 'bsd', coverage: details.coverage,
+        data: hydrateTimelineTeams(details.timeline || details.incidents || [], details.matchInfo) });
+    }
+    if (String(id).startsWith('bsd_')) return res.status(404).json({ success: false, message: 'Match not found' });
 
     // 1. Try SportScore
     try {
@@ -252,175 +315,65 @@ exports.getMatchTimeline = async (req, res) => {
 // ==========================================
 // 👥 GET MATCH LINEUPS (Multi-provider with smart slug & team resolution)
 // ==========================================
-function slugify(text) {
-  return String(text || '')
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)+/g, '');
-}
-
-function cleanTeamName(name) {
-  return String(name || '')
-    .replace(/\b(FC|CF|SC|AC|AS|SS|CD|UD|RCD|CA|BV|SV|VfB|1\.|BSC|Balompie|de|la|el|los|las)\b/gi, ' ')
-    .trim();
-}
-
 function mapKickoffPlayer(item) {
   const p = item.player || item;
-  const fullName = [p.firstname, p.lastname].filter(Boolean).join(' ').trim();
-  const playerName = p.name || fullName || 'Player';
-  const playerNumber = p.number || 0;
-  const playerId = String(p.id || '');
-  return {
-    id: playerId,
-    name: playerName,
-    playerName,
-    number: playerNumber,
-    position: p.pos || p.position || '',
-    captain: Boolean(p.captain),
-    rating: p.rating ? parseFloat(p.rating) : null,
-    player: {
-      id: playerId,
-      name: playerName,
-      number: playerNumber
-    }
-  };
+  const name = p.name || [p.firstname,p.lastname].filter(Boolean).join(' ').trim();
+  if (!name) return null;
+  const id = p.id ? 'ko_p_' + String(p.id) : name;
+  const number = p.number ?? null;
+  return { id, provider: 'kickoffapi', providerId: p.id?.toString() || '', name,
+    playerName: name, number, position: p.pos || p.position || '', captain: Boolean(p.captain),
+    rating: toNumberOrNull(p.rating), player: { id, name, number } };
 }
 
-async function resolveMatchLineups(id, homeHint, awayHint, dateHint) {
-  let homeName = homeHint ? String(homeHint).trim() : null;
-  let awayName = awayHint ? String(awayHint).trim() : null;
-  let matchDate = dateHint ? String(dateHint).trim().split('T')[0] : new Date().toISOString().split('T')[0];
-
-  // 1. If id is already a slug, try SportScore directly
-  if (id && !/^\d+$/.test(id)) {
-    try {
-      const scMatch = await sportscoreService.getMatchDetails(id);
-      if (scMatch?.lineups && (scMatch.lineups.home?.length > 0 || scMatch.lineups.away?.length > 0)) {
-        return { source: 'sportscore', lineups: scMatch.lineups };
-      }
-      if (scMatch?.homeTeam?.name && !homeName) homeName = scMatch.homeTeam.name;
-      if (scMatch?.awayTeam?.name && !awayName) awayName = scMatch.awayTeam.name;
-    } catch (_) {}
+async function resolveMatchLineups(id) {
+  if (/^bsd_[1-9]\d*$/.test(String(id))) {
+    const details = await callProvider('BSD match lineups', () => bsdSportsService.getMatchDetails(id));
+    return details?.matchInfo ? { source: 'bsd', lineups: details.lineups || null, coverage: details.coverage } : null;
   }
-
-  // 2. Resolve team names if missing and id is numeric
-  if ((!homeName || !awayName) && id && /^\d+$/.test(id)) {
-    try {
-      const sportsDataService = require('../services/sportsDataService');
-      const det = await sportsDataService.getMatchDetails(id);
-      if (det?.data) {
-        homeName = det.data.homeTeam?.name || det.data.homeTeam?.fullName;
-        awayName = det.data.awayTeam?.name || det.data.awayTeam?.fullName;
-        if (det.data.utcDate) matchDate = det.data.utcDate.split('T')[0];
-      }
-    } catch (_) {}
-
-    // Fallback: check remote Render API for match details
-    if (!homeName || !awayName) {
-      try {
-        const r = await axios.get(`https://kicksphere.onrender.com/api/matches/${id}`, { timeout: 3500 });
-        if (r.data?.data) {
-          homeName = r.data.data.homeTeam?.name || r.data.data.homeTeam?.fullName;
-          awayName = r.data.data.awayTeam?.name || r.data.data.awayTeam?.fullName;
-          if (r.data.data.utcDate) matchDate = r.data.data.utcDate.split('T')[0];
-        }
-      } catch (_) {}
-    }
-
-    // Fallback: check KickOff fixture by ID
-    if (!homeName || !awayName) {
-      try {
-        const kf = await kickoffApiService.safeFetch('/api/v1/fixtures', { id: Number(id) });
-        if (kf?.response?.[0]) {
-          const m = kf.response[0];
-          homeName = m.homeTeam?.name || m.teams?.home?.name;
-          awayName = m.awayTeam?.name || m.teams?.away?.name;
-          if (m.date) matchDate = m.date.split('T')[0];
-        }
-      } catch (_) {}
-    }
+  if (String(id).startsWith('bsd_')) return null;
+  // The ID must first resolve to a real fixture. Query hints cannot fabricate
+  // teams/date or select another meeting between the same clubs.
+  const result = await sportsDataService.getMatchDetails(id);
+  const match = result?.data;
+  if (!match) return null;
+  if (match.lineups && (hasItems(match.lineups.home) || hasItems(match.lineups.away))) {
+    return { source: result.source, lineups: match.lineups };
   }
-
-  // 3. Try SportScore with generated slugs
-  if (homeName && awayName) {
-    const sHome = slugify(homeName);
-    const sAway = slugify(awayName);
-    const cHome = slugify(cleanTeamName(homeName));
-    const cAway = slugify(cleanTeamName(awayName));
-
-    const candidateSlugs = [
-      `${sHome}-vs-${sAway}`,
-      `${sAway}-vs-${sHome}`,
-      `${cHome}-vs-${cAway}`,
-      `${cAway}-vs-${cHome}`,
-    ].filter(Boolean);
-
-    for (const slug of [...new Set(candidateSlugs)]) {
-      try {
-        const sc = await sportscoreService.getMatchDetails(slug);
-        if (sc?.lineups && (sc.lineups.home?.length > 0 || sc.lineups.away?.length > 0)) {
-          return { source: 'sportscore', lineups: sc.lineups };
-        }
-      } catch (_) {}
-    }
+  let fixtureId = /^ko_\d+$/.test(String(id)) ? Number(String(id).slice(3)) : null;
+  const normalize = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[-\s]+/g,' ').trim();
+  if (!fixtureId && match.utcDate && match.homeTeam?.name && match.awayTeam?.name) {
+    const data = await kickoffApiService.safeFetch('/api/v1/fixtures', { date: String(match.utcDate).slice(0,10) });
+    const matched = (data?.response || []).find(item => {
+      const home = item.homeTeam || item.teams?.home;
+      const away = item.awayTeam || item.teams?.away;
+      const date = item.fixture?.date || item.date;
+      return normalize(home?.name) === normalize(match.homeTeam.name) &&
+        normalize(away?.name) === normalize(match.awayTeam.name) &&
+        date && Date.parse(date) === Date.parse(match.utcDate);
+    });
+    fixtureId = matched?.fixture?.id || matched?.id || null;
   }
-
-  // 4. Try KickOff API (API-Football)
-  try {
-    let fixtureId = null;
-    if (id && /^\d+$/.test(id)) {
-      fixtureId = Number(id);
-    }
-
-    if (homeName && awayName) {
-      const fixturesData = await kickoffApiService.safeFetch('/api/v1/fixtures', { date: matchDate });
-      const fixtures = fixturesData?.response || [];
-      const hLower = homeName.toLowerCase();
-      const aLower = awayName.toLowerCase();
-      const hClean = cleanTeamName(homeName).toLowerCase();
-      const aClean = cleanTeamName(awayName).toLowerCase();
-
-      const matched = fixtures.find(f => {
-        const fh = (f.homeTeam?.name || f.teams?.home?.name || '').toLowerCase();
-        const fa = (f.awayTeam?.name || f.teams?.away?.name || '').toLowerCase();
-        const matchHome = fh.includes(hLower) || hLower.includes(fh) || (hClean.length > 2 && fh.includes(hClean));
-        const matchAway = fa.includes(aLower) || aLower.includes(fa) || (aClean.length > 2 && fa.includes(aClean));
-        return matchHome && matchAway;
-      });
-
-      if (matched) {
-        fixtureId = matched.id || matched.fixture?.id;
-      }
-    }
-
-    if (fixtureId) {
-      const lData = await kickoffApiService.safeFetch('/api/v1/fixtures/lineups', { fixture: fixtureId });
-      if (lData?.response?.length > 0) {
-        const homeL = lData.response[0];
-        const awayL = lData.response[1];
-        const lineups = {
-          homeFormation: homeL?.formation || '',
-          awayFormation: awayL?.formation || '',
-          homeCoach: homeL?.coach?.name || null,
-          awayCoach: awayL?.coach?.name || null,
-          confirmed: true,
-          home: (homeL?.startXI || []).map(mapKickoffPlayer),
-          away: (awayL?.startXI || []).map(mapKickoffPlayer),
-          homeBench: (homeL?.substitutes || []).map(mapKickoffPlayer),
-          awayBench: (awayL?.substitutes || []).map(mapKickoffPlayer),
-        };
-        if (lineups.home.length > 0 || lineups.away.length > 0) {
-          return { source: 'kickoffapi', lineups };
-        }
-      }
-    }
-  } catch (err) {
-    logger.warn(`[Lineups] KickOff fallback error: ${err.message}`);
-  }
-
-  return null;
+  if (!fixtureId) return null;
+  const raw = await kickoffApiService.safeFetch('/api/v1/fixtures/lineups', { fixture: fixtureId });
+  const sides = raw?.response || [];
+  const sideFor = team => sides.find(side => {
+    const providerId = team.providerId || String(team.id || '').replace(/^ko_t_/, '');
+    return (team.provider === 'kickoffapi' && String(side.team?.id) === String(providerId)) ||
+      normalize(side.team?.name) === normalize(team.name);
+  });
+  const home = sideFor(match.homeTeam), away = sideFor(match.awayTeam);
+  const homePlayers = (home?.startXI || []).map(mapKickoffPlayer).filter(Boolean);
+  const awayPlayers = (away?.startXI || []).map(mapKickoffPlayer).filter(Boolean);
+  if (!homePlayers.length && !awayPlayers.length) return null;
+  return { source: 'kickoffapi', lineups: {
+    confirmed: homePlayers.length === 11 && awayPlayers.length === 11,
+    homeFormation: home?.formation || '', awayFormation: away?.formation || '',
+    homeCoach: home?.coach?.name || null, awayCoach: away?.coach?.name || null,
+    home: homePlayers, away: awayPlayers,
+    homeBench: (home?.substitutes || []).map(mapKickoffPlayer).filter(Boolean),
+    awayBench: (away?.substitutes || []).map(mapKickoffPlayer).filter(Boolean)
+  } };
 }
 
 exports.getMatchLineups = async (req, res) => {
@@ -428,7 +381,7 @@ exports.getMatchLineups = async (req, res) => {
     const { id } = req.params;
     const { home, away, date } = req.query;
 
-    const cacheKey = `lineups:${id}:${home || ''}:${away || ''}`;
+    const cacheKey = `lineups:${id}:${date || ''}`;
     const cached = getCached(cacheKey);
     if (cached) {
       return res.json({
@@ -474,17 +427,75 @@ exports.getMatchLineups = async (req, res) => {
 exports.getDeepTeamDetails = async (req, res) => {
   try {
     const teamId = req.params.id;
+    if (scopedTeamId(teamId)?.startsWith('bsd_t_')) {
+      const team = await callProvider('BSD team details', () => bsdSportsService.getTeamDetails(teamId));
+      if (!team?.info) return res.status(404).json({ success: false, message: 'Team details not found' });
+      return res.json({ success: true, source: 'bsd', coverage: team.coverage,
+        data: { ...team, info: normalizeTeamInfo(null, team.info), squad: team.squad || team.players || [],
+          matches: team.matches || { recent: [], upcoming: [], live: [] },
+          trophies: team.info.trophies || [], honours: team.info.honours || '' } });
+    }
+    if (String(teamId || '').startsWith('bsd_')) return res.status(404).json({ success: false, message: 'Team details not found' });
+    const scopedSportScore = scopedTeamId(teamId)?.startsWith('sc_t_');
     const localTeam = resolveLocalTeam(teamId);
-    const lookup = localTeam?.name || teamId;
+    const lookup = resolveProviderTeamLookup ? resolveProviderTeamLookup(teamId)
+      : (/^\d+$/.test(String(teamId)) && localTeam ? localTeam.name : teamId);
 
-    const scTeam = await callProvider('SportScore team details', () => sportscoreService.getTeamDetails(lookup));
+    const scopedKickoff = /^ko_t_\d+$/.test(String(lookup));
+    const scTeam = scopedKickoff ? null : await callProvider('SportScore team details', () => sportscoreService.getTeamDetails(lookup));
+    const koCandidate = scopedSportScore && !scTeam?.info ? null
+      : await callProvider('KickOff team details', () => kickoffApiService.getTeamDetails(scTeam?.info?.name || lookup));
+    const normalizeName = value => String(value || '').normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[-\s]+/g, ' ').trim();
+    // A generic name search can resolve a different club (Barcelona in Chile
+    // versus FC Barcelona). Resolve the secondary provider's team first, then
+    // verify identity before requesting its roster or fixtures by scoped ID.
+    const identitiesMatch = !scTeam?.info || (
+      normalizeName(scTeam.info.name) === normalizeName(koCandidate?.name) &&
+      normalizeName(scTeam.info.country) && normalizeName(koCandidate?.country) &&
+      normalizeName(scTeam.info.country) === normalizeName(koCandidate.country)
+    );
+    const koInfo = identitiesMatch ? koCandidate : null;
 
     const sources = [];
     if (scTeam?.info) sources.push('sportscore');
+    if (koInfo) sources.push('kickoffapi');
 
-    const info = normalizeTeamInfo(localTeam, scTeam?.info);
-    const squad = scTeam?.squad || [];
+    const info = normalizeTeamInfo(localTeam, koInfo, scTeam?.info);
+    if (scopedSportScore && scTeam?.info) {
+      info.providerId = scTeam.info.id || lookup;
+      info.id = teamId;
+      info.targetId = teamId;
+      info.provider = 'sportscore';
+    }
+    let squad = scTeam?.squad || [];
     const matches = scTeam?.matches || { recent: [], upcoming: [] };
+
+    // 1. Enrich squad if empty from SportScore
+    if (!hasItems(squad) && koInfo?.id) {
+      try {
+        const koSquad = await kickoffApiService.getTeamSquad(koInfo.id);
+        if (hasItems(koSquad)) {
+          squad = koSquad;
+          sources.push('kickoffapi');
+        }
+      } catch (_) {}
+    }
+
+    // Club details must be supplied by a provider, not a static roster catalog.
+
+    // 3. Enrich upcoming fixtures if empty
+    if (!hasItems(matches.upcoming) && !hasItems(matches.recent) && koInfo?.id) {
+      try {
+        const koFixtures = await kickoffApiService.getTeamFixtures(koInfo.id);
+        if (hasItems(koFixtures?.upcoming) || hasItems(koFixtures?.recent)) {
+          matches.recent = koFixtures.recent || [];
+          matches.upcoming = koFixtures.upcoming || [];
+          sources.push('kickoffapi');
+        }
+      } catch (_) {}
+
+    }
 
     if (!isPresent(info) && !hasItems(squad) && !hasItems(matches.recent) && !hasItems(matches.upcoming)) {
       return res.status(404).json({ success: false, message: 'Team details not found' });
@@ -493,13 +504,20 @@ exports.getDeepTeamDetails = async (req, res) => {
     const data = {
       info,
       squad,
-      matches
+      matches,
+      trophies: info.trophies || [],
+      honours: info.honours || ''
     };
 
     if (scTeam?.standing) data.standing = scTeam.standing;
     if (scTeam?.statistics) data.stats = scTeam.statistics;
     if (scTeam?.tournament) data.tournament = scTeam.tournament;
     if (scTeam?.season) data.season = scTeam.season;
+
+    if (Array.isArray(info.trophies) && info.trophies.length > 0) {
+      if (!data.stats) data.stats = {};
+      data.stats.trophies = info.trophies.reduce((sum, t) => sum + (t.count || 1), 0);
+    }
 
     return res.json({
       success: true,
@@ -514,115 +532,78 @@ exports.getDeepTeamDetails = async (req, res) => {
 
 exports.getDeepPlayerDetails = async (req, res) => {
   try {
-    const playerId = req.params.id;
-    const sources = [];
-    
-    // 1. Try KickOff API first (Rich stats and HD images)
-    try {
-      const koPlayer = await kickoffApiService.getPlayerDetails(playerId);
-      if (koPlayer && isPresent(koPlayer.seasonStats)) {
-        sources.push('kickoffapi');
-        return res.json({
-          success: true,
-          source: 'kickoffapi',
-          data: {
-            info: {
-              id: koPlayer.id,
-              name: koPlayer.name,
-              fullName: koPlayer.name,
-              image: koPlayer.image,
-              team: koPlayer.team,
-              teamBadge: koPlayer.teamBadge,
-              competition: '',
-              position: koPlayer.position,
-              country: koPlayer.country,
-              marketValue: koPlayer.marketValue,
-            },
-            seasonStats: koPlayer.seasonStats,
-            attributes: {},
-            careerTotals: {},
-            careerBySeason: [],
-            formerTeams: koPlayer.formerTeams || [],
-            honours: [],
-            contracts: [],
-            milestones: []
-          }
-        });
-      }
-    } catch (_) {}
-
-    // 2. Try SportScore API fallback
-    const scPlayer = await callProvider('SportScore player details', () => sportscoreService.getPlayerDetails(playerId));
-
-    if (scPlayer) sources.push('sportscore');
-
-    const info = scPlayer ? {
-      id: scPlayer.id,
-      name: scPlayer.name,
-      fullName: scPlayer.fullName,
-      image: scPlayer.image,
-      team: scPlayer.team,
-      teamBadge: scPlayer.teamBadge,
-      competition: scPlayer.competition,
-      position: scPlayer.position || ''
-    } : {};
-
-    const seasonStats = scPlayer ? {
-        matches: scPlayer.matches,
-        goals: scPlayer.goals,
-        assists: scPlayer.assists,
-        minutes: scPlayer.minutes,
-        rating: scPlayer.rating,
-        ratingRaw: scPlayer.ratingRaw,
-        shots: scPlayer.shots,
-        shotsOnTarget: scPlayer.shotsOnTarget,
-        passes: scPlayer.passes,
-        passesAccuracy: scPlayer.passesAccuracy,
-        tackles: scPlayer.tackles,
-        interceptions: scPlayer.interceptions,
-        dribbles: scPlayer.dribbles,
-        keyPasses: scPlayer.keyPasses,
-        yellowCards: scPlayer.yellowCards,
-        redCards: scPlayer.redCards
-    } : {};
-
-    const data = {
-      info,
-      seasonStats,
-      attributes: {},
-      careerTotals: {},
-      careerBySeason: [],
-      formerTeams: [],
-      honours: [],
-      contracts: [],
-      milestones: [],
-    };
-
-    if (!isPresent(info) && !isPresent(seasonStats)) {
-      return res.json({
-        success: true,
-        source: 'unavailable',
-        data
-      });
+    const playerId = String(req.params.id || '');
+    if (/^bsd_p_[1-9]\d*$/.test(playerId)) {
+      const player = await callProvider('BSD player details', () => bsdSportsService.getPlayerDetails(playerId));
+      if (!player?.name) return res.status(404).json({ success: false, message: 'Player details not found' });
+      const context = player.statsContext || {};
+      const info = { ...player, id: playerId, targetId: playerId, provider: 'bsd',
+        providerId: player.providerId || playerId.slice(6), fullName: player.fullName || player.name };
+      const seasonStats = player.seasonStats || {
+        ...context, matches: player.matches ?? null, goals: player.goals ?? null,
+        assists: player.assists ?? null, minutes: player.minutes ?? null, rating: player.rating ?? null,
+        shots: player.shots ?? null, shotsOnTarget: player.shotsOnTarget ?? null,
+        passes: player.passes ?? null, passesAccuracy: player.passesAccuracy ?? null,
+        tackles: player.tackles ?? null, interceptions: player.interceptions ?? null,
+        yellowCards: player.yellowCards ?? null, redCards: player.redCards ?? null,
+      };
+      return res.json({ success: true, source: 'bsd', coverage: player.coverage,
+        data: { info, seasonStats, statsContext: context, statsCoverage: player.statsCoverage,
+          attributes: player.attributes || {}, careerTotals: player.careerTotals || {},
+          careerBySeason: player.careerBySeason || player.career || [], formerTeams: player.formerTeams || [],
+          transfers: player.transfers || [], honours: player.honours || [], contracts: [], milestones: [] } });
     }
-
+    if (playerId.startsWith('bsd_')) return res.status(404).json({ success: false, message: 'Player details not found' });
+    const scopedKickoff = /^ko_p_\d+$/.test(playerId);
+    const koPlayer = scopedKickoff ? await callProvider('KickOff player details', () => kickoffApiService.getPlayerDetails(playerId)) : null;
+    const scPlayer = scopedKickoff ? null : await callProvider('SportScore player details', () => sportscoreService.getPlayerDetails(playerId));
+    // Names may be searched at the second provider only after the first returned
+    // no entity. Statistics from two competitions are never merged.
+    const fallback = !scopedKickoff && !scPlayer && !/^\d+$/.test(playerId)
+      ? await callProvider('KickOff player details', () => kickoffApiService.getPlayerDetails(playerId)) : null;
+    const ko = koPlayer || fallback;
+    const player = ko || scPlayer;
+    const info = player ? {
+      id: player.id, provider: ko ? 'kickoffapi' : 'sportscore', providerId: player.providerId || player.id,
+      name: player.name, fullName: player.fullName || player.name,
+      image: player.image, team: player.team, teamBadge: player.teamBadge,
+      competition: player.competition || '', position: player.position || '',
+      country: player.country || '', jerseyNumber: player.jerseyNumber ?? null,
+      age: player.age ?? null,
+      dateBorn: player.dateBorn || '', height: player.height || '', weight: player.weight || '',
+      marketValue: player.marketValue ?? null
+    } : {};
+    const context = ko ? { team: ko.team, competition: ko.seasonStats?.competition || '', season: ko.seasonStats?.season || null } : (scPlayer?.statsContext || {});
+    const seasonStats = ko ? ko.seasonStats || {} : scPlayer ? {
+      ...context, matches: scPlayer.matches, goals: scPlayer.goals,
+      assists: scPlayer.assists, minutes: scPlayer.minutes, rating: scPlayer.rating,
+      ratingRaw: scPlayer.ratingRaw, shots: scPlayer.shots, shotsOnTarget: scPlayer.shotsOnTarget,
+      passes: scPlayer.passes, passesAccuracyRaw: scPlayer.passesAccuracy,
+      // SportScore does not document this raw metric as a pass percentage.
+      passesAccuracy: null, tackles: scPlayer.tackles, interceptions: scPlayer.interceptions,
+      dribbles: scPlayer.dribbles, keyPasses: scPlayer.keyPasses,
+      yellowCards: scPlayer.yellowCards, redCards: scPlayer.redCards
+    } : {};
     return res.json({
-      success: true,
-      source: sources.length > 0 ? [...new Set(sources)].join('+') : 'empty',
-      data
+      success: true, source: ko ? 'kickoffapi' : scPlayer ? 'sportscore' : 'unavailable',
+      data: { info, seasonStats, statsContext: context, attributes: {}, careerTotals: {},
+        careerBySeason: [], formerTeams: ko?.formerTeams || [], honours: [], contracts: [], milestones: [] }
     });
   } catch (error) {
-    logger.error(`getDeepPlayerDetails Error: ${error.message}`);
+    logger.error('getDeepPlayerDetails Error: ' + error.message);
     return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
+// ==========================================
+// 🏆 COMPETITIONS
 exports.getAllCompetitions = async (req, res) => {
   try {
-    const competitions = sportsDataService.getSupportedCompetitions();
+    const competitions = await sportsDataService.getCompetitionCatalog();
     return res.json({
       success: true,
-      source: 'supported-contract',
+      source: competitions.source || 'supported-contract',
+      coverage: competitions.coverage,
       data: competitions
     });
   } catch (error) {
@@ -635,9 +616,18 @@ exports.getMatchDeepStats = async (req, res) => {
   try {
     const matchId = req.params.id;
 
+    // A scoped BSD ID selects only that fixture at that provider.
+    if (/^bsd_[1-9]\d*$/.test(String(matchId))) {
+      const details = await callProvider('BSD deep match', () => bsdSportsService.getMatchDetails(matchId));
+      if (!details?.matchInfo) return res.status(404).json({ success: false, message: 'Match details not found' });
+      const prediction = await callProvider('BSD match prediction', () => bsdSportsService.getPredictionForMatch(matchId));
+      return res.json({ success: true, source: 'bsd', coverage: details.coverage,
+        data: buildBsdDeepMatch(details, prediction) });
+    }
+    if (String(matchId).startsWith('bsd_')) return res.status(404).json({ success: false, message: 'Match details not found' });
     // 1. Try SportScore
     try {
-      const scMatch = await sportscoreService.getMatchDetails(matchId);
+      const scMatch = /^(ko_|bsd_|\d+$)/.test(String(matchId)) ? null : await sportscoreService.getMatchDetails(matchId);
       if (scMatch) {
         const timeline = hydrateTimelineTeams(scMatch.timeline || [], scMatch);
         const goals = timeline
@@ -670,9 +660,20 @@ exports.getMatchDeepStats = async (req, res) => {
             side: event.side || ''
           }));
 
+        // Fetch ML prediction from BSD if available
+        let prediction = null;
+        try {
+          prediction = await bsdSportsService.getPredictionForMatch(
+            matchId,
+            scMatch.homeTeam?.name,
+            scMatch.awayTeam?.name,
+            scMatch.utcDate
+          );
+        } catch (_) {}
+
         return res.json({
           success: true,
-          source: 'sportscore',
+          source: prediction ? 'sportscore+bsd' : 'sportscore',
           data: {
             matchInfo: scMatch,
             timeline,
@@ -683,14 +684,55 @@ exports.getMatchDeepStats = async (req, res) => {
             providerStatistics: scMatch.providerStatistics || [],
             lineups: scMatch.lineups || null,
             tracker: scMatch.tracker || null,
-            head2head: null
+            head2head: null,
+            prediction
           }
         });
       }
     } catch (_) {}
+
+    // 3. Fallback: Try KickOff API for fixture details (e.g. upcoming matches like 1570411)
+    try {
+      const koMatch = /^ko_\d+$/.test(String(matchId)) ? await kickoffApiService.getMatchDetails(matchId) : null;
+      if (koMatch) {
+        let prediction = null;
+        try {
+          prediction = await bsdSportsService.getPredictionForMatch(
+            matchId,
+            koMatch.homeTeam?.name,
+            koMatch.awayTeam?.name,
+            koMatch.utcDate
+          );
+        } catch (_) {}
+
+        return res.json({
+          success: true,
+          source: 'kickoffapi',
+          data: {
+            matchInfo: koMatch,
+            timeline: [],
+            goals: [],
+            bookings: [],
+            substitutions: [],
+            statistics: buildBasicMatchStatistics(koMatch, [], [], []),
+            providerStatistics: [],
+            lineups: null,
+            tracker: null,
+            head2head: null,
+            prediction
+          }
+        });
+      }
+    } catch (_) {}
+
+
+    // Request hints and a slug are not evidence that a fixture exists.
+
     return res.status(404).json({ success: false, message: 'Match details not found' });
   } catch (error) {
     logger.error(`getMatchDeepStats Error: ${error.message}`);
     return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
+
+exports.buildBasicMatchStatistics = buildBasicMatchStatistics;

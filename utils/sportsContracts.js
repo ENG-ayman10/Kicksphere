@@ -16,7 +16,15 @@ const SUPPORTED_COMPETITIONS = new Set([
   'MLS',
   'EC',
   'WC',
-  'UNL'
+  'UNL',
+  'FAC',
+  'CDR',
+  'ACL',
+  'CAF',
+  'CIT',
+  'DFB',
+  'CLI',
+  'ARG'
 ]);
 
 const toText = (value, fallback = '') => {
@@ -132,6 +140,8 @@ const normalizeCompetitionCode = (value, fallback = null) => {
   }
 
   const upper = raw.toUpperCase();
+  // These are scoped BSD league identities, never another provider's numeric ID.
+  if (/^BSD:[1-9]\d{0,9}$/.test(upper)) return upper;
   if (SUPPORTED_COMPETITIONS.has(upper)) {
     return upper;
   }

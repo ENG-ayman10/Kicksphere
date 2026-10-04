@@ -18,6 +18,7 @@ const sendResult = (res, result) => {
   return res.json({
     success: true,
     source: result.source,
+    ...(result.coverage ? { coverage: result.coverage } : {}),
     data: result.data
   });
 };

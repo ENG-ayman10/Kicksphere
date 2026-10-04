@@ -5,6 +5,11 @@
  */
 
 require('dotenv').config();
+const { loadRuntimeConfig, createOriginPolicy } = require('./utils/runtimeConfig');
+// Validate before loading routes, Firebase, or starting any background work.
+const runtimeConfig = loadRuntimeConfig();
+const originPolicy = createOriginPolicy(runtimeConfig);
+const { favoriteTeamIds } = require('./utils/teamIdentity');
 
 // ==========================================
 // 📦 1. Core Dependencies
@@ -50,6 +55,7 @@ const newsRoutes = require('./routes/newsRoutes');
 const searchRoutes = require('./routes/searchRoutes');
 const statsRoutes = require('./routes/statsRoutes');
 const proxyRoutes = require('./routes/proxyRoutes');
+const imageRoutes = require('./routes/imageRoutes');
 
 // ==========================================
 // ⚙️ 4. Background Services
@@ -59,10 +65,10 @@ const { emitLiveEvents } = require('./services/liveEventsService');
 const { saveMessage } = require('./services/chatService');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = runtimeConfig.port;
 
 // Trust reverse proxy (essential for Render / Cloudflare rate-limiting by actual client IP)
-app.set('trust proxy', 1);
+app.set('trust proxy', runtimeConfig.trustProxy);
 
 // ==========================================
 // 🛡️ 5. Global Middlewares
@@ -122,22 +128,9 @@ app.use(generalLimiter);
 // ==========================================
 // 🌍 CORS Configuration
 // ==========================================
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean)
-  : [];
-
-if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
-  console.warn('⚠️ ALLOWED_ORIGINS not set in production, allowing all origins');
-}
-
-const corsAllowsAllOrigins = allowedOrigins.length === 0 || allowedOrigins.includes('*');
-const corsOrigin = (origin, callback) => {
-  if (!origin || corsAllowsAllOrigins || allowedOrigins.includes(origin)) {
-    return callback(null, true);
-  }
-
-  return callback(null, false);
-};
+const corsAllowsAllOrigins = runtimeConfig.allowAllOrigins;
+const corsOrigin = originPolicy.corsOrigin;
+app.use(originPolicy.middleware);
 
 app.use(cors({
   origin: corsOrigin,
@@ -178,6 +171,21 @@ app.get('/api/health', (req, res) => {
 
 });
 
+let shuttingDown = false;
+app.get('/api/ready', (req, res) => {
+  // These checks describe successful startup configuration, not connectivity
+  // to Firestore or football providers. No paid/provider request is triggered.
+  res.status(shuttingDown ? 503 : 200).json({
+    success: !shuttingDown,
+    status: shuttingDown ? 'draining' : 'ready',
+    checks: { configuration: true, firebaseInitialized: true, http: !shuttingDown },
+    livePollingEnabled: runtimeConfig.livePollingEnabled,
+    liveEventsPollIntervalMs: runtimeConfig.liveEventsPollIntervalMs,
+    providerReachabilityChecked: false,
+    timestamp: Date.now()
+  });
+});
+
 // ==========================================
 // 🌐 6. REST API Routes
 // ==========================================
@@ -193,6 +201,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/search', searchLimiter, searchRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/images', imageRoutes);
 app.use('/api/proxy/rapidapi', proxyRoutes);
 
 app.use((req, res) => {
@@ -214,12 +223,12 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: corsAllowsAllOrigins
-      ? '*'
-      : allowedOrigins,
+    origin: corsOrigin,
     credentials: !corsAllowsAllOrigins,
     methods: ['GET', 'POST']
-  }
+  },
+  // Socket CORS alone protects long polling, not direct WebSocket handshakes.
+  allowRequest: originPolicy.allowSocketRequest
 });
 
 // Make io globally accessible
@@ -346,10 +355,7 @@ io.on('connection', (socket) => {
     const { teams, userId } = data;
     if (Array.isArray(teams)) {
       for (const room of socket.rooms) { if (room.startsWith('team:')) socket.leave(room); }
-      const safeTeams = teams
-        .map(team => normalizeRoomValue(team))
-        .filter(Boolean)
-        .slice(0, 50);
+      const safeTeams = favoriteTeamIds(teams);
 
       safeTeams.forEach(team => {
         const roomTeam = normalizeRoomValue(String(team || ''));
@@ -448,7 +454,7 @@ io.on('connection', (socket) => {
 // ==========================================
 // 🔄 9. Live Polling System
 // ==========================================
-const livePollingEnabled = process.env.ENABLE_LIVE_POLLING === 'true';
+const livePollingEnabled = runtimeConfig.livePollingEnabled;
 let liveMatchesRunning = false;
 let liveEventsRunning = false;
 let liveMatchesInterval = null;
@@ -519,9 +525,13 @@ const pollLiveEvents = async () => {
 };
 
 if (livePollingEnabled) {
-  liveMatchesInterval = setInterval(pollLiveMatches, 60000);
-  liveEventsInterval = setInterval(pollLiveEvents, 90000);
-  logger.info('📡 Live polling enabled.');
+  // Establish the initial baseline immediately, rather than waiting a full
+  // interval before new score/status changes can be detected.
+  void pollLiveMatches();
+  void pollLiveEvents();
+  liveMatchesInterval = setInterval(pollLiveMatches, runtimeConfig.liveMatchesPollIntervalMs);
+  liveEventsInterval = setInterval(pollLiveEvents, runtimeConfig.liveEventsPollIntervalMs);
+  logger.info(`📡 Live polling enabled; event interval ${runtimeConfig.liveEventsPollIntervalMs}ms.`);
 } else {
   logger.info('📡 Live polling disabled. Set ENABLE_LIVE_POLLING=true to enable background polling.');
 }
@@ -530,6 +540,9 @@ if (livePollingEnabled) {
 // 🛑 10. Graceful Shutdown
 // ==========================================
 const gracefulShutdown = (signal) => {
+
+  if (shuttingDown) return;
+  shuttingDown = true;
 
   logger.info(`⚠️ ${signal} received. Shutting down gracefully...`);
 

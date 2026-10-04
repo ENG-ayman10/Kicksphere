@@ -9,6 +9,9 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 const { getCached, setCache } = require('./cacheService');
+const { normalizedTeamName, fixtureTeam, standingsTeamIdentity, buildMembershipIndex } = require('../utils/sportscoreTeamIdentity');
+const { selectMatchesInInterval } = require('../utils/matchCalendar');
+const { normalizeMatchTiming } = require('../utils/matchTiming');
 
 const BASE_URL = 'https://sportscore.com';
 const SPORT = 'football';
@@ -16,6 +19,22 @@ const APP_SRC = 'kicksphere';
 
 // Rate-limiting & 429 backoff tracking
 let retryAfterUntil = 0;
+const pendingProviderReads = new Map();
+const waitingProviderReadSlots = [];
+let activeProviderReads = 0;
+const MAX_PENDING_PROVIDER_READS = 128;
+const FIXTURE_LIMIT = 200;
+const FIXTURE_STATUS_PARTITIONS = ['live', 'finished', 'upcoming'];
+
+async function withProviderReadSlot(work) {
+  if (activeProviderReads < 3) activeProviderReads++;
+  else await new Promise(resolve => waitingProviderReadSlots.push(resolve));
+  try { return await work(); } finally {
+    const next = waitingProviderReadSlots.shift();
+    if (next) next();
+    else activeProviderReads--;
+  }
+}
 
 // Default TTLs (milliseconds)
 const TTL = {
@@ -30,26 +49,45 @@ const TTL = {
   H2H: 30 * 60 * 1000,         // 30 minutes
 };
 
+const teamIdentityLookups = new Map();
+const waitingTeamIdentityLookups = [];
+let activeTeamIdentityLookups = 0;
+const TEAM_IDENTITY_BUDGET_MS = 8 * 1000;
+
+async function withTeamIdentitySlot(work) {
+  if (activeTeamIdentityLookups < 3) activeTeamIdentityLookups++;
+  else await new Promise(resolve => waitingTeamIdentityLookups.push(resolve));
+  try { return await work(); } finally {
+    const next = waitingTeamIdentityLookups.shift();
+    if (next) next();
+    else activeTeamIdentityLookups--;
+  }
+}
+
 // Verified Competition Slug Mapping
 const COMPETITION_SLUGS = {
-  'PL': { slug: 'english-premier-league', name: 'Premier League', country: 'England', logo: 'https://crests.football-data.org/PL.png' },
-  'PD': { slug: 'spanish-la-liga', name: 'La Liga', country: 'Spain', logo: 'https://crests.football-data.org/PD.png' },
-  'SA': { slug: 'italian-serie-a', name: 'Serie A', country: 'Italy', logo: 'https://crests.football-data.org/SA.png' },
-  'BL1': { slug: 'bundesliga', name: 'Bundesliga', country: 'Germany', logo: 'https://crests.football-data.org/BL1.png' },
-  'FL1': { slug: 'french-ligue-1', name: 'Ligue 1', country: 'France', logo: 'https://crests.football-data.org/FL1.png' },
-  'CL': { slug: 'uefa-champions-league', name: 'UEFA Champions League', country: 'Europe', logo: 'https://crests.football-data.org/CL.png' },
-  'EL': { slug: 'uefa-europa-league', name: 'UEFA Europa League', country: 'Europe', logo: 'https://crests.football-data.org/EL.png' },
-  'DED': { slug: 'netherlands-eredivisie', name: 'Eredivisie', country: 'Netherlands', logo: 'https://crests.football-data.org/DED.png' },
-  'PPL': { slug: 'portuguese-primera-liga', name: 'Primeira Liga', country: 'Portugal', logo: 'https://crests.football-data.org/PPL.png' },
-  'BSA': { slug: 'brazilian-serie-a', name: 'Brasileirão', country: 'Brazil', logo: 'https://crests.football-data.org/BSA.png' },
-  'SPL': { slug: 'saudi-professional-league', name: 'Saudi Pro League', country: 'Saudi Arabia', logo: 'https://images.kickoffapi.com/images/leagues/307.png' },
-  'ELC': { slug: 'english-football-league-championship', name: 'Championship', country: 'England', logo: 'https://crests.football-data.org/ELC.png' },
-  'TSL': { slug: 'turkish-super-league', name: 'Süper Lig', country: 'Turkey', logo: 'https://images.kickoffapi.com/images/leagues/203.png' },
-  'MLS': { slug: 'united-states-major-league-soccer', name: 'MLS', country: 'USA', logo: 'https://images.kickoffapi.com/images/leagues/253.png' },
-  'ECL': { slug: 'uefa-europa-conference-league', name: 'UEFA Conference League', country: 'Europe', logo: 'https://images.kickoffapi.com/images/leagues/848.png' },
-  'UNL': { slug: 'uefa-nations-league', name: 'UEFA Nations League', country: 'Europe', logo: '' },
-  'WC': { slug: 'fifa-world-cup', name: 'FIFA World Cup', country: 'International', logo: '' },
-  'EC': { slug: 'uefa-european-championship', name: 'European Championship', country: 'Europe', logo: '' }
+  'PL': { slug: 'english-premier-league', name: 'Premier League', country: 'England', logo: 'https://media.api-sports.io/football/leagues/39.png' },
+  'PD': { slug: 'spanish-la-liga', name: 'La Liga', country: 'Spain', logo: 'https://media.api-sports.io/football/leagues/140.png' },
+  'SA': { slug: 'italian-serie-a', name: 'Serie A', country: 'Italy', logo: 'https://media.api-sports.io/football/leagues/135.png' },
+  'BL1': { slug: 'bundesliga', name: 'Bundesliga', country: 'Germany', logo: 'https://media.api-sports.io/football/leagues/78.png' },
+  'FL1': { slug: 'french-ligue-1', name: 'Ligue 1', country: 'France', logo: 'https://media.api-sports.io/football/leagues/61.png' },
+  'CL': { slug: 'uefa-champions-league', name: 'UEFA Champions League', country: 'Europe', logo: 'https://media.api-sports.io/football/leagues/2.png' },
+  'EL': { slug: 'uefa-europa-league', name: 'UEFA Europa League', country: 'Europe', logo: 'https://media.api-sports.io/football/leagues/3.png' },
+  'ECL': { slug: 'uefa-europa-conference-league', name: 'UEFA Conference League', country: 'Europe', logo: 'https://media.api-sports.io/football/leagues/848.png' },
+  'SPL': { slug: 'saudi-professional-league', name: 'Saudi Pro League', country: 'Saudi Arabia', logo: 'https://media.api-sports.io/football/leagues/307.png' },
+  'DED': { slug: 'netherlands-eredivisie', name: 'Eredivisie', country: 'Netherlands', logo: 'https://media.api-sports.io/football/leagues/88.png' },
+  'PPL': { slug: 'portuguese-primera-liga', name: 'Primeira Liga', country: 'Portugal', logo: 'https://media.api-sports.io/football/leagues/94.png' },
+  'BSA': { slug: 'brazilian-serie-a', name: 'Brasileirão', country: 'Brazil', logo: 'https://media.api-sports.io/football/leagues/71.png' },
+  'ELC': { slug: 'english-football-league-championship', name: 'Championship', country: 'England', logo: 'https://media.api-sports.io/football/leagues/40.png' },
+  'TSL': { slug: 'turkish-super-league', name: 'Süper Lig', country: 'Turkey', logo: 'https://media.api-sports.io/football/leagues/203.png' },
+  'MLS': { slug: 'united-states-major-league-soccer', name: 'MLS', country: 'USA', logo: 'https://media.api-sports.io/football/leagues/253.png' },
+  'UNL': { slug: 'uefa-nations-league', name: 'UEFA Nations League', country: 'Europe', logo: 'https://media.api-sports.io/football/leagues/5.png' },
+  'WC': { slug: 'fifa-world-cup', name: 'FIFA World Cup', country: 'International', logo: 'https://media.api-sports.io/football/leagues/1.png' },
+  'EC': { slug: 'uefa-european-championship', name: 'European Championship', country: 'Europe', logo: 'https://media.api-sports.io/football/leagues/4.png' },
+  'FAC': { slug: 'fa-cup', name: 'FA Cup', country: 'England', logo: 'https://media.api-sports.io/football/leagues/45.png' },
+  'CDR': { slug: 'copa-del-rey', name: 'Copa del Rey', country: 'Spain', logo: 'https://media.api-sports.io/football/leagues/143.png' },
+  'ACL': { slug: 'afc-champions-league', name: 'AFC Champions League', country: 'Asia', logo: 'https://media.api-sports.io/football/leagues/17.png' },
+  'CAF': { slug: 'caf-champions-league', name: 'CAF Champions League', country: 'Africa', logo: 'https://media.api-sports.io/football/leagues/12.png' }
 };
 
 const resolveCompetitionSlug = (codeOrSlug) => {
@@ -84,6 +122,13 @@ function sameEntity(a, b) {
   return normalize(a) === normalize(b);
 }
 
+function cacheFixtureScores(matches) {
+  for (const match of matches) {
+    if (match.id) setCache('sportscore:fixture:' + match.id, match, 120 * 1000);
+  }
+  return matches;
+}
+
 function deduplicateMatches(matches) {
   const byFixture = new Map();
   const statusRank = { FINISHED: 4, IN_PLAY: 3, POSTPONED: 2, TIMED: 1 };
@@ -97,6 +142,71 @@ function deduplicateMatches(matches) {
   return [...byFixture.values()];
 }
 
+async function competitionMembership(code) {
+  const competition = COMPETITION_SLUGS[code];
+  if (!competition) return null;
+  const cacheKey = `sportscore:team-membership:${code}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached.verified ? cached.byName : null;
+  if (teamIdentityLookups.has(code)) return teamIdentityLookups.get(code);
+  const lookup = withTeamIdentitySlot(async () => {
+    const raw = await fetchSportScore('/api/widget/standings/', { slug: competition.slug }, TTL.STANDINGS);
+    // The requested URL alone is not evidence that the response belongs to that league.
+    const scopeMatches = raw?.competition_slug ? raw.competition_slug === competition.slug :
+      (typeof raw?.competition === 'string' && resolveCompetition(raw.competition)?.code === code);
+    const verified = scopeMatches && Array.isArray(raw?.tables);
+    const byName = verified ? buildMembershipIndex(raw.tables.flatMap(table => Array.isArray(table.rows) ? table.rows : [])) : null;
+    setCache(cacheKey, { verified, byName }, verified ? TTL.STANDINGS : TTL.DAILY_MATCHES);
+    return byName;
+  });
+  teamIdentityLookups.set(code, lookup);
+  try { return await lookup; } finally { teamIdentityLookups.delete(code); }
+}
+
+async function enrichFixtureTeamIdentities(matches, { requireCompetitionSlug = false } = {}) {
+  const codes = [...new Set(matches.filter(match =>
+    (!match.homeTeam?.id || !match.awayTeam?.id) && COMPETITION_SLUGS[match.competition?.code] &&
+    (!requireCompetitionSlug || match.competition.slug === COMPETITION_SLUGS[match.competition.code].slug)
+  ).map(match => match.competition.code))];
+  const memberships = new Map();
+  if (codes.length) {
+    const pending = Promise.all(codes.map(async code => {
+      try {
+        const membership = await competitionMembership(code);
+        if (membership) memberships.set(code, membership);
+      } catch (error) {
+        // An optional identity lookup must never discard otherwise usable games.
+        logger.warn(`[SportScore] Team identity unavailable for ${code}: ${error.message}`);
+      }
+    }));
+    let timer;
+    try {
+      // Keep a cold league cache from adding 22 sequential provider timeouts.
+      // Pending work retains the shared single-flight queue and warms the cache;
+      // this response uses only identities verified before its total deadline.
+      await Promise.race([pending, new Promise(resolve => {
+        timer = setTimeout(resolve, TEAM_IDENTITY_BUDGET_MS);
+      })]);
+    } finally { clearTimeout(timer); }
+  }
+  return matches.map(match => {
+    const code = match.competition?.code;
+    if (requireCompetitionSlug && match.competition?.slug !== COMPETITION_SLUGS[code]?.slug) return match;
+    const membership = memberships.get(code);
+    if (!membership) return match;
+    const resolve = team => {
+      if (!team || team.id || team.identityConflict) return team;
+      const ids = membership.get(normalizedTeamName(team.name));
+      if (ids?.size !== 1) return team;
+      const id = [...ids][0];
+      if (!id) return team;
+      return { ...team, id, provider: 'sportscore', identityBasis: 'competition_standings',
+        identityCompetitionCode: code, identityCompetitionSlug: COMPETITION_SLUGS[code].slug };
+    };
+    return { ...match, homeTeam: resolve(match.homeTeam), awayTeam: resolve(match.awayTeam) };
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // 🌐 UNIFIED HTTP REQUEST HANDLER WITH 429 BACKOFF & CACHING
 // ═══════════════════════════════════════════════════════════════════
@@ -106,12 +216,13 @@ async function fetchSportScore(endpoint, params = {}, customTtl = TTL.DAILY_MATC
     src: APP_SRC,
     ...params
   });
+  queryParams.sort();
 
   const url = `${BASE_URL}${endpoint}?${queryParams.toString()}`;
   const cacheKey = `sportscore_${url}`;
 
   // 1. Check local cache
-  const cached = getCached(cacheKey);
+  const cached = getCached(cacheKey, customTtl);
   if (cached) {
     return cached;
   }
@@ -123,30 +234,97 @@ async function fetchSportScore(endpoint, params = {}, customTtl = TTL.DAILY_MATC
     return null;
   }
 
-  try {
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': 'KickSphereApp/1.0 (SportScore Integration; +https://sportscore.com)',
-        'Accept': 'application/json'
-      },
-      timeout: 10000
-    });
-
-    if (response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
-      setCache(cacheKey, response.data, customTtl);
-      return response.data;
-    }
-  } catch (error) {
-    if (error.response?.status === 429) {
-      const retryAfterSec = parseInt(error.response.headers['retry-after'] || '60', 10);
-      retryAfterUntil = Date.now() + (retryAfterSec * 1000);
-      logger.error(`[SportScore] Received 429 Too Many Requests. Backing off for ${retryAfterSec}s.`);
-    } else {
-      logger.warn(`[SportScore] Error fetching ${endpoint}: ${error.message}`);
-    }
+  // A cold cache must not multiply identical upstream calls for concurrent users.
+  if (pendingProviderReads.has(cacheKey)) return pendingProviderReads.get(cacheKey);
+  if (pendingProviderReads.size >= MAX_PENDING_PROVIDER_READS) {
+    logger.warn('[SportScore] Upstream request queue is full');
+    return null;
   }
+  const pending = (async () => {
+    try {
+      const response = await withProviderReadSlot(async () => {
+        // An earlier active request may establish backoff while this one waits.
+        if (Date.now() < retryAfterUntil) return null;
+        return axios.get(url, {
+          headers: {
+            'User-Agent': 'KickSphereApp/1.0 (SportScore Integration; +https://sportscore.com)',
+            'Accept': 'application/json'
+          },
+          timeout: 10000
+        });
+      });
 
-  return null;
+      if (response?.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
+        setCache(cacheKey, response.data, customTtl);
+        return response.data;
+      }
+    } catch (error) {
+      if (error.response?.status === 429) {
+        const retryAfterSec = parseInt(error.response.headers['retry-after'] || '60', 10);
+        retryAfterUntil = Date.now() + (retryAfterSec * 1000);
+        logger.error(`[SportScore] Received 429 Too Many Requests. Backing off for ${retryAfterSec}s.`);
+      } else {
+        logger.warn(`[SportScore] Error fetching ${endpoint}: ${error.message}`);
+      }
+    }
+    return null;
+  })();
+  pendingProviderReads.set(cacheKey, pending);
+  try { return await pending; } finally { pendingProviderReads.delete(cacheKey); }
+}
+
+function inspectFixtureBatch(raw, { date, competition = null, status = null, includePreviousDay = false }) {
+  const available = Array.isArray(raw?.matches);
+  const report = { status, available, returned: available ? raw.matches.length : 0,
+    accepted: 0, possiblyTruncated: available && raw.matches.length >= FIXTURE_LIMIT,
+    invalidRecords: 0, outsideDate: 0, outsideCompetition: 0, outsideStatus: 0 };
+  if (!available) return { matches: [], report };
+  const records = [];
+  // Bound malformed/oversized upstream responses as well as the documented limit.
+  for (const row of raw.matches.slice(0, FIXTURE_LIMIT)) {
+    if (!row || typeof row !== 'object' || Array.isArray(row) ||
+        ![row.url, row.slug].some(value => typeof value === 'string' && value.trim())) {
+      report.invalidRecords++;
+      continue;
+    }
+    let match;
+    try { match = normalizeSportScoreMatch(row); }
+    catch { report.invalidRecords++; continue; }
+    const expectedCompetition = match.competition?.slug || COMPETITION_SLUGS[match.competition?.code]?.slug;
+    if (competition && expectedCompetition !== competition) {
+      report.outsideCompetition++;
+      continue;
+    }
+    const expectedStatus = { live: 'IN_PLAY', finished: 'FINISHED', upcoming: 'TIMED' }[status];
+    if (expectedStatus && match.status !== expectedStatus) {
+      report.outsideStatus++;
+      continue;
+    }
+    records.push(match);
+  }
+  const start = Date.parse(`${date}T00:00:00Z`);
+  const selected = selectMatchesInInterval(records, includePreviousDay ? start - 86400000 : start, start + 86400000);
+  report.invalidRecords += selected.invalidRecords;
+  report.outsideDate = selected.outsideInterval;
+  report.accepted = selected.data.length;
+  return { matches: selected.data, report };
+}
+
+function fixtureCoverage(primary, partitions, matches) {
+  const reports = [primary.report, ...partitions.map(partition => partition.report)];
+  const sums = Object.fromEntries(['invalidRecords', 'outsideDate', 'outsideCompetition', 'outsideStatus']
+    .map(key => [key, reports.reduce((sum, report) => sum + report[key], 0)]));
+  const possiblyTruncated = reports.some(report => report.possiblyTruncated);
+  const complete = reports.every(report => report.available) && !possiblyTruncated &&
+    Object.values(sums).every(count => count === 0);
+  return { available: true, limit: FIXTURE_LIMIT, returned: matches.length,
+    upstreamReturned: reports.reduce((sum, report) => sum + report.returned, 0),
+    accepted: matches.length, recovered: Math.max(0, matches.length - deduplicateMatches(primary.matches).length),
+    complete, partial: !complete, possiblyTruncated,
+    ...sums, partitions: partitions.map(partition => partition.report),
+    ...(possiblyTruncated ? { reason: 'provider_result_limit' } :
+      reports.some(report => !report.available) ? { reason: 'partition_unavailable' } :
+      !complete ? { reason: 'rejected_provider_records' } : {}) };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -155,13 +333,19 @@ async function fetchSportScore(endpoint, params = {}, customTtl = TTL.DAILY_MATC
 exports.getLiveMatches = async () => {
   try {
     // The widget is a capped mixed schedule, not a live-only feed. Filter upstream.
+    const date = new Date().toISOString().slice(0, 10);
     const raw = await fetchSportScore('/api/v1/fixtures/', {
-      date: new Date().toISOString().slice(0, 10), status: 'live', limit: 200
+      date, status: 'live', limit: FIXTURE_LIMIT
     }, TTL.LIVE_MATCHES);
     if (!Array.isArray(raw?.matches)) throw new Error('Live provider unavailable');
 
     // Filtering and serialization share one status contract, including penalties.
-    return raw.matches.map(normalizeSportScoreMatch).filter(match => match.status === 'IN_PLAY');
+    // An ongoing fixture may have kicked off before UTC midnight. Daily status
+    // partitions remain strictly day-scoped; the live screen also keeps carryover.
+    const batch = inspectFixtureBatch(raw, { date, status: 'live', includePreviousDay: true });
+    const matches = cacheFixtureScores(await enrichFixtureTeamIdentities(deduplicateMatches(batch.matches)));
+    Object.defineProperty(matches, 'coverage', { value: fixtureCoverage(batch, [], matches) });
+    return matches;
   } catch (e) {
     logger.error(`[SportScore] getLiveMatches error: ${e.message}`);
     throw e;
@@ -176,16 +360,26 @@ exports.getMatchesByDate = async (dateStr, { competition } = {}) => {
       date = new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
     }
 
-    const params = { date, limit: 200 };
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+        !Number.isFinite(Date.parse(`${date}T00:00:00Z`)) ||
+        new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) throw new Error('Invalid fixture date');
+    const params = { date, limit: FIXTURE_LIMIT };
     if (competition) params.competition = resolveCompetitionSlug(competition);
     const raw = await fetchSportScore('/api/v1/fixtures/', params, TTL.DAILY_MATCHES);
     if (!Array.isArray(raw?.matches)) throw new Error('Fixture provider unavailable');
 
-    const matches = deduplicateMatches(raw.matches.map(normalizeSportScoreMatch));
-    // The documented provider contract has no cursor. Do not call a full page complete.
+    const primary = inspectFixtureBatch(raw, params);
+    // The official API has no page/cursor/offset. A capped day can still recover
+    // fixtures through its three documented status filters (at most 4 fixture
+    // batch requests per scope, separate from optional shared identity lookups).
+    // Retain partial coverage: these filters do not certify postponed/other games.
+    const partitions = primary.report.possiblyTruncated ? await Promise.all(FIXTURE_STATUS_PARTITIONS.map(async status =>
+      inspectFixtureBatch(await fetchSportScore('/api/v1/fixtures/', { ...params, status }, TTL.DAILY_MATCHES),
+        { ...params, status }))) : [];
+    const merged = deduplicateMatches([...primary.matches, ...partitions.flatMap(partition => partition.matches)]);
+    const matches = cacheFixtureScores(await enrichFixtureTeamIdentities(merged));
     Object.defineProperty(matches, 'coverage', { value: {
-      limit: 200, returned: raw.matches.length, possiblyTruncated: raw.matches.length >= 200,
-      competition: params.competition || null
+      ...fixtureCoverage(primary, partitions, matches), competition: params.competition || null
     } });
     return matches;
   } catch (e) {
@@ -204,10 +398,29 @@ exports.getMatchDetails = async (matchSlugOrId) => {
       slug = slug.replace('/football/match/', '').replace(/\//g, '');
     }
 
+    const known = getCached('sportscore:fixture:' + slug);
     const raw = await fetchSportScore('/api/widget/match/', { slug }, TTL.MATCH_DETAIL);
-    if (!raw?.match) return null;
-
-    return normalizeSportScoreMatchDetail(raw.match, slug);
+    if (!raw?.match) return known ? { ...known, detailsAvailable: false, timeline: [], lineups: null, providerStatistics: [] } : null;
+    let details = normalizeSportScoreMatchDetail(raw.match, slug);
+    if (known) {
+      const identitiesMatch = sameEntity(details.homeTeam?.name, known.homeTeam?.name) && sameEntity(details.awayTeam?.name, known.awayTeam?.name);
+      const datesMatch = !details.utcDate || !known.utcDate || Date.parse(details.utcDate) === Date.parse(known.utcDate);
+      if (!identitiesMatch || !datesMatch) {
+        logger.warn('[SportScore] Ignored mismatched detail identity for cached fixture');
+        return { ...known, detailsAvailable: false, timeline: [], lineups: null, providerStatistics: [] };
+      }
+      if (known.competition?.code === details.competition?.code) {
+        for (const side of ['homeTeam', 'awayTeam']) {
+          if (!details[side]?.id && known[side]?.id && !details[side]?.identityConflict) {
+            details[side] = { ...details[side], id: known[side].id, provider: 'sportscore',
+              identityBasis: known[side].identityBasis, identityCompetitionCode: known[side].identityCompetitionCode,
+              identityCompetitionSlug: known[side].identityCompetitionSlug };
+          }
+        }
+      }
+    }
+    [details] = await enrichFixtureTeamIdentities([details]);
+    return { ...details, detailsAvailable: true };
   } catch (e) {
     logger.error(`[SportScore] getMatchDetails error: ${e.message}`);
     return null;
@@ -225,22 +438,23 @@ exports.getStandings = async (competitionCode) => {
 
     return raw.tables.flatMap(table => (table.rows || []).map(r => ({
       group: table.group || '',
-      position: r.pos || 0,
+      position: numericOrNull(r.pos),
       team: {
-        id: r.team_slug || String(r.pos),
+        ...standingsTeamIdentity(r),
+        provider: 'sportscore',
         name: r.team || 'Team',
         shortName: r.team || 'Team',
         crest: r.team_logo || '',
         slug: r.team_slug || ''
       },
-      playedGames: r.p || 0,
-      won: r.w || 0,
-      draw: r.d || 0,
-      lost: r.l || 0,
-      points: r.pts || 0,
-      goalsFor: r.gf || 0,
-      goalsAgainst: r.ga || 0,
-      goalDifference: r.gd || 0,
+      playedGames: numericOrNull(r.p),
+      won: numericOrNull(r.w),
+      draw: numericOrNull(r.d),
+      lost: numericOrNull(r.l),
+      points: numericOrNull(r.pts),
+      goalsFor: numericOrNull(r.gf),
+      goalsAgainst: numericOrNull(r.ga),
+      goalDifference: numericOrNull(r.gd),
       promotion: r.promo_name || '',
       promoColor: r.promo_color || '',
       form: ''
@@ -266,9 +480,10 @@ exports.getTopScorers = async (competitionCode, limit = 20, stat = 'goals') => {
     if (!raw?.scorers) return [];
 
     return raw.scorers.map(s => ({
-      rank: s.rank || 0,
+      rank: numericOrNull(s.rank),
       player: {
-        id: s.player_slug || String(s.rank),
+        id: s.player_slug || s.player || '',
+        provider: 'sportscore',
         name: s.player || 'Player',
         image: s.player_logo || '',
         slug: s.player_slug || ''
@@ -279,10 +494,10 @@ exports.getTopScorers = async (competitionCode, limit = 20, stat = 'goals') => {
         crest: s.team_logo || '',
         slug: s.team_slug || ''
       },
-      goals: s.goals || 0,
-      assists: s.assists || 0,
-      playedMatches: s.matches || 0,
-      minutesPlayed: s.minutes || 0,
+      goals: numericOrNull(s.goals),
+      assists: numericOrNull(s.assists),
+      playedMatches: numericOrNull(s.matches),
+      minutesPlayed: numericOrNull(s.minutes),
       rating: normalizedRating(s.rating),
       ratingRaw: numericOrNull(s.rating)
     }));
@@ -343,6 +558,7 @@ exports.getPlayerDetails = async (playerSlugOrName) => {
       interceptions: numericOrNull(st.interceptions),
       dribbles: numericOrNull(st.dribbles),
       keyPasses: numericOrNull(st.key_passes),
+      statsContext: { team: st.team || '', competition: st.competition || '', season: st.season || raw.season || null },
       source: 'sportscore'
     };
   } catch (e) {
@@ -376,7 +592,13 @@ exports.getTeamDetails = async (teamSlugOrName) => {
     }
 
     const team = raw.team;
-    const matches = deduplicateMatches((raw.matches || []).map(normalizeSportScoreMatch));
+    // A team widget is not proof of the competition of every nested fixture.
+    // Only its fixtures carrying an exact provider competition slug may use
+    // standings to resolve missing club IDs.
+    const matches = cacheFixtureScores(await enrichFixtureTeamIdentities(
+      deduplicateMatches((raw.matches || []).map(normalizeSportScoreMatch)),
+      { requireCompetitionSlug: true },
+    ));
 
     const recent = matches.filter(m => m.status === 'FINISHED').sort((a, b) => String(b.utcDate).localeCompare(String(a.utcDate)));
     const upcoming = matches.filter(m => ['TIMED', 'SCHEDULED'].includes(m.status)).sort((a, b) => String(a.utcDate).localeCompare(String(b.utcDate)));
@@ -389,6 +611,7 @@ exports.getTeamDetails = async (teamSlugOrName) => {
         logo: team.logo || '',
         crest: team.logo || '',
         slug: team.slug || slug,
+        country: typeof team.country === 'string' ? team.country : (team.country?.name || ''),
       },
       matches: {
         recent,
@@ -576,7 +799,7 @@ function resolveCompetition(competitionName) {
 }
 
 function normalizeSportScoreMatch(m) {
-  const statusRaw = (m.status || '').toLowerCase();
+  const statusRaw = String(m.status || '').trim().toLowerCase();
   let normalizedStatus = 'TIMED';
   let isLive = false;
   let isFinished = false;
@@ -584,7 +807,7 @@ function normalizeSportScoreMatch(m) {
   if (statusRaw === 'finished' || statusRaw === 'ft' || statusRaw === 'aet' || statusRaw === 'pen') {
     normalizedStatus = 'FINISHED';
     isFinished = true;
-  } else if (statusRaw === 'live' || statusRaw === 'in_progress' || statusRaw === '1h' || statusRaw === '2h' || statusRaw === 'ht' || ['first_half', 'second_half', 'extra_time', 'halftime', 'penalty_shootout'].includes(statusRaw)) {
+  } else if (['live', 'in_progress', 'inprogress', 'inplay', 'in_play', '1h', '2h', '1t', '2t', 'ht', 'first_half', '1st_half', 'second_half', '2nd_half', 'extra_time', 'extra_time_first_half', 'extra_time_second_half', 'halftime', 'half_time', 'paused', 'penalties', 'penalty_shootout'].includes(statusRaw)) {
     normalizedStatus = 'IN_PLAY';
     isLive = true;
   } else if (statusRaw === 'postponed' || statusRaw === 'cancelled') {
@@ -593,20 +816,28 @@ function normalizeSportScoreMatch(m) {
     normalizedStatus = 'TIMED';
   }
 
-  // Parse scores safely - never create artificial 0-0 for upcoming matches!
-  const homeScoreNum = (m.home_score !== null && m.home_score !== undefined && m.home_score !== '')
-      ? parseInt(m.home_score, 10)
-      : null;
-  const awayScoreNum = (m.away_score !== null && m.away_score !== undefined && m.away_score !== '')
-      ? parseInt(m.away_score, 10)
-      : null;
+  const scoreOrNull = value => {
+    const number = numericOrNull(value);
+    return number !== null && Number.isInteger(number) && number >= 0 ? number : null;
+  };
+  const homeScoreNum = scoreOrNull(m.home_score);
+  const awayScoreNum = scoreOrNull(m.away_score);
+  const timing = normalizeMatchTiming({ status: m.status, period: m.period,
+    statusText: m.status_text, minute: m.live_minute });
 
   const matchId = (m.url || m.slug || `${m.home}-vs-${m.away}`).replace('/football/match/', '').replace(/\//g, '');
 
   // Resolve known competition
-  const knownComp = resolveCompetition(m.competition);
+  const namedCompetition = typeof m.competition === 'string' ? resolveCompetition(m.competition) : null;
+  const competitionSlug = typeof m.competition_slug === 'string' ? m.competition_slug.trim() : '';
+  const slugEntry = competitionSlug ? Object.entries(COMPETITION_SLUGS).find(([, info]) => info.slug === competitionSlug) : null;
+  // An explicit but conflicting/unknown provider scope must never borrow the
+  // identity of a league inferred from its display name.
+  const knownComp = competitionSlug ?
+    (slugEntry && (!namedCompetition || namedCompetition.code === slugEntry[0]) ?
+      { code: slugEntry[0], name: slugEntry[1].name, country: slugEntry[1].country } : null) : namedCompetition;
   // Four-letter prefixes merged unrelated leagues (e.g. every UEFA competition).
-  const compCode = knownComp ? knownComp.code : `SC:${String(m.competition || 'unknown').trim().toLowerCase()}`;
+  const compCode = knownComp ? knownComp.code : `SC:${String(competitionSlug || m.competition || 'unknown').trim().toLowerCase()}`;
   const compName = knownComp ? knownComp.name : (m.competition || 'Football Competition');
 
   return {
@@ -615,40 +846,32 @@ function normalizeSportScoreMatch(m) {
     utcDate: m.time || null,
     status: normalizedStatus,
     statusText: m.status_text || (isFinished ? 'Finished' : (isLive ? 'Live' : 'Upcoming')),
-    minute: m.live_minute || null,
-    homeTeam: {
-      id: m.home || 'home',
-      name: m.home || 'Home Team',
-      shortName: m.home || 'Home',
-      crest: m.home_logo || '',
-      logo: m.home_logo || ''
-    },
-    awayTeam: {
-      id: m.away || 'away',
-      name: m.away || 'Away Team',
-      shortName: m.away || 'Away',
-      crest: m.away_logo || '',
-      logo: m.away_logo || ''
-    },
+    minute: m.live_minute ?? null,
+    period: m.period || '',
+    ...timing,
+    homeTeam: fixtureTeam(m, 'home'),
+    awayTeam: fixtureTeam(m, 'away'),
     score: {
       fullTime: {
         home: homeScoreNum,
         away: awayScoreNum
       },
-      halfTime: {
-        home: m.home_ht_score !== undefined ? parseInt(m.home_ht_score, 10) : null,
-        away: m.away_ht_score !== undefined ? parseInt(m.away_ht_score, 10) : null
-      }
+      halfTime: timing.halfTimeConfirmed ? {
+        home: scoreOrNull(m.home_ht_score),
+        away: scoreOrNull(m.away_ht_score)
+      } : null
     },
     competition: {
       id: compCode,
       name: compName,
       code: compCode,
+      ...(competitionSlug ? { slug: competitionSlug } : {}),
       country: knownComp ? knownComp.country : '',
       emblem: m.competition_logo || '',
       logo: m.competition_logo || ''
     },
-    source: 'sportscore'
+    source: 'sportscore',
+    provider: 'sportscore'
   };
 }
 
@@ -676,22 +899,24 @@ function normalizeSportScoreMatchDetail(m, slug) {
     }
 
     return {
-      minute: inc.time || 0,
+      minute: inc.time ?? null,
       type,
       icon,
       label: inc.type || 'Event',
-      side: inc.side || 'home',
+      side: ['home', 'away'].includes(inc.side) ? inc.side : null,
       player: inc.player || '',
-      assist: inc.assist || null
+      assist: inc.assist || null,
+      playerOut: inc.player_out || inc.playerOut || null
     };
   });
 
   // Lineups normalization
   const lineups = m.lineups || {};
   const mapPlayer = p => {
-    const name = p.name || p.playerName || 'Player';
+    const name = p.name || p.playerName || '';
+    if (!name) return null;
     const id = String(p.slug || p.id || name);
-    const number = p.number || 0;
+    const number = p.number ?? null;
     return {
       id,
       name,
@@ -699,7 +924,7 @@ function normalizeSportScoreMatchDetail(m, slug) {
       number,
       position: p.position || '',
       captain: Boolean(p.captain),
-      rating: p.rating || null,
+      rating: normalizedRating(p.rating),
       player: {
         id,
         name,
@@ -708,10 +933,10 @@ function normalizeSportScoreMatchDetail(m, slug) {
     };
   };
 
-  const homeXi = (lineups.home_xi || []).map(mapPlayer);
-  const awayXi = (lineups.away_xi || []).map(mapPlayer);
-  const homeSubs = (lineups.home_subs || []).map(mapPlayer);
-  const awaySubs = (lineups.away_subs || []).map(mapPlayer);
+  const homeXi = (lineups.home_xi || []).map(mapPlayer).filter(Boolean);
+  const awayXi = (lineups.away_xi || []).map(mapPlayer).filter(Boolean);
+  const homeSubs = (lineups.home_subs || []).map(mapPlayer).filter(Boolean);
+  const awaySubs = (lineups.away_subs || []).map(mapPlayer).filter(Boolean);
 
   return {
     ...base,

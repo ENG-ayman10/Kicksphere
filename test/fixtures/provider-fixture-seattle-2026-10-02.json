@@ -1,0 +1,26 @@
+{
+  "verifiedAt": "2026-10-02",
+  "evidence": {
+    "fixtures": "/api/matches/date?date=2026-10-02",
+    "bsdTeams": "/api/v2/teams/?league_id=18&name=Seattle and name=Sporting Kansas",
+    "sportscoreTeams": "/api/v1/football/standings/?competition=united-states-major-league-soccer",
+    "bsdTeamCountries": { "bsd_t_302": "USA", "bsd_t_299": "USA" },
+    "note": "Both provider catalogs independently identify these senior MLS clubs. The fixtures disagree on kickoff by exactly ten minutes; scores are recorded for evidence, never used as identity."
+  },
+  "preferred": {
+    "id": "bsd_209462", "provider": "bsd", "source": "bsd",
+    "utcDate": "2026-10-02T01:30:00.000Z", "status": "FINISHED",
+    "competition": { "code": "MLS", "provider": "bsd", "providerId": "18", "name": "MLS", "country": "USA" },
+    "homeTeam": { "id": "bsd_t_302", "provider": "bsd", "name": "Seattle Sounders FC", "type": "team" },
+    "awayTeam": { "id": "bsd_t_299", "provider": "bsd", "name": "Sporting Kansas City", "type": "team" },
+    "score": { "fullTime": { "home": 2, "away": 1 }, "halfTime": { "home": 0, "away": 1 } }
+  },
+  "supplement": {
+    "id": "seattle-sounders-vs-sporting-kansas-citydn1m1ghl0g4pmoe", "provider": "sportscore", "source": "sportscore",
+    "utcDate": "2026-10-02T01:40:00+00:00", "status": "FINISHED",
+    "competition": { "code": "MLS", "name": "MLS", "country": "USA" },
+    "homeTeam": { "id": "sc_t_seattle-sounders", "provider": "sportscore", "name": "Seattle Sounders", "identityBasis": "competition_standings", "identityCompetitionCode": "MLS" },
+    "awayTeam": { "id": "sc_t_sporting-kansas-city", "provider": "sportscore", "name": "Sporting Kansas City", "identityBasis": "competition_standings", "identityCompetitionCode": "MLS" },
+    "score": { "fullTime": { "home": 2, "away": 1 }, "halfTime": { "home": null, "away": null } }
+  }
+}

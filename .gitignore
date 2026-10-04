@@ -1,6 +1,9 @@
 node_modules/
 .env
 serviceAccountKey.json
+serviceAccountKey.*.json
+.env.*
+!.env.example
 logs/
 *.code-workspace
 
@@ -11,3 +14,13 @@ test_player.js
 test_rapidapi.js
 test_sofascore.js
 test_sportsdb.js
+
+# Local legacy deployment helpers contain credentials; never ship them.
+/deploy_alwaysdata.js
+/upload_all.js
+/upload_ftps.ps1
+/scratch/
+
+# Private local diagnostics and user uploads are not deployable source.
+/.audit/
+/uploads/

@@ -1,12 +1,17 @@
 /**
  * @file homeController.js
- * @description Home feed controller — returns live/today matches from football-data.org.
+ * @description Home feed with provider-scoped favorites and observed live matches.
  */
 
 const db = require('../config/firebase');
 const sportscoreService = require('../services/sportscoreService');
 const logger = require('../utils/logger');
 const { isAdminUser } = require('../utils/auth');
+const { favoriteTeamIds, matchTeamId } = require('../utils/teamIdentity');
+const { teamIdentityIds } = require('../utils/matchProviderIdentities');
+const kickoffApiService = require('../services/kickoffApiService');
+const bsdSportsService = require('../services/bsdSportsService');
+const sportsDataService = require('../services/sportsDataService');
 
 // ==========================================
 // 🔥 HOME API
@@ -37,8 +42,25 @@ exports.getHome = async (req, res) => {
     // =========================
     // 🔥 1. FETCH TODAY'S MATCHES FROM API
     // =========================
-    const todayMatches = await sportscoreService.getMatchesByDate('TODAY');
-    const liveMatches = await sportscoreService.getLiveMatches();
+    const useBsd = typeof bsdSportsService.isConfigured === 'function' && bsdSportsService.isConfigured();
+    const provider = useBsd ? sportsDataService : sportscoreService;
+    const snapshots = await Promise.allSettled([
+      provider.getMatchesByDate('TODAY'), provider.getLiveMatches()
+    ]);
+    const readSnapshot = settled => {
+      if (settled.status !== 'fulfilled') return null;
+      if (Array.isArray(settled.value)) return { data: settled.value, source: 'sportscore' };
+      return settled.value?.success === true && Array.isArray(settled.value.data) &&
+        settled.value.coverage?.available !== false && settled.value.source !== 'unavailable' ? settled.value : null;
+    };
+    const daySnapshot = readSnapshot(snapshots[0]);
+    const liveSnapshot = readSnapshot(snapshots[1]);
+    if (!daySnapshot && !liveSnapshot) {
+      return res.status(503).json({ success: false, source: 'unavailable', message: 'Home data providers unavailable.' });
+    }
+    const todayMatches = [...(daySnapshot?.data || [])];
+    const liveMatches = [...(liveSnapshot?.data || [])].filter(match =>
+      ['IN_PLAY', 'PAUSED'].includes(match.status));
 
     // Sort today's matches by priority
     const priority = ['CL', 'EL', 'ECL', 'WC', 'EC', 'PL', 'PD', 'SA', 'BL1', 'FL1', 'SPL', 'PPL', 'DED', 'BSA', 'ELC', 'TSL', 'MLS', 'LMX', 'CLI'];
@@ -54,8 +76,7 @@ exports.getHome = async (req, res) => {
       return aRank - bRank;
     });
 
-    // Live = actually live matches, or today's priority matches if none live
-    const live = liveMatches.length > 0 ? liveMatches.slice(0, 10) : todayMatches.slice(0, 5);
+    const live = liveMatches.slice(0, 10);
 
     // Top Matches = top 10 matches by priority
     const topMatches = todayMatches.slice(0, 10);
@@ -72,7 +93,8 @@ exports.getHome = async (req, res) => {
       try {
         const userDoc = await db.collection('users').doc(userId).get();
         if (userDoc.exists) {
-          preferredTeams = userDoc.data().preferences?.teams || [];
+          const preferences = userDoc.data().preferences || {};
+          preferredTeams = favoriteTeamIds([...(preferences.teamIds || []), ...(preferences.teamsV2 || [])]);
         }
       } catch (e) {
         logger.warn(`⚠️ Could not fetch user preferences: ${e.message}`);
@@ -87,24 +109,27 @@ exports.getHome = async (req, res) => {
     if (preferredTeams.length > 0) {
       // First: try to find favorite teams in today's matches
       recommended = todayMatches
-        .filter(m =>
-          preferredTeams.some(team =>
-            (m.homeTeam?.name || '').toLowerCase().includes(team.toLowerCase()) ||
-            (m.awayTeam?.name || '').toLowerCase().includes(team.toLowerCase())
-          )
-        )
+        .filter(m => [matchTeamId(m.homeTeam, m.source || 'sportscore'),
+          matchTeamId(m.awayTeam, m.source || 'sportscore'), ...teamIdentityIds(m)]
+          .some(teamId => teamId && preferredTeams.includes(teamId)))
         .slice(0, 5);
 
       // Fallback: if no matches today, fetch recent + upcoming from SportScore
       if (recommended.length < 2) {
         try {
           const teamsToFetch = preferredTeams.slice(0, 3); // Limit to 3 to prevent timeouts
-          const teamDetailPromises = teamsToFetch.map(teamName =>
-            sportscoreService.getTeamDetails(teamName).catch(err => {
-              logger.warn(`⚠️ Failed to fetch team details for ${teamName}: ${err.message}`);
+          const teamDetailPromises = teamsToFetch.map(async teamId => {
+            try {
+              if (teamId.startsWith('ko_t_')) {
+                return { matches: await kickoffApiService.getTeamFixtures(teamId) };
+              }
+              if (teamId.startsWith('bsd_t_')) return await bsdSportsService.getTeamDetails(teamId);
+              return await sportscoreService.getTeamDetails(teamId.slice(5));
+            } catch (err) {
+              logger.warn(`⚠️ Failed to fetch favorite team details: ${err.message}`);
               return null;
-            })
-          );
+            }
+          });
 
           const teamDetailResults = await Promise.all(teamDetailPromises);
 
@@ -124,11 +149,17 @@ exports.getHome = async (req, res) => {
             }
           }
 
-          // Sort by date (upcoming first, then recent)
+          // Put live matches first, then the nearest available upcoming fixture.
+          const now = Date.now();
+          const matchOrder = match => {
+            const date = Date.parse(match.utcDate);
+            if (['IN_PLAY', 'PAUSED'].includes(match.status)) return { rank: 0, date: Number.isFinite(date) ? date : now };
+            if (!Number.isFinite(date)) return { rank: 3, date: 0 };
+            return { rank: date >= now ? 1 : 2, date };
+          };
           recommended.sort((a, b) => {
-            const dateA = new Date(a.utcDate || 0).getTime();
-            const dateB = new Date(b.utcDate || 0).getTime();
-            return dateB - dateA;
+            const left = matchOrder(a), right = matchOrder(b);
+            return left.rank - right.rank || (left.rank === 2 ? right.date - left.date : left.date - right.date);
           });
 
           recommended = recommended.slice(0, 10);
@@ -144,6 +175,9 @@ exports.getHome = async (req, res) => {
     // =========================
     res.json({
       success: true,
+      source: [...new Set([daySnapshot?.source, liveSnapshot?.source].filter(Boolean))].join('+'),
+      coverage: { today: daySnapshot?.coverage || { available: !!daySnapshot },
+        live: liveSnapshot?.coverage || { available: !!liveSnapshot } },
       data: {
         live,
         topMatches,

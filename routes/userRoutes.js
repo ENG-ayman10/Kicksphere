@@ -14,6 +14,14 @@ const {
 } = require('../controllers/userController');
 
 const upload = require('../middlewares/uploadMiddleware');
+const { requireSelf, registerDevice, revokeDevice, testDevice } = require('../controllers/notificationDeviceController');
+
+router.put('/:userId/notification-devices/:deviceId', authMiddleware,
+  requireParams(['userId', 'deviceId']), requireSelf, registerDevice);
+router.delete('/:userId/notification-devices/:deviceId', authMiddleware,
+  requireParams(['userId', 'deviceId']), requireSelf, revokeDevice);
+router.post('/:userId/notification-devices/:deviceId/test', authMiddleware,
+  requireParams(['userId', 'deviceId']), requireSelf, testDevice);
 
 // ==========================================
 // 🔥 USER PREFERENCES (Protected)

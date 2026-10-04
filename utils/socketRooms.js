@@ -9,7 +9,7 @@ const normalizeRoomValue = (value, maxLength = 120) => {
 
 const userRoom = userId => `user:${userId}`;
 const matchRoom = matchId => `match:${matchId}`;
-const teamRoom = teamName => `team:${teamName}`;
+const teamRoom = teamId => `team:${teamId}`;
 
 module.exports = {
   matchRoom,

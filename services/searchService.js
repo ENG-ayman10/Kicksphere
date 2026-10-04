@@ -5,8 +5,10 @@
 
 const logger = require('../utils/logger');
 const sportscoreService = require('./sportscoreService');
+const bsdSportsService = require('./bsdSportsService');
 const { COMPETITION_SLUGS } = require('./sportscoreService');
 const { normalizeCompetitionCode } = require('../utils/sportsContracts');
+const { scopedTeamId } = require('../utils/teamIdentity');
 
 const normalizeTerm = (value) => String(value || '')
   .normalize('NFKD')
@@ -124,6 +126,69 @@ const CLUBS = {
     leagueCode: 'FL1',
     country: 'France',
     logo: 'https://crests.football-data.org/524.png'
+  },
+  'Borussia Dortmund': {
+    id: '4',
+    league: 'Bundesliga',
+    leagueCode: 'BL1',
+    country: 'Germany',
+    logo: 'https://crests.football-data.org/4.png'
+  },
+  'Atletico Madrid': {
+    id: '78',
+    league: 'La Liga',
+    leagueCode: 'PD',
+    country: 'Spain',
+    logo: 'https://crests.football-data.org/78.png'
+  },
+  'Tottenham Hotspur': {
+    id: '73',
+    league: 'Premier League',
+    leagueCode: 'PL',
+    country: 'England',
+    logo: 'https://crests.football-data.org/73.png'
+  },
+  'Aston Villa': {
+    id: '58',
+    league: 'Premier League',
+    leagueCode: 'PL',
+    country: 'England',
+    logo: 'https://crests.football-data.org/58.png'
+  },
+  'Newcastle United': {
+    id: '67',
+    league: 'Premier League',
+    leagueCode: 'PL',
+    country: 'England',
+    logo: 'https://crests.football-data.org/67.png'
+  },
+  'Al Hilal': {
+    id: 'al-hilal',
+    league: 'Saudi Pro League',
+    leagueCode: 'SPL',
+    country: 'Saudi Arabia',
+    logo: 'https://crests.football-data.org/al-hilal.png'
+  },
+  'Al Nassr': {
+    id: 'al-nassr',
+    league: 'Saudi Pro League',
+    leagueCode: 'SPL',
+    country: 'Saudi Arabia',
+    logo: 'https://crests.football-data.org/al-nassr.png'
+  },
+  'Al Ittihad': {
+    id: 'al-ittihad',
+    league: 'Saudi Pro League',
+    leagueCode: 'SPL',
+    country: 'Saudi Arabia',
+    logo: 'https://crests.football-data.org/al-ittihad.png'
+  },
+  'Sporting CP': {
+    id: '498',
+    league: 'Primeira Liga',
+    leagueCode: 'PPL',
+    country: 'Portugal',
+    logo: 'https://crests.football-data.org/498.png'
   },
 };
 
@@ -303,7 +368,19 @@ exports.searchAll = async (query, options = {}) => {
 
   const fallback = searchLocal(q);
   let sportscoreProvider = emptyResult('sportscore');
+  let bsdProvider = emptyResult('bsd');
   const providerSources = [];
+
+  if (options.useProvider !== false && q.length >= 2 && bsdSportsService.isConfigured?.()) {
+    try {
+      const bsdResult = await bsdSportsService.searchEntities(rawQuery, 10);
+      if (bsdResult) {
+        bsdProvider = { ...emptyResult('bsd'), teams: bsdResult.teams || [], players: bsdResult.players || [],
+          leagues: bsdResult.competitions || bsdResult.leagues || [], coverage: bsdResult.coverage };
+        if (hasMatches(bsdProvider)) providerSources.push('bsd');
+      }
+    } catch (error) { logger.warn(`BSD search unavailable: ${error.message}`); }
+  }
 
   // 1. Try SportScore search
   if (options.useProvider !== false && q.length >= 2) {
@@ -312,11 +389,12 @@ exports.searchAll = async (query, options = {}) => {
       if (scResult && (scResult.teams?.length > 0 || scResult.competitions?.length > 0 || scResult.players?.length > 0)) {
         sportscoreProvider = {
           teams: (scResult.teams || []).map(t => ({
-            id: t.slug || t.id,
-            targetId: t.slug || t.id,
+            id: scopedTeamId(t.slug || t.id, 'sportscore'),
+            targetId: scopedTeamId(t.slug || t.id, 'sportscore'),
             provider: 'sportscore',
             providerId: t.slug,
             name: t.name,
+            country: t.country || '',
             shortName: t.name,
             logo: t.logo || t.crest || '',
             slug: t.slug || ''
@@ -351,11 +429,17 @@ exports.searchAll = async (query, options = {}) => {
     }
   }
 
-  const provider = sportscoreProvider;
+  const provider = {
+    teams: mergeUnique(bsdProvider.teams, sportscoreProvider.teams, ['provider', 'id']),
+    players: mergeUnique(bsdProvider.players, sportscoreProvider.players, ['provider', 'id']),
+    leagues: mergeUnique(bsdProvider.leagues, sportscoreProvider.leagues, ['code', 'id']),
+  };
   const usedProvider = hasMatches(provider);
 
-  const teams = mergeUnique(provider.teams, fallback.teams, ['name']).slice(0, 10);
-  const players = mergeUnique(provider.players, fallback.players, ['name']).slice(0, 10);
+  // Provider IDs distinguish namesakes. Static name entries are only suggestions
+  // when no provider returned an entity in that category.
+  const teams = (provider.teams.length ? provider.teams : fallback.teams).slice(0, 10);
+  const players = (provider.players.length ? provider.players : fallback.players).slice(0, 10);
   const leagues = mergeUnique(provider.leagues || [], fallback.leagues, ['id']).slice(0, 8);
 
   return {
@@ -363,7 +447,8 @@ exports.searchAll = async (query, options = {}) => {
     players,
     leagues,
     matches: [],
-    source: usedProvider ? `sportscore+local-fallback` : 'local-fallback'
+    source: usedProvider ? [...new Set(providerSources)].join('+') : 'local-fallback',
+    ...(bsdProvider.coverage ? { coverage: { bsd: bsdProvider.coverage } } : {}),
   };
 };
 

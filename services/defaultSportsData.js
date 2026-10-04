@@ -130,6 +130,192 @@ const DEFAULT_SCORERS = {
   ]
 };
 
+const DEFAULT_FIXTURES = {
+  PL: [
+    {
+      id: 'pl-ars-che',
+      slug: 'arsenal-vs-chelsea',
+      utcDate: '2026-10-04T16:30:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '57', name: 'Arsenal FC', shortName: 'Arsenal', crest: 'https://crests.football-data.org/57.png', logo: 'https://crests.football-data.org/57.png' },
+      awayTeam: { id: '61', name: 'Chelsea FC', shortName: 'Chelsea', crest: 'https://crests.football-data.org/61.png', logo: 'https://crests.football-data.org/61.png' },
+      competition: { id: 'PL', code: 'PL', name: 'Premier League', country: 'England' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    },
+    {
+      id: 'pl-mci-liv',
+      slug: 'manchester-city-vs-liverpool',
+      utcDate: '2026-10-04T19:00:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '65', name: 'Manchester City FC', shortName: 'Man City', crest: 'https://crests.football-data.org/65.png', logo: 'https://crests.football-data.org/65.png' },
+      awayTeam: { id: '64', name: 'Liverpool FC', shortName: 'Liverpool', crest: 'https://crests.football-data.org/64.png', logo: 'https://crests.football-data.org/64.png' },
+      competition: { id: 'PL', code: 'PL', name: 'Premier League', country: 'England' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    },
+    {
+      id: 'pl-mun-tot',
+      slug: 'manchester-united-vs-tottenham',
+      utcDate: '2026-10-05T15:00:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '66', name: 'Manchester United FC', shortName: 'Man United', crest: 'https://crests.football-data.org/66.png', logo: 'https://crests.football-data.org/66.png' },
+      awayTeam: { id: '73', name: 'Tottenham Hotspur FC', shortName: 'Tottenham', crest: 'https://crests.football-data.org/73.png', logo: 'https://crests.football-data.org/73.png' },
+      competition: { id: 'PL', code: 'PL', name: 'Premier League', country: 'England' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    },
+    {
+      id: 'pl-avl-new',
+      slug: 'aston-villa-vs-newcastle',
+      utcDate: '2026-10-05T17:30:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '58', name: 'Aston Villa FC', shortName: 'Aston Villa', crest: 'https://crests.football-data.org/58.png', logo: 'https://crests.football-data.org/58.png' },
+      awayTeam: { id: '67', name: 'Newcastle United FC', shortName: 'Newcastle', crest: 'https://crests.football-data.org/67.png', logo: 'https://crests.football-data.org/67.png' },
+      competition: { id: 'PL', code: 'PL', name: 'Premier League', country: 'England' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    },
+    {
+      id: 'pl-nfo-eve',
+      slug: 'nottingham-forest-vs-everton',
+      utcDate: '2026-10-06T20:00:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '351', name: 'Nottingham Forest FC', shortName: 'Nottingham', crest: 'https://crests.football-data.org/351.png', logo: 'https://crests.football-data.org/351.png' },
+      awayTeam: { id: '62', name: 'Everton FC', shortName: 'Everton', crest: 'https://crests.football-data.org/62.png', logo: 'https://crests.football-data.org/62.png' },
+      competition: { id: 'PL', code: 'PL', name: 'Premier League', country: 'England' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    }
+  ],
+  PD: [
+    {
+      id: '1570411',
+      slug: 'real-madrid-vs-villarreal',
+      utcDate: '2026-10-04T19:00:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '86', name: 'Real Madrid CF', shortName: 'Real Madrid', crest: 'https://crests.football-data.org/86.png', logo: 'https://crests.football-data.org/86.png' },
+      awayTeam: { id: '94', name: 'Villarreal CF', shortName: 'Villarreal', crest: 'https://crests.football-data.org/94.png', logo: 'https://crests.football-data.org/94.png' },
+      competition: { id: 'PD', code: 'PD', name: 'La Liga', country: 'Spain' },
+      venue: { name: 'Estadio Santiago Bernabéu', city: 'Madrid' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    },
+    {
+      id: 'pd-bar-atm',
+      slug: 'barcelona-vs-atletico-madrid',
+      utcDate: '2026-10-04T16:15:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '81', name: 'FC Barcelona', shortName: 'Barcelona', crest: 'https://crests.football-data.org/81.png', logo: 'https://crests.football-data.org/81.png' },
+      awayTeam: { id: '78', name: 'Club Atlético de Madrid', shortName: 'Atlético', crest: 'https://crests.football-data.org/78.png', logo: 'https://crests.football-data.org/78.png' },
+      competition: { id: 'PD', code: 'PD', name: 'La Liga', country: 'Spain' },
+      venue: { name: 'Estadi Olímpic Lluís Companys', city: 'Barcelona' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    },
+    {
+      id: 'pd-ath-rso',
+      slug: 'athletic-club-vs-real-sociedad',
+      utcDate: '2026-10-05T20:00:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '77', name: 'Athletic Club', shortName: 'Athletic', crest: 'https://crests.football-data.org/77.png', logo: 'https://crests.football-data.org/77.png' },
+      awayTeam: { id: '92', name: 'Real Sociedad', shortName: 'Real Sociedad', crest: 'https://crests.football-data.org/92.png', logo: 'https://crests.football-data.org/92.png' },
+      competition: { id: 'PD', code: 'PD', name: 'La Liga', country: 'Spain' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    }
+  ],
+  SA: [
+    {
+      id: 'sa-int-mil',
+      slug: 'inter-milan-vs-ac-milan',
+      utcDate: '2026-10-04T18:45:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '108', name: 'FC Internazionale Milano', shortName: 'Inter', crest: 'https://crests.football-data.org/108.png', logo: 'https://crests.football-data.org/108.png' },
+      awayTeam: { id: '98', name: 'AC Milan', shortName: 'Milan', crest: 'https://crests.football-data.org/98.png', logo: 'https://crests.football-data.org/98.png' },
+      competition: { id: 'SA', code: 'SA', name: 'Serie A', country: 'Italy' },
+      venue: { name: 'San Siro', city: 'Milano' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    },
+    {
+      id: 'sa-juv-nap',
+      slug: 'juventus-vs-napoli',
+      utcDate: '2026-10-05T19:45:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '109', name: 'Juventus FC', shortName: 'Juventus', crest: 'https://crests.football-data.org/109.png', logo: 'https://crests.football-data.org/109.png' },
+      awayTeam: { id: '113', name: 'SSC Napoli', shortName: 'Napoli', crest: 'https://crests.football-data.org/113.png', logo: 'https://crests.football-data.org/113.png' },
+      competition: { id: 'SA', code: 'SA', name: 'Serie A', country: 'Italy' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    }
+  ],
+  BL1: [
+    {
+      id: 'bl1-bay-dor',
+      slug: 'bayern-munich-vs-borussia-dortmund',
+      utcDate: '2026-10-04T17:30:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '5', name: 'FC Bayern München', shortName: 'Bayern', crest: 'https://crests.football-data.org/5.png', logo: 'https://crests.football-data.org/5.png' },
+      awayTeam: { id: '4', name: 'Borussia Dortmund', shortName: 'Dortmund', crest: 'https://crests.football-data.org/4.png', logo: 'https://crests.football-data.org/4.png' },
+      competition: { id: 'BL1', code: 'BL1', name: 'Bundesliga', country: 'Germany' },
+      venue: { name: 'Allianz Arena', city: 'München' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    },
+    {
+      id: 'bl1-lev-rbl',
+      slug: 'bayer-leverkusen-vs-rb-leipzig',
+      utcDate: '2026-10-05T14:30:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '3', name: 'Bayer 04 Leverkusen', shortName: 'Leverkusen', crest: 'https://crests.football-data.org/3.png', logo: 'https://crests.football-data.org/3.png' },
+      awayTeam: { id: '721', name: 'RB Leipzig', shortName: 'Leipzig', crest: 'https://crests.football-data.org/721.png', logo: 'https://crests.football-data.org/721.png' },
+      competition: { id: 'BL1', code: 'BL1', name: 'Bundesliga', country: 'Germany' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    }
+  ],
+  CL: [
+    {
+      id: 'cl-rma-mci',
+      slug: 'real-madrid-vs-manchester-city',
+      utcDate: '2026-10-21T20:00:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '86', name: 'Real Madrid CF', shortName: 'Real Madrid', crest: 'https://crests.football-data.org/86.png', logo: 'https://crests.football-data.org/86.png' },
+      awayTeam: { id: '65', name: 'Manchester City FC', shortName: 'Man City', crest: 'https://crests.football-data.org/65.png', logo: 'https://crests.football-data.org/65.png' },
+      competition: { id: 'CL', code: 'CL', name: 'UEFA Champions League', country: 'Europe' },
+      venue: { name: 'Estadio Santiago Bernabéu', city: 'Madrid' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    },
+    {
+      id: 'cl-bar-bay',
+      slug: 'barcelona-vs-bayern-munich',
+      utcDate: '2026-10-22T20:00:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: '81', name: 'FC Barcelona', shortName: 'Barcelona', crest: 'https://crests.football-data.org/81.png', logo: 'https://crests.football-data.org/81.png' },
+      awayTeam: { id: '5', name: 'FC Bayern München', shortName: 'Bayern', crest: 'https://crests.football-data.org/5.png', logo: 'https://crests.football-data.org/5.png' },
+      competition: { id: 'CL', code: 'CL', name: 'UEFA Champions League', country: 'Europe' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    }
+  ],
+  SPL: [
+    {
+      id: 'spl-hil-nas',
+      slug: 'al-hilal-vs-al-nassr',
+      utcDate: '2026-10-10T18:00:00Z',
+      status: 'TIMED',
+      statusText: 'Upcoming',
+      homeTeam: { id: 'al-hilal', name: 'Al-Hilal FC', shortName: 'Al-Hilal', crest: 'https://images.kickoffapi.com/images/logos/2566.png', logo: 'https://images.kickoffapi.com/images/logos/2566.png' },
+      awayTeam: { id: 'al-nassr', name: 'Al-Nassr FC', shortName: 'Al-Nassr', crest: 'https://images.kickoffapi.com/images/logos/2564.png', logo: 'https://images.kickoffapi.com/images/logos/2564.png' },
+      competition: { id: 'SPL', code: 'SPL', name: 'Saudi Pro League', country: 'Saudi Arabia' },
+      venue: { name: 'Kingdom Arena', city: 'Riyadh' },
+      score: { fullTime: { home: null, away: null }, halfTime: { home: null, away: null } }
+    }
+  ]
+};
+
 exports.getFallbackStandings = (leagueCode) => {
   const code = String(leagueCode || '').toUpperCase();
   return DEFAULT_STANDINGS[code] || [];
@@ -140,3 +326,10 @@ exports.getFallbackTopScorers = (leagueCode, limit = 20) => {
   const scorers = DEFAULT_SCORERS[code] || [];
   return scorers.slice(0, limit);
 };
+
+exports.getFallbackCompetitionMatches = (leagueCode) => {
+  const code = String(leagueCode || '').toUpperCase();
+  return DEFAULT_FIXTURES[code] || [];
+};
+
+exports.DEFAULT_FIXTURES = DEFAULT_FIXTURES;

@@ -7,12 +7,11 @@ const sportsDataService = require('../services/sportsDataService');
 const { normalizeCompetitionCode } = require('../utils/sportsContracts');
 const logger = require('../utils/logger');
 
-const findCompetition = (id) => {
+const findCompetition = async (id) => {
   const code = normalizeCompetitionCode(id);
   if (!code) return null;
 
-  return sportsDataService
-    .getSupportedCompetitions()
+  return (await sportsDataService.getCompetitionCatalog())
     .find(competition => competition.code === code) || null;
 };
 
@@ -21,7 +20,7 @@ exports.getLeagues = async (req, res) => {
     return res.json({
       success: true,
       source: 'supported-contract',
-      data: sportsDataService.getSupportedCompetitions()
+      data: await sportsDataService.getCompetitionCatalog()
     });
   } catch (error) {
     logger.error(`getLeagues Error: ${error.message}`);
@@ -31,7 +30,7 @@ exports.getLeagues = async (req, res) => {
 
 exports.getLeagueById = async (req, res) => {
   try {
-    const competition = findCompetition(req.params.id);
+    const competition = await findCompetition(req.params.id);
 
     if (!competition) {
       return res.status(404).json({
@@ -65,6 +64,7 @@ exports.getLeagueTeams = async (req, res) => {
     return res.json({
       success: true,
       source: result.source,
+      coverage: result.coverage,
       data: result.data
     });
   } catch (error) {
@@ -91,6 +91,7 @@ exports.getLeagueMatches = async (req, res) => {
     return res.json({
       success: true,
       source: result.source,
+      coverage: result.coverage,
       data: result.data
     });
   } catch (error) {
