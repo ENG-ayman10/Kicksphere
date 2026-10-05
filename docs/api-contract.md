@@ -804,9 +804,19 @@ Response:
 
 Each item is a timeline event.
 
+An unavailable incidents feed returns `source: "unavailable"` with
+`coverage.available: false` and `coverage.reason: "incidents_unavailable"`.
+A supplied empty event list remains distinct from missing incident coverage.
+
 ### `GET /api/stats/matches/:id/lineups`
 
 Returns normalized match lineups or an unavailable message.
+
+Player entries preserve provider-supplied portrait URLs in `image` and nested
+`player.image`. KickOff fallback lineups require the canonical scoped fixture ID
+or a validated provider fixture alternative, then exact team IDs; display names
+and matching dates alone cannot authorize a lineup join. Missing lineups return
+`coverage.available: false` with `reason: "lineups_unavailable"`.
 
 Response when available:
 

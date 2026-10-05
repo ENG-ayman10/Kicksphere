@@ -11,6 +11,7 @@ const { resolveLocalTeam, resolveProviderTeamLookup } = require('../services/tea
 const { getCached, setCache } = require('../services/cacheService');
 const logger = require('../utils/logger');
 const { scopedTeamId } = require('../utils/teamIdentity');
+const { validatedProviderIdentities } = require('../utils/matchProviderIdentities');
 const { filterPresentedTimeline } = require('../utils/matchTimelineTiming');
 
 const serverError = (res) => res.status(500).json({ success: false, message: 'Server Error' });
@@ -295,6 +296,10 @@ exports.getMatchTimeline = async (req, res) => {
     if (/^bsd_[1-9]\d*$/.test(String(id))) {
       const details = await callProvider('BSD match timeline', () => bsdSportsService.getMatchDetails(id));
       if (!details?.matchInfo) return res.status(404).json({ success: false, message: 'Match not found' });
+      if (details.coverage?.fields?.incidents === false) {
+        return res.json({ success: true, source: 'unavailable', data: [],
+          coverage: { available: false, complete: false, partial: true, reason: 'incidents_unavailable' } });
+      }
       return res.json({ success: true, source: 'bsd', coverage: details.coverage,
         data: hydrateTimelineTeams(details.timeline || details.incidents || [], details.matchInfo) });
     }
@@ -303,16 +308,19 @@ exports.getMatchTimeline = async (req, res) => {
     // 1. Try SportScore
     try {
       const scMatch = await sportscoreService.getMatchDetails(id);
-      if (scMatch && scMatch.timeline && scMatch.timeline.length > 0) {
+      if (scMatch?.detailsAvailable !== false && Array.isArray(scMatch?.timeline) &&
+          scMatch.incidentCoverage?.available !== false) {
         return res.json({
           success: true,
           source: 'sportscore',
+          coverage: scMatch.incidentCoverage || { available: true, complete: false, partial: true },
           data: hydrateTimelineTeams(scMatch.timeline, scMatch)
         });
       }
     } catch (_) {}
 
-    return res.json({ success: true, source: 'empty', data: [] });
+    return res.json({ success: true, source: 'unavailable', data: [],
+      coverage: { available: false, complete: false, partial: true, reason: 'incidents_unavailable' } });
   } catch (error) {
     logger.error(`❌ TIMELINE ERROR: ${error.message}`);
     serverError(res);
@@ -328,9 +336,10 @@ function mapKickoffPlayer(item) {
   if (!name) return null;
   const id = p.id ? 'ko_p_' + String(p.id) : name;
   const number = p.number ?? null;
-  return { id, provider: 'kickoffapi', providerId: p.id?.toString() || '', name,
+  const image = p.photo || item.photo || '';
+  return { id, provider: 'kickoffapi', providerId: p.id?.toString() || '', name, image,
     playerName: name, number, position: p.pos || p.position || '', captain: Boolean(p.captain),
-    rating: toNumberOrNull(p.rating), player: { id, name, number } };
+    rating: toNumberOrNull(p.rating), player: { id, name, number, image, provider: 'kickoffapi' } };
 }
 
 async function resolveMatchLineups(id) {
@@ -345,31 +354,23 @@ async function resolveMatchLineups(id) {
   const match = result?.data;
   if (!match) return null;
   if (match.lineups && (hasItems(match.lineups.home) || hasItems(match.lineups.away))) {
-    return { source: result.source, lineups: match.lineups };
+    return { source: result.source, lineups: match.lineups, coverage: result.coverage };
   }
-  let fixtureId = /^ko_\d+$/.test(String(id)) ? Number(String(id).slice(3)) : null;
-  const normalize = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[-\s]+/g,' ').trim();
-  if (!fixtureId && match.utcDate && match.homeTeam?.name && match.awayTeam?.name) {
-    const data = await kickoffApiService.safeFetch('/api/v1/fixtures', { date: String(match.utcDate).slice(0,10) });
-    const matched = (data?.response || []).find(item => {
-      const home = item.homeTeam || item.teams?.home;
-      const away = item.awayTeam || item.teams?.away;
-      const date = item.fixture?.date || item.date;
-      return normalize(home?.name) === normalize(match.homeTeam.name) &&
-        normalize(away?.name) === normalize(match.awayTeam.name) &&
-        date && Date.parse(date) === Date.parse(match.utcDate);
-    });
-    fixtureId = matched?.fixture?.id || matched?.id || null;
-  }
+  const kickoffIdentity = /^ko_[1-9]\d*$/.test(String(id)) && match.id === id
+    ? { id, homeTeamId: match.homeTeam?.id, awayTeamId: match.awayTeam?.id }
+    : validatedProviderIdentities(match).find(identity => identity.provider === 'kickoffapi');
+  const fixtureId = kickoffIdentity ? Number(String(kickoffIdentity.id).slice(3)) : null;
   if (!fixtureId) return null;
+  const homeId = scopedTeamId(kickoffIdentity.homeTeamId, 'kickoffapi');
+  const awayId = scopedTeamId(kickoffIdentity.awayTeamId, 'kickoffapi');
+  if (!homeId?.startsWith('ko_t_') || !awayId?.startsWith('ko_t_') || homeId === awayId) return null;
   const raw = await kickoffApiService.safeFetch('/api/v1/fixtures/lineups', { fixture: fixtureId });
   const sides = raw?.response || [];
-  const sideFor = team => sides.find(side => {
-    const providerId = team.providerId || String(team.id || '').replace(/^ko_t_/, '');
-    return (team.provider === 'kickoffapi' && String(side.team?.id) === String(providerId)) ||
-      normalize(side.team?.name) === normalize(team.name);
-  });
-  const home = sideFor(match.homeTeam), away = sideFor(match.awayTeam);
+  const sideFor = id => {
+    const matches = sides.filter(side => String(side.team?.id) === id.slice(5));
+    return matches.length === 1 ? matches[0] : null;
+  };
+  const home = sideFor(homeId), away = sideFor(awayId);
   const homePlayers = (home?.startXI || []).map(mapKickoffPlayer).filter(Boolean);
   const awayPlayers = (away?.startXI || []).map(mapKickoffPlayer).filter(Boolean);
   if (!homePlayers.length && !awayPlayers.length) return null;
@@ -394,6 +395,7 @@ exports.getMatchLineups = async (req, res) => {
       return res.json({
         success: true,
         source: `${cached.source}_cached`,
+        coverage: cached.coverage,
         data: cached.lineups
       });
     }
@@ -406,6 +408,7 @@ exports.getMatchLineups = async (req, res) => {
       return res.json({
         success: true,
         source: result.source,
+        coverage: result.coverage,
         data: result.lineups
       });
     }
@@ -413,6 +416,7 @@ exports.getMatchLineups = async (req, res) => {
     return res.json({
       success: true,
       source: 'unavailable',
+      coverage: { available: false, complete: false, partial: true, reason: 'lineups_unavailable' },
       data: {
         message: 'Lineups not available for this match yet',
         formation: { home: '', away: '' },
@@ -539,10 +543,14 @@ exports.getDeepTeamDetails = async (req, res) => {
 
 exports.getDeepPlayerDetails = async (req, res) => {
   try {
-    const playerId = String(req.params.id || '');
+    const playerId = String(req.params.id || '').trim();
     if (/^bsd_p_[1-9]\d*$/.test(playerId)) {
       const player = await callProvider('BSD player details', () => bsdSportsService.getPlayerDetails(playerId));
-      if (!player?.name) return res.status(404).json({ success: false, message: 'Player details not found' });
+      if (!player?.name || String(player.id || '') !== playerId) {
+        return res.status(404).json({ success: false, source: 'unavailable', data: null,
+          message: 'Player details not found', coverage: { available: false, complete: false,
+            partial: true, reason: player ? 'provider_identity_mismatch' : 'provider_entity_unavailable' } });
+      }
       const context = player.statsContext || {};
       const info = { ...player, id: playerId, targetId: playerId, provider: 'bsd',
         providerId: player.providerId || playerId.slice(6), fullName: player.fullName || player.name };
@@ -561,23 +569,29 @@ exports.getDeepPlayerDetails = async (req, res) => {
           transfers: player.transfers || [], honours: player.honours || [], contracts: [], milestones: [] } });
     }
     if (playerId.startsWith('bsd_')) return res.status(404).json({ success: false, message: 'Player details not found' });
-    const scopedKickoff = /^ko_p_\d+$/.test(playerId);
+    const scopedKickoff = /^ko_p_[1-9]\d*$/.test(playerId);
+    if (playerId.startsWith('ko_') && !scopedKickoff) {
+      return res.status(404).json({ success: false, source: 'unavailable', data: null,
+        message: 'Player details not found' });
+    }
+    const legacyName = /\s/.test(playerId);
     const koPlayer = scopedKickoff ? await callProvider('KickOff player details', () => kickoffApiService.getPlayerDetails(playerId)) : null;
     const scPlayer = scopedKickoff ? null : await callProvider('SportScore player details', () => sportscoreService.getPlayerDetails(playerId));
-    // Names may be searched at the second provider only after the first returned
-    // no entity. Statistics from two competitions are never merged.
-    const fallback = !scopedKickoff && !scPlayer && !/^\d+$/.test(playerId)
+    // Opaque provider IDs cannot be replaced by a namesake from another source.
+    // Only a legacy human-readable name request may use a provider search.
+    const fallback = legacyName && !scopedKickoff && !scPlayer
       ? await callProvider('KickOff player details', () => kickoffApiService.getPlayerDetails(playerId)) : null;
     const ko = koPlayer || fallback;
     const player = ko || scPlayer;
     // Do not turn an unavailable provider response into a cached empty
     // profile. The client must distinguish a missing entity from incomplete
     // optional statistics.
-    if (!player || !String(player.name || '').trim()) {
+    const identityMatches = legacyName || String(player?.id || '') === playerId;
+    if (!player || !String(player.name || '').trim() || !identityMatches) {
       return res.status(404).json({ success: false, source: 'unavailable',
         message: 'Player details not found', data: null,
         coverage: { available: false, complete: false, partial: true,
-          reason: 'provider_entity_unavailable' } });
+          reason: player && !identityMatches ? 'provider_identity_mismatch' : 'provider_entity_unavailable' } });
     }
     const info = player ? {
       id: player.id, provider: ko ? 'kickoffapi' : 'sportscore', providerId: player.providerId || player.id,

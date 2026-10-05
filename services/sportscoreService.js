@@ -923,6 +923,8 @@ function normalizeSportScoreMatchDetail(m, slug) {
     const number = p.number ?? null;
     return {
       id,
+      provider: 'sportscore',
+      image: p.logo || p.image || p.photo || p.player_logo || '',
       name,
       playerName: name,
       number,
@@ -931,6 +933,8 @@ function normalizeSportScoreMatchDetail(m, slug) {
       rating: normalizedRating(p.rating),
       player: {
         id,
+        provider: 'sportscore',
+        image: p.logo || p.image || p.photo || p.player_logo || '',
         name,
         number
       }
@@ -946,6 +950,8 @@ function normalizeSportScoreMatchDetail(m, slug) {
     ...base,
     slug,
     timeline,
+    incidentCoverage: { available: Array.isArray(m.incidents), complete: m.incidents_complete === true,
+      partial: m.incidents_complete !== true },
     providerStatistics: Array.isArray(m.stats) ? m.stats : [],
     lineups: {
       homeFormation: lineups.home_formation || '',

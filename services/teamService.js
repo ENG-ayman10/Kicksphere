@@ -166,12 +166,27 @@ exports.getTeamByIdService = async (idOrName) => {
 };
 
 exports.getTeamMatchesService = async (idOrName) => {
-  if (scopedTeamId(idOrName)?.startsWith('bsd_t_')) {
+  const scopedId = scopedTeamId(idOrName);
+  if (scopedId?.startsWith('bsd_t_')) {
     try {
-      const team = await bsdSportsService.getTeamDetails(idOrName);
-      if (team?.info) return { ...serviceResult(team.matches || { recent: [], upcoming: [], live: [] }, 'bsd'), coverage: team.coverage };
+      // Fixtures have their own source coverage. Loading biography/squad/venue
+      // here could suppress a valid calendar when unrelated profile data fails.
+      const fixtures = await bsdSportsService.getTeamFixtures(scopedId);
+      if (Array.isArray(fixtures) && fixtures.coverage?.available !== false) {
+        const now = Date.now();
+        const matches = {
+          recent: fixtures.filter(row => row.status === 'FINISHED').sort((a, b) => String(b.utcDate).localeCompare(String(a.utcDate))),
+          upcoming: fixtures.filter(row => ['TIMED', 'SCHEDULED'].includes(row.status) && Date.parse(row.utcDate) >= now)
+            .sort((a, b) => String(a.utcDate).localeCompare(String(b.utcDate))),
+          live: fixtures.filter(row => ['IN_PLAY', 'PAUSED'].includes(row.status)),
+        };
+        return { ...serviceResult(matches, 'bsd'), coverage: fixtures.coverage || {
+          source: 'bsd', available: true, complete: false, partial: true,
+        } };
+      }
     } catch (_) {}
-    return { success: false, statusCode: 503, message: 'Team fixtures unavailable' };
+    return { success: false, statusCode: 503, source: 'bsd', message: 'Team fixtures unavailable',
+      data: { recent: [], upcoming: [], live: [] }, coverage: unavailableCoverage('bsd', 'provider_unavailable') };
   }
   if (reservedTeamId(idOrName) && !scopedTeamId(idOrName)) return { success: false, statusCode: 404, message: 'Team not found' };
   const lookup = resolveProviderTeamLookup(idOrName);

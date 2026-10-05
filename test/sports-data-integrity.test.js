@@ -103,6 +103,37 @@ test('arbitrary teams and slug query parameters cannot create a fixture or inven
   assert.deepEqual(lineups.body.data.formation, { home: '', away: '' });
 });
 
+test('an unavailable SportScore player ID never searches a second provider for a namesake', async () => {
+  const controller = statsController({
+    '../services/sportscoreService': { getPlayerDetails: async () => null },
+    '../services/kickoffApiService': { getPlayerDetails: async () => assert.fail('ID cannot authorize a name search') },
+  });
+  const res = response();
+  await controller.getDeepPlayerDetails({ params: { id: 'carlos-mora' } }, res);
+  assert.equal(res.statusCode, 404);
+  assert.equal(res.body.data, null);
+  assert.equal(res.body.coverage.available, false);
+});
+
+test('a returned player must retain the exact requested provider identity', async () => {
+  for (const [id, provider, wrong] of [
+    ['carlos-mora', 'sportscore', 'carlos-mora-other'],
+    ['ko_p_7', 'kickoffapi', 'ko_p_8'],
+    ['bsd_p_7', 'bsd', 'bsd_p_8'],
+  ]) {
+    const controller = statsController({
+      '../services/sportscoreService': { getPlayerDetails: async () => provider === 'sportscore' ? { id: wrong, name: 'Carlos Mora' } : null },
+      '../services/kickoffApiService': { getPlayerDetails: async () => provider === 'kickoffapi' ? { id: wrong, name: 'Carlos Mora' } : null },
+      '../services/bsdSportsService': { getPlayerDetails: async () => provider === 'bsd' ? { id: wrong, name: 'Carlos Mora' } : null },
+    });
+    const res = response();
+    await controller.getDeepPlayerDetails({ params: { id } }, res);
+    assert.equal(res.statusCode, 404, id);
+    assert.equal(res.body.data, null, id);
+    assert.equal(res.body.coverage.reason, 'provider_identity_mismatch', id);
+  }
+});
+
 test('cached feed identity survives a missing or unrelated widget detail including misleading slug orientation', async () => {
   let unrelated = false;
   const provider = load('../services/sportscoreService', {
@@ -239,7 +270,7 @@ test('lineup provider array order cannot reverse teams or establish a lineup for
     } }) },
     '../services/kickoffApiService': { safeFetch: async () => ({ response: [
       { team: { id: 2, name: 'B' }, formation: '4-4-2', startXI: [{ player: { id: 200, name: 'Away Player' } }] },
-      { team: { id: 1, name: 'A' }, formation: '3-4-3', startXI: [{ player: { id: 100, name: 'Home Player' } }] },
+      { team: { id: 1, name: 'A' }, formation: '3-4-3', startXI: [{ player: { id: 100, name: 'Home Player', photo: 'https://example.test/100.png' } }] },
     ] }) },
   });
   const res = response();
@@ -247,7 +278,71 @@ test('lineup provider array order cannot reverse teams or establish a lineup for
   assert.equal(res.body.data.home[0].name, 'Home Player');
   assert.equal(res.body.data.away[0].id, 'ko_p_200');
   assert.equal(res.body.data.homeFormation, '3-4-3');
+  assert.equal(res.body.data.home[0].image, 'https://example.test/100.png');
+  assert.equal(res.body.data.home[0].player.image, 'https://example.test/100.png');
   assert.equal(res.body.data.confirmed, false);
+});
+
+test('unverified names and identical dates cannot import another provider lineup', async () => {
+  const controller = statsController({
+    '../services/sportsDataService': { getMatchDetails: async () => ({ source: 'sportscore', data: {
+      id: 'club-a-vs-club-b', provider: 'sportscore', homeTeam: { id: 'sc_t_a', name: 'A' },
+      awayTeam: { id: 'sc_t_b', name: 'B' }, utcDate: '2026-09-30T20:00:00Z',
+    } }) },
+    '../services/kickoffApiService': { safeFetch: async () => assert.fail('No verified fixture alternative') },
+  });
+  const res = response();
+  await controller.getMatchLineups({ params: { id: 'club-a-vs-club-b' }, query: {} }, res);
+  assert.equal(res.body.source, 'unavailable');
+  assert.equal(res.body.coverage.available, false);
+});
+
+test('matching lineup team names cannot override different KickOff team IDs', async () => {
+  const controller = statsController({
+    '../services/sportsDataService': { getMatchDetails: async () => ({ source: 'kickoffapi', data: {
+      id: 'ko_10', provider: 'kickoffapi', homeTeam: { id: 'ko_t_1', name: 'A' },
+      awayTeam: { id: 'ko_t_2', name: 'B' }, utcDate: '2026-09-30T20:00:00Z',
+    } }) },
+    '../services/kickoffApiService': { safeFetch: async () => ({ response: [
+      { team: { id: 99, name: 'A' }, startXI: [{ player: { id: 100, name: 'Other A' } }] },
+      { team: { id: 98, name: 'B' }, startXI: [{ player: { id: 200, name: 'Other B' } }] },
+    ] }) },
+  });
+  const res = response();
+  await controller.getMatchLineups({ params: { id: 'ko_10' }, query: {} }, res);
+  assert.equal(res.body.source, 'unavailable');
+  assert.deepEqual(res.body.data.home, []);
+});
+
+test('missing incident coverage is different from a supplied empty event list', async () => {
+  for (const [available, expectedSource] of [[false, 'unavailable'], [true, 'sportscore']]) {
+    const controller = statsController({
+      '../services/sportscoreService': { getMatchDetails: async () => ({
+        id: 'a-vs-b', timeline: [], detailsAvailable: true,
+        incidentCoverage: { available, complete: false, partial: true },
+      }) },
+    });
+    const res = response();
+    await controller.getMatchTimeline({ params: { id: 'a-vs-b' } }, res);
+    assert.equal(res.body.source, expectedSource);
+    assert.equal(res.body.coverage.available, available);
+    assert.deepEqual(res.body.data, []);
+  }
+});
+
+test('SportScore lineup retains provider portrait and identity on the outer and player records', async () => {
+  const provider = load('../services/sportscoreService', {
+    '../utils/logger': logger, './cacheService': cacheMock(),
+    axios: { get: async () => ({ data: { match: { slug: 'a-vs-b', home: 'A', away: 'B',
+      time: '2026-09-30T20:00:00Z', incidents: [], lineups: { home_xi: [
+        { slug: 'real-player', name: 'Player', logo: 'https://example.test/player.png' },
+      ] } } } }) },
+  });
+  const match = await provider.getMatchDetails('a-vs-b');
+  assert.equal(match.lineups.home[0].image, 'https://example.test/player.png');
+  assert.equal(match.lineups.home[0].player.image, 'https://example.test/player.png');
+  assert.equal(match.lineups.home[0].provider, 'sportscore');
+  assert.equal(match.incidentCoverage.available, true);
 });
 
 test('a namesake Barcelona cannot borrow FC Barcelona roster or fixtures through a name alias', async () => {

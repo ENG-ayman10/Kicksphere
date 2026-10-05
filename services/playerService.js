@@ -6,6 +6,7 @@ const {
   normalizeLimit,
 } = require('../utils/sportsContracts');
 const logger = require('../utils/logger');
+const { scopedTeamId } = require('../utils/teamIdentity');
 
 const normalizeText = (value) => String(value || '').trim();
 
@@ -14,10 +15,14 @@ const stableKey = (...parts) => crypto
   .update(parts.map(part => normalizeText(part).toLowerCase()).filter(Boolean).join('|'))
   .digest('hex');
 
-const normalizeTeamFromStanding = (row = {}) => {
-  const team = row.team || row;
+const normalizeTeamFromStanding = (row = {}, resultSource = '') => {
+  const nestedTeam = row.team && typeof row.team === 'object';
+  const team = nestedTeam ? row.team : row;
+  const provider = team.provider || team.source || row.provider || row.source || resultSource;
   return {
-    id: normalizeText(team.id || team.teamId || row.teamId || row.id),
+    // A standings row ID can identify the row, not the club. Only an explicit
+    // team identity may route a roster request to its original provider.
+    id: scopedTeamId(nestedTeam ? team.id || team.targetId || team.providerId || team.teamId || row.teamId : row.teamId, provider),
     name: normalizeText(team.name || team.shortName || row.name),
     logo: normalizeText(team.crest || team.logo || row.logo),
   };
@@ -71,8 +76,8 @@ const fetchLeagueSquads = async (leagueCode, teamLimit) => {
   }
 
   const teams = standingsResult.data
-    .map(normalizeTeamFromStanding)
-    .filter(team => team.name || team.id)
+    .map(row => normalizeTeamFromStanding(row, standingsResult.source))
+    .filter(team => team.id)
     .slice(0, teamLimit);
 
   const players = [];
@@ -82,8 +87,9 @@ const fetchLeagueSquads = async (leagueCode, teamLimit) => {
       // Standings rows carry provider-scoped IDs. Resolving a squad by the
       // display name can select a namesake club from another provider and was
       // the main reason league player lists were incomplete or mismatched.
-      const squadResult = await getTeamSquadService(team.id || team.name);
-      const squad = Array.isArray(squadResult.data) ? squadResult.data : [];
+      const squadResult = await getTeamSquadService(team.id);
+      const squad = squadResult.success && squadResult.coverage?.available !== false && Array.isArray(squadResult.data)
+        ? squadResult.data : [];
       players.push(
         ...squad
           .map(player => normalizeSquadPlayer(player, team, leagueCode))
