@@ -122,6 +122,8 @@ const LEAGUE_ALIAS_MAP = {
   'world cup': 'WC',
   'fifa world cup': 'WC',
   'uefa nations league': 'UNL',
+  'concacaf nations league': 'BSD:65',
+  'concacaf-nations-league': 'BSD:65',
   'uefa european championship': 'EC',
   'portuguese primera liga': 'PPL',
   'english football league championship': 'ELC',

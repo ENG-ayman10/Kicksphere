@@ -227,9 +227,48 @@ test('team profile uses scoped event fallback and missing availability is never 
   });
   const value = await service.getTeamDetails('bsd_t_57', { dateFrom: '2026-10-01', dateTo: '2026-10-01' });
   assert.equal(value.squad[0].availability.confirmedFit, false);
+  assert.equal(value.coverage.squad.complete, true);
+  assert.equal(value.coverage.squad.partial, false);
+  assert.equal(value.coverage.squad.possiblyTruncated, false);
+  assert.equal(value.coverage.complete, true);
   assert.equal(value.venue.name, 'Bernabéu');
   assert.ok(!requests.some(url => url.pathname.endsWith('/fixtures/')));
   assert.equal(await service.getTeamDetails('sc_t_real-madrid'), null);
+});
+
+test('zero-count squad stays available but partial and propagates through team details', async () => {
+  const { service, requests } = setup(url => {
+    if (url.pathname === '/api/v2/teams/699/') return { id: 699, name: 'Costa Rica', is_national: true };
+    if (url.pathname === '/api/v2/teams/699/squad/') return { team_id: 699, count: 0, players: [] };
+    if (url.pathname === '/api/v2/events/') return page([]);
+    return null;
+  });
+  const squad = await service.getTeamSquad('bsd_t_699');
+  assert.deepEqual([...squad], []);
+  assert.equal(squad.coverage.available, true);
+  assert.equal(squad.coverage.complete, false);
+  assert.equal(squad.coverage.partial, true);
+  assert.equal(squad.coverage.possiblyTruncated, false);
+  assert.equal(squad.coverage.reason, 'empty_squad');
+  assert.equal(squad.coverage.reportedTotal, 0);
+  const team = await service.getTeamDetails('bsd_t_699', { dateFrom: '2026-10-01', dateTo: '2026-10-01' });
+  assert.equal(team.coverage.fixtures.complete, true);
+  assert.equal(team.coverage.squad.reason, 'empty_squad');
+  assert.equal(team.coverage.complete, false);
+  assert.equal(team.coverage.partial, true);
+  assert.equal(team.squad.length, 0);
+  assert.ok(!requests.some(url => url.pathname.endsWith('/lineups/')));
+});
+
+test('empty squad with a positive reported count retains the truncation warning', async () => {
+  const { service } = setup(url => url.pathname.endsWith('/squad/')
+    ? { team_id: 699, count: 23, players: [] } : null);
+  const squad = await service.getTeamSquad('bsd_t_699');
+  assert.equal(squad.coverage.complete, false);
+  assert.equal(squad.coverage.partial, true);
+  assert.equal(squad.coverage.reason, 'empty_squad');
+  assert.equal(squad.coverage.possiblyTruncated, true);
+  assert.equal(squad.coverage.reportedTotal, 23);
 });
 
 test('career and transfer contexts are distinct; current stats never come from an old club or national team', async () => {

@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Module = require('node:module');
 const { fixtureTeam, buildMembershipIndex } = require('../utils/sportscoreTeamIdentity');
+const { mergeProviderFixtures } = require('../utils/providerFixtureIdentity');
+const { validatedProviderIdentities } = require('../utils/matchProviderIdentities');
 
 const logger = { info() {}, warn() {}, error() {} };
 function loadProvider(get) {
@@ -19,6 +21,51 @@ function loadProvider(get) {
 const fixture = overrides => ({ slug: 'genuine-match-id', home: 'Barcelona', away: 'Opponent',
   competition: 'La Liga', time: '2026-10-01T19:00:00Z', status: 'upcoming', ...overrides });
 const table = (slug, rows) => ({ competition_slug: slug, tables: [{ rows }] });
+
+test('audited CONCACAF scope resolves source IDs and joins the same exact fixture without borrowing child data', async () => {
+  const provider = loadProvider(async value => ({ data: value.includes('/fixtures/') ? { matches: [fixture({
+    slug: 'haiti-vs-costa-rica6ypq3nhvx9wlmd7', home: 'Costa Rica', away: 'Haiti',
+    competition: 'CONCACAF Nations League', time: '2026-10-05T03:00:00+03:00',
+    status: 'live', home_score: 1, away_score: 0,
+  })] } : table('concacaf-nations-league', [
+    { team: 'Costa Rica', team_slug: 'costa-rica', team_url: '/football/team/costa-rica/' },
+    { team: 'Haiti', team_slug: 'haiti', team_url: '/football/team/haiti/' },
+  ]) }));
+  const rows = await provider.getMatchesByDate('2026-10-05');
+  assert.equal(rows[0].competition.code, 'BSD:65');
+  assert.equal(rows[0].homeTeam.id, 'sc_t_costa-rica');
+  assert.equal(rows[0].awayTeam.id, 'sc_t_haiti');
+  const preferred = { id: 'bsd_223128', provider: 'bsd', source: 'bsd',
+    utcDate: '2026-10-05T00:00:00Z', competition: { code: 'BSD:65', country: 'North America' },
+    homeTeam: { id: 'bsd_t_699', name: 'Costa Rica' }, awayTeam: { id: 'bsd_t_465', name: 'Haiti' },
+    minute: 11, score: { fullTime: {home: 1, away: 0} },
+  };
+  const merged = mergeProviderFixtures([preferred], rows);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].homeTeam.id, 'bsd_t_699');
+  assert.equal(merged[0].minute, 11);
+  assert.deepEqual(merged[0].score, preferred.score);
+  assert.deepEqual(validatedProviderIdentities(merged[0]).map(row => row.id),
+    ['bsd_223128', 'haiti-vs-costa-rica6ypq3nhvx9wlmd7']);
+});
+
+test('CONCACAF name cannot override a conflicting source scope or ambiguous team membership', async () => {
+  for (const conflictingSlug of [true, false]) {
+    const provider = loadProvider(async value => ({ data: value.includes('/fixtures/') ? { matches: [fixture({
+      home: 'Costa Rica', away: 'Haiti', competition: 'CONCACAF Nations League',
+      ...(conflictingSlug ? { competition_slug: 'concacaf-gold-cup' } : {}),
+    })] } : table('concacaf-nations-league', [
+      { team: 'Costa Rica', team_slug: 'costa-rica' }, { team: 'Costa Rica', team_slug: 'costa-rica-u20' },
+      { team: 'Haiti', team_slug: 'haiti' },
+    ]) }));
+    const rows = await provider.getMatchesByDate('2026-10-01');
+    assert.equal(rows[0].homeTeam.id, null);
+    if (conflictingSlug) {
+      assert.equal(rows[0].competition.code, 'SC:concacaf-gold-cup');
+      assert.equal(rows[0].awayTeam.id, null);
+    }
+  }
+});
 
 test('fixture display names never become club IDs; explicit provider slugs/URLs are scoped and conflicts stay unresolved', () => {
   for (const name of ['Barcelona', 'barcelona', 'Real Madrid', 'real-madrid']) {

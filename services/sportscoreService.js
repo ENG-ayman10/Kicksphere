@@ -82,6 +82,10 @@ const COMPETITION_SLUGS = {
   'TSL': { slug: 'turkish-super-league', name: 'Süper Lig', country: 'Turkey', logo: 'https://media.api-sports.io/football/leagues/203.png' },
   'MLS': { slug: 'united-states-major-league-soccer', name: 'MLS', country: 'USA', logo: 'https://media.api-sports.io/football/leagues/253.png' },
   'UNL': { slug: 'uefa-nations-league', name: 'UEFA Nations League', country: 'Europe', logo: 'https://media.api-sports.io/football/leagues/5.png' },
+  // BSD league 65 and this exact SportScore competition were audited against
+  // both provider catalogs on 2026-10-05. Team IDs still require verified
+  // provider slugs/URLs from this competition's standings membership.
+  'BSD:65': { slug: 'concacaf-nations-league', name: 'CONCACAF Nations League', country: 'North America', logo: '' },
   'WC': { slug: 'fifa-world-cup', name: 'FIFA World Cup', country: 'International', logo: 'https://media.api-sports.io/football/leagues/1.png' },
   'EC': { slug: 'uefa-european-championship', name: 'European Championship', country: 'Europe', logo: 'https://media.api-sports.io/football/leagues/4.png' },
   'FAC': { slug: 'fa-cup', name: 'FA Cup', country: 'England', logo: 'https://media.api-sports.io/football/leagues/45.png' },

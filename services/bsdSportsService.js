@@ -411,8 +411,12 @@ exports.getTeamSquad = async teamId => {
   const raw = await fetchBsd('/api/v2/teams/' + id + '/squad/', {}, TTL.details);
   if (!raw || Number(raw.team_id) !== id || !Array.isArray(raw.players)) return null;
   const rows = raw.players.map(normalizePlayer).filter(Boolean), unique = [...new Map(rows.map(row => [row.id, row])).values()];
-  const complete = unique.length === raw.players.length && (integer(raw.count) === null || unique.length === Number(raw.count));
-  return withCoverage(unique, { available: true, complete, partial: !complete, possiblyTruncated: !complete, invalidRows: raw.players.length - rows.length, reportedTotal: integer(raw.count) });
+  const reportedTotal = integer(raw.count), empty = raw.players.length === 0;
+  const consistent = unique.length === raw.players.length && (reportedTotal === null || unique.length === reportedTotal);
+  // The provider can return a zero-count roster for teams with confirmed match
+  // lineups. An empty feed proves no roster coverage, not that the team has none.
+  const complete = !empty && consistent;
+  return withCoverage(unique, { available: true, complete, partial: !complete, possiblyTruncated: !consistent, invalidRows: raw.players.length - rows.length, reportedTotal, ...(empty ? { reason: 'empty_squad' } : {}) });
 };
 exports.getTeamFixtures = async (teamId, options = {}) => {
   const id = scopedId(teamId, 'bsd_t_'); if (!id) return null;
@@ -510,14 +514,48 @@ async function enrichCareerSeasonLabels(career) {
 function normalizeTransfer(raw) {
   return { id: positiveId(raw.id), date: calendarDate(raw.transfer_date), fromTeamId: positiveId(raw.from_team_id) ? 'bsd_t_' + raw.from_team_id : null, fromTeam: raw.from_team_name || '', toTeamId: positiveId(raw.to_team_id) ? 'bsd_t_' + raw.to_team_id : null, toTeam: raw.to_team_name || '', fee: numeric(raw.fee_eur), feeDescription: raw.fee_description || '', type: raw.transfer_type_name || '', rawType: raw.transfer_type ?? null, source: 'bsd' };
 }
+function enrichCareerTeamLabels(career, currentTeam, nationalTeam, transfers) {
+  // Reuse scoped records already fetched for this player. Matching a name or
+  // copying the current club to every career row would change its identity.
+  const detailed = new Map(), transferNames = new Map(), conflicts = new Set();
+  const label = value => typeof value === 'string' ? value.trim() : '';
+  const canonical = value => value.replace(/\s+/g, ' ').toLowerCase();
+  for (const team of [currentTeam, nationalTeam]) {
+    const id = scopedId(team?.id, 'bsd_t_'), name = label(team?.name);
+    if (!id || !name) continue;
+    if (detailed.has(id) && canonical(detailed.get(id)) !== canonical(name)) {
+      conflicts.add(id); detailed.delete(id);
+    } else if (!conflicts.has(id)) detailed.set(id, name);
+  }
+  for (const transfer of transfers) {
+    for (const [key, nameKey] of [['fromTeamId', 'fromTeam'], ['toTeamId', 'toTeam']]) {
+      const id = scopedId(transfer[key], 'bsd_t_'), name = label(transfer[nameKey]);
+      if (!id || !name) continue;
+      if (!transferNames.has(id)) transferNames.set(id, new Map());
+      transferNames.get(id).set(canonical(name), name);
+    }
+  }
+  for (const row of career) {
+    if (label(row.team)) continue;
+    const id = scopedId(row.teamId, 'bsd_t_');
+    if (!id || conflicts.has(id)) continue;
+    const names = transferNames.get(id);
+    // Detail records outrank transfer aliases. Conflicting transfer-only names
+    // stay unavailable until an authoritative team detail is supplied.
+    const name = detailed.get(id) || (names?.size === 1 ? [...names.values()][0] : '');
+    if (name) row.team = name;
+  }
+}
 const EXTRA_PLAYER_FIELDS = { shots: 'total_shots', shotsOnTarget: 'shots_on_target', passes: 'total_pass', tackles: 'total_tackle', interceptions: 'interception', dribbles: 'won_contest', dribblesAttempted: 'total_contest', keyPasses: 'key_pass', yellowCards: 'yellow_card', redCards: 'red_card' };
 exports.getPlayerDetails = async (playerId, options = {}) => {
   const id = scopedId(playerId, 'bsd_p_'); if (!id) return null;
   const [raw, careerRaw, transfersRaw, leagues] = await Promise.all([fetchBsd('/api/v2/players/' + id + '/', {}, TTL.details), fetchBsd('/api/v2/players/' + id + '/career/', {}, TTL.details), fetchBsd('/api/v2/players/' + id + '/transfers/', {}, TTL.catalog), exports.getLeagues()]);
   const info = positiveId(raw?.id) === id ? normalizePlayer(raw) : null; if (!info) return null;
   const clubId = positiveId(raw.current_team_id ?? raw.current_team?.id), currentTeam = raw.current_team && positiveId(raw.current_team.id) === clubId ? normalizeTeam(raw.current_team) : null;
+  const nationalTeam = raw.national_team ? normalizeTeam(raw.national_team) : null;
+  const transfers = (resource(transfersRaw, id, 'player_id')?.transfers || []).map(normalizeTransfer);
   const career = normalizeCareer(resource(careerRaw, id, 'player_id'), leagues || []);
-  for (const row of career) if (currentTeam?.id === row.teamId) row.team = currentTeam.name;
+  enrichCareerTeamLabels(career, currentTeam, nationalTeam, transfers);
   const eligible = career.filter(row => row.teamId === 'bsd_t_' + clubId && row.seasonInfo?.is_current === true && (!options.competition || row.leagueId === leagueId(options.competition)));
   const primary = eligible.filter(row => PRIMARY_LEAGUE_IDS.has(row.leagueId));
   const selected = options.competition ? (eligible.length === 1 ? eligible[0] : null) : primary.length === 1 ? primary[0] : eligible.length === 1 ? eligible[0] : null;
@@ -543,7 +581,7 @@ exports.getPlayerDetails = async (playerId, options = {}) => {
     }
   }
   await seasonEnrichment;
-  return { ...info, currentTeam, teamId: currentTeam?.id || (clubId ? 'bsd_t_' + clubId : null), team: currentTeam?.name || '', teamBadge: currentTeam?.crest || imageUrl('team', clubId), nationalTeam: raw.national_team ? normalizeTeam(raw.national_team) : null, contractUntil: calendarDate(raw.contract_until), marketValue: numeric(raw.market_value_eur), abilityRating: numeric(raw.rating), competition: selected?.competition || '', matches: selected?.matches ?? null, goals: selected?.goals ?? null, assists: selected?.assists ?? null, minutes: selected?.minutes ?? null, rating: selected?.rating ?? null, ...extra, career, careerBySeason: career, transfers: (resource(transfersRaw, id, 'player_id')?.transfers || []).map(normalizeTransfer), statsContext: selected ? { teamId: selected.teamId, team: currentTeam?.name || '', competitionId: selected.competitionId, competition: selected.competition, seasonId: selected.seasonId, season: selected.season, scope: 'team_competition_season', source: 'bsd' } : null, statsCoverage, source: 'bsd' };
+  return { ...info, currentTeam, teamId: currentTeam?.id || (clubId ? 'bsd_t_' + clubId : null), team: currentTeam?.name || '', teamBadge: currentTeam?.crest || imageUrl('team', clubId), nationalTeam, contractUntil: calendarDate(raw.contract_until), marketValue: numeric(raw.market_value_eur), abilityRating: numeric(raw.rating), competition: selected?.competition || '', matches: selected?.matches ?? null, goals: selected?.goals ?? null, assists: selected?.assists ?? null, minutes: selected?.minutes ?? null, rating: selected?.rating ?? null, ...extra, career, careerBySeason: career, transfers, statsContext: selected ? { teamId: selected.teamId, team: currentTeam?.name || '', competitionId: selected.competitionId, competition: selected.competition, seasonId: selected.seasonId, season: selected.season, scope: 'team_competition_season', source: 'bsd' } : null, statsCoverage, source: 'bsd' };
 };
 exports.getPlayer = exports.getPlayerDetails;
 function normalizePrediction(raw) {
