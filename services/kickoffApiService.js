@@ -8,6 +8,7 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 const { getCached, setCache } = require('./cacheService');
+const { normalizePlayerHonours, playerHonourInput, firstPlayerImage } = require('../utils/playerHonours');
 
 const BASE_URL = 'https://api.kickoffapi.com';
 const API_KEY = String(process.env.KICKOFF_API_KEY || '').trim();
@@ -121,6 +122,7 @@ const TTL = {
   SCORERS: 60 * 60 * 1000,     // 1 hour for top scorers
   TEAM: 2 * 60 * 60 * 1000,    // 2 hours for team info
   SQUAD: 2 * 60 * 60 * 1000,   // 2 hours for squad
+  HONOURS: 24 * 60 * 60 * 1000, // Historical player records change infrequently.
 };
 
 const client = axios.create({
@@ -324,7 +326,7 @@ exports.getTopScorers = async (leagueCode = 'PL', limit = 20, season = currentFo
       provider: 'kickoffapi',
       providerId: item.player?.id?.toString() || item.playerId?.toString() || '',
       name: item.player?.name || 'Player',
-      photo: item.photo || item.player?.photo || '',
+      photo: firstPlayerImage(item.photo, item.image, item.player?.photo, item.player?.image, item.player?.logo),
       nationality: item.player?.nationality || '',
       age: ageFromBirthDate(item.player?.birth?.date) ?? item.player?.age ?? null,
     },
@@ -387,7 +389,8 @@ exports.getTeamSquad = async (teamIdOrName) => {
       nationality: p.nationality || '',
       dateBorn: p.birth?.date || '',
       age: ageFromBirthDate(p.birth?.date) ?? p.age ?? null,
-      image: p.photo || (p.id ? `https://images.kickoffapi.com/images/players/${p.id}.png` : ''),
+      image: firstPlayerImage(p.photo, p.image, p.logo, item.photo, item.image) ||
+        (p.id ? `https://images.kickoffapi.com/images/players/${p.id}.png` : ''),
     };
   });
 
@@ -493,6 +496,34 @@ exports.getTeamFixtures = async (teamIdOrName) => {
   return result;
 };
 
+const pendingPlayerHonours = new Map();
+
+exports.getPlayerHonours = async (playerId) => {
+  const rawId = String(playerId || '').replace(/^ko_p_/, '');
+  const scoped = 'ko_p_' + rawId;
+  const unavailable = () => normalizePlayerHonours(undefined, { playerId: scoped, rawPlayerId: rawId, provider: 'kickoffapi' });
+  if (!/^[1-9]\d*$/.test(rawId) || !Number.isSafeInteger(Number(rawId))) return unavailable();
+  const key = `kickoff:player-honours:${rawId}`;
+  const cached = getCached(key, TTL.HONOURS);
+  if (cached) return cached;
+  if (pendingPlayerHonours.has(key)) return pendingPlayerHonours.get(key);
+  const pending = (async () => {
+    // This endpoint and player filter are documented in the provider's v1 reference.
+    const data = await safeFetch('/api/v1/trophies', { player: Number(rawId) });
+    const errors = data?.errors;
+    const valid = Array.isArray(data?.response) && (!errors || Object.keys(errors).length === 0) &&
+      (data.parameters?.player === undefined || String(data.parameters.player) === rawId);
+    if (!valid) return unavailable();
+    const total = Number(data.paging?.total), current = Number(data.paging?.current);
+    const complete = total === 1 && current === 1 && Number(data.results) === data.response.length;
+    const result = normalizePlayerHonours(data.response, { playerId: scoped, rawPlayerId: rawId, provider: 'kickoffapi', complete });
+    setCache(key, result);
+    return result;
+  })();
+  pendingPlayerHonours.set(key, pending);
+  try { return await pending; } finally { pendingPlayerHonours.delete(key); }
+};
+
 /**
  * 9. Fetch Player Details by ID or Name
  */
@@ -538,6 +569,11 @@ exports.getPlayerDetails = async (playerIdOrName) => {
   if (!raw) return null;
 
   const player = raw.player || raw;
+  const embeddedHonours = playerHonourInput(player.honours, player.trophies, raw.honours, raw.trophies);
+  const honours = Array.isArray(embeddedHonours) && embeddedHonours.length > 0
+    ? normalizePlayerHonours(embeddedHonours, { playerId: 'ko_p_' + String(player.id), rawPlayerId: player.id,
+      provider: 'kickoffapi', complete: player.honours_complete === true || raw.honours_complete === true })
+    : await exports.getPlayerHonours('ko_p_' + String(player.id));
   const stat = raw.statistics?.[0] || {};
   const team = stat.team || {};
   const games = stat.games || {};
@@ -575,7 +611,8 @@ exports.getPlayerDetails = async (playerIdOrName) => {
     marketValue: player.marketValue || null,
     wage: null,
     contractUntil: null,
-    image: player.photo || (player.id ? `https://images.kickoffapi.com/images/players/${player.id}.png` : ''),
+    image: firstPlayerImage(player.photo, player.image, player.logo, raw.photo, raw.image) ||
+      (player.id ? `https://images.kickoffapi.com/images/players/${player.id}.png` : ''),
     description: '',
     seasonStats: {
       season: `${actualSeason}/${actualSeason + 1}`,
@@ -605,7 +642,7 @@ exports.getPlayerDetails = async (playerIdOrName) => {
       departed: '',
       moveType: tr.type || '',
     })),
-    honours: [],
+    ...honours,
     contracts: [],
     milestones: [],
   };

@@ -282,15 +282,19 @@ test('KickOff current season zero appearances stays current and missing player s
     const provider = load('../services/kickoffApiService', {
       '../utils/logger': logger, './cacheService': cacheMock(),
       axios: { create: () => ({ get: async (_endpoint, { params }) => {
-        calls.push(params);
+        calls.push({ endpoint: _endpoint, params });
+        if (_endpoint === '/api/v1/trophies') return { data: { parameters: { player: '123' },
+          errors: [], results: 0, paging: { current: 1, total: 1 }, response: [] } };
         return { data: { response: [{ player: { id: 123, name: 'Test Player' }, statistics: [{
           team: { name: 'Current Team' }, games: { appearences: 0, minutes: 0 }, goals: { total: 0, assists: null },
         }] }] } };
       } }) },
     });
     const player = await provider.getPlayerDetails('ko_p_123');
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].id, 123);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].params.id, 123);
+    assert.equal(calls[1].endpoint, '/api/v1/trophies');
+    assert.deepEqual(calls[1].params, { player: 123 });
     assert.equal(player.id, 'ko_p_123');
     assert.equal(player.seasonStats.matches, 0);
     assert.equal(player.seasonStats.goals, 0);

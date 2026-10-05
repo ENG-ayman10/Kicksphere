@@ -12,6 +12,7 @@ const { getCached, setCache } = require('./cacheService');
 const { normalizedTeamName, fixtureTeam, standingsTeamIdentity, buildMembershipIndex } = require('../utils/sportscoreTeamIdentity');
 const { selectMatchesInInterval } = require('../utils/matchCalendar');
 const { normalizeMatchTiming } = require('../utils/matchTiming');
+const { normalizePlayerHonours, playerHonourInput, firstPlayerImage } = require('../utils/playerHonours');
 
 const BASE_URL = 'https://sportscore.com';
 const SPORT = 'football';
@@ -489,7 +490,7 @@ exports.getTopScorers = async (competitionCode, limit = 20, stat = 'goals') => {
         id: s.player_slug || s.player || '',
         provider: 'sportscore',
         name: s.player || 'Player',
-        image: s.player_logo || '',
+        image: firstPlayerImage(s.player_logo, s.player_image, s.player_photo),
         slug: s.player_slug || ''
       },
       team: {
@@ -537,12 +538,17 @@ exports.getPlayerDetails = async (playerSlugOrName) => {
 
     const p = raw.player;
     const st = raw.stats || {};
+    const identity = p.slug || slug;
+    const honours = normalizePlayerHonours(playerHonourInput(p.honours, p.trophies, raw.honours, raw.trophies),
+      { playerId: identity, rawPlayerId: identity, provider: 'sportscore',
+        complete: p.honours_complete === true || raw.honours_complete === true });
 
     return {
-      id: p.slug || slug,
+      id: identity,
       name: p.name || '',
       fullName: p.name || '',
-      image: p.logo || '',
+      image: firstPlayerImage(p.logo, p.image, p.photo, p.player_logo, raw.player_logo),
+      ...honours,
       team: st.team || '',
       teamBadge: st.team_logo || '',
       competition: st.competition || '',
@@ -638,7 +644,7 @@ exports.searchEntities = async (query, limit = 15) => {
     if (q.length < 2) return { teams: [], competitions: [], players: [] };
 
     const raw = await fetchSportScore('/api/v1/search/', { q, limit: Math.min(limit, 20) }, TTL.SEARCH);
-    if (!raw) return { teams: [], competitions: [], players: [] };
+    if (!raw) return { teams: [], competitions: [], players: [], coverage: { available: false, complete: false, partial: true } };
 
     const teams = (raw.teams || []).map(t => ({
       id: t.slug || t.name,
@@ -665,7 +671,8 @@ exports.searchEntities = async (query, limit = 15) => {
 
     const players = (raw.players || []).map(p => ({
       id: p.slug || p.name, name: p.name, shortName: p.name,
-      logo: p.logo || '', image: p.logo || '', slug: p.slug || '',
+      logo: firstPlayerImage(p.logo, p.image, p.photo, p.player_logo),
+      image: firstPlayerImage(p.logo, p.image, p.photo, p.player_logo), slug: p.slug || '',
       url: p.url || '', type: 'player', provider: 'sportscore'
     })).sort((a, b) => {
       const imageRank = Number(Boolean(b.logo)) - Number(Boolean(a.logo));
@@ -676,11 +683,12 @@ exports.searchEntities = async (query, limit = 15) => {
     return {
       teams,
       competitions,
-      players
+      players,
+      coverage: { available: true, complete: false, partial: true }
     };
   } catch (e) {
     logger.error(`[SportScore] searchEntities error: ${e.message}`);
-    return { teams: [], competitions: [], players: [] };
+    return { teams: [], competitions: [], players: [], coverage: { available: false, complete: false, partial: true } };
   }
 };
 

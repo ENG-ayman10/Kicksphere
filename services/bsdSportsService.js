@@ -6,6 +6,8 @@ const { normalizeMatchTiming } = require('../utils/matchTiming');
 const { getFixtureSourceConflict, requiresFixtureSourceReview } = require('../utils/fixtureSourceQuality');
 const { annotateFixtureSourceStage } = require('../utils/fixtureSourceAnnotations');
 const { normalizeCareerCompetitionLabels } = require('../utils/careerCompetitionLabels');
+const { normalizePlayerHonours, playerHonourInput } = require('../utils/playerHonours');
+const { recoverBsdMatchSquad, buildBsdTeamFixtureNumbers, buildBsdTeamStandingNumbers } = require('./teamTabCoverageService');
 const API_TOKEN = String(process.env.BSD_API_TOKEN || '').trim();
 const BASE_URL = String(process.env.BSD_BASE_URL || 'https://sports.bzzoiro.com').replace(/\/+$/, '');
 const isConfigured = () => Boolean(API_TOKEN);
@@ -444,16 +446,65 @@ exports.getTeamFixtures = async (teamId, options = {}) => {
   // The audited /teams/{id}/fixtures/ endpoint incorrectly returned zero fixtures.
   return exports.getMatches({ date_from: from, date_to: to, team_id: id, ...(options.competition ? { competition: options.competition } : {}), ...(options.status ? { status: options.status } : {}) });
 };
+exports.getTeamMatchLineups = async matchId => {
+  const id = scopedId(matchId, 'bsd_'); if (!id) return null;
+  // Roster recovery needs only the exact match and confirmed lineup.
+  const [matchInfo, raw] = await Promise.all([
+    exports.getMatchSummary(matchId),
+    fetchBsd('/api/v2/events/' + id + '/lineups/', {}, TTL.details, 3500),
+  ]);
+  const checked = resource(raw, id);
+  return matchInfo && checked ? { matchInfo, lineups: normalizeBsdLineups(checked, matchInfo),
+    coverage: { fields: { lineups: true } } } : null;
+};
+async function teamNumberScopes(teamId, fixtures, options) {
+  const candidates = new Map();
+  for (const fixture of fixtures || []) {
+    const competition = fixture.competition, season = competition?.season;
+    // The provider also manufactures ranking/points tables for friendlies;
+    // these are not competitive league standings. Show dated match numbers.
+    if (/friendl|ودية|وديّة/i.test(String(competition?.name || ''))) continue;
+    if (season?.is_current !== true || !positiveId(fixture.seasonId) ||
+        Number(season.id) !== fixture.seasonId ||
+        (options.competition && competition.rawId !== leagueId(options.competition))) continue;
+    const key = competition.id + ':' + fixture.seasonId;
+    if (!candidates.has(key)) candidates.set(key, fixture);
+  }
+  const chosen = [...candidates.values()].sort((a, b) =>
+    Number(PRIMARY_LEAGUE_IDS.has(b.competition.rawId)) - Number(PRIMARY_LEAGUE_IDS.has(a.competition.rawId)) ||
+    b.utcDate.localeCompare(a.utcDate)).slice(0, 3);
+  const scopes = (await Promise.all(chosen.map(async fixture => {
+    const standings = await exports.getStandings(fixture.competition.id, fixture.seasonId);
+    return buildBsdTeamStandingNumbers(teamId, standings, { competitionId: fixture.competition.id,
+      competition: fixture.competition.name, seasonId: fixture.seasonId, season: fixture.competition.season.name });
+  }))).filter(Boolean);
+  const sample = buildBsdTeamFixtureNumbers(teamId, fixtures);
+  if (sample) scopes.push(sample);
+  return scopes;
+}
 exports.getTeamDetails = async (teamId, options = {}) => {
   const id = scopedId(teamId, 'bsd_t_'); if (!id) return null;
   const raw = await fetchBsd('/api/v2/teams/' + id + '/', {}, TTL.catalog), info = positiveId(raw?.id) === id ? normalizeTeam(raw) : null;
   if (!info) return null;
   const [squad, fixtures, venueRaw] = await Promise.all([exports.getTeamSquad(teamId), exports.getTeamFixtures(teamId, options), info.venueId ? fetchBsd('/api/v2/venues/' + info.venueId + '/', {}, TTL.catalog) : null]);
+  const [recovered, statsScopes] = await Promise.all([
+    squad?.length ? null : recoverBsdMatchSquad(teamId, fixtures, exports.getTeamMatchLineups),
+    teamNumberScopes(teamId, fixtures, options),
+  ]);
+  const selection = recovered?.squad || squad || [], squadCoverage = recovered?.coverage || squad?.coverage || unavailableCoverage();
+  const numbers = statsScopes[0];
   const venue = info.venueId && positiveId(venueRaw?.id) === info.venueId ? normalizeVenue(venueRaw) : null, now = Date.now();
   const recent = (fixtures || []).filter(row => row.status === 'FINISHED').sort((a, b) => b.utcDate.localeCompare(a.utcDate));
   const upcoming = (fixtures || []).filter(row => row.status === 'TIMED' && Date.parse(row.utcDate) >= now).sort((a, b) => a.utcDate.localeCompare(b.utcDate));
   const live = (fixtures || []).filter(row => ['IN_PLAY', 'PAUSED'].includes(row.status));
-  return { info: { ...info, venue: venue?.name || '', venueCapacity: venue?.capacity ?? null }, squad: squad || [], players: squad || [], matches: { recent, upcoming, live }, venue, coverage: { source: 'bsd', available: true, complete: Boolean(squad?.coverage.complete && fixtures?.coverage.complete), partial: !squad?.coverage.complete || !fixtures?.coverage.complete, squad: squad?.coverage || unavailableCoverage(), fixtures: fixtures?.coverage || unavailableCoverage() }, source: 'bsd' };
+  return { info: { ...info, venue: venue?.name || '', venueCapacity: venue?.capacity ?? null },
+    squad: selection, players: selection, squadContext: recovered?.context || null,
+    stats: numbers?.stats || {}, standing: numbers?.standing || null,
+    statsContext: numbers?.context || null, statsCoverage: numbers?.coverage || unavailableCoverage(), statsScopes,
+    matches: { recent, upcoming, live }, venue,
+    coverage: { source: 'bsd', available: true, complete: Boolean(squadCoverage.complete && fixtures?.coverage.complete && numbers?.coverage.complete),
+      partial: !squadCoverage.complete || !fixtures?.coverage.complete || !numbers?.coverage.complete,
+      squad: squadCoverage, stats: numbers?.coverage || unavailableCoverage(), fixtures: fixtures?.coverage || unavailableCoverage() }, source: 'bsd' };
 };
 exports.searchPlayers = async (query, limit = 20) => {
   const name = String(query || '').trim().slice(0, 100);
@@ -602,7 +653,7 @@ exports.getPlayerDetails = async (playerId, options = {}) => {
   }
   await seasonEnrichment;
   for (const row of career) Object.assign(row, normalizeCareerCompetitionLabels(row));
-  return { ...info, currentTeam, teamId: currentTeam?.id || (clubId ? 'bsd_t_' + clubId : null), team: currentTeam?.name || '', teamBadge: currentTeam?.crest || imageUrl('team', clubId), nationalTeam, contractUntil: calendarDate(raw.contract_until), marketValue: numeric(raw.market_value_eur), abilityRating: numeric(raw.rating), competition: selected?.competition || '', matches: selected?.matches ?? null, goals: selected?.goals ?? null, assists: selected?.assists ?? null, minutes: selected?.minutes ?? null, rating: selected?.rating ?? null, ...extra, career, careerBySeason: career, transfers, statsContext: selected ? { teamId: selected.teamId, team: currentTeam?.name || '', competitionId: selected.competitionId, competition: selected.competition, seasonId: selected.seasonId, season: selected.season, scope: 'team_competition_season', source: 'bsd' } : null, statsCoverage, source: 'bsd' };
+  return { ...info, ...normalizePlayerHonours(playerHonourInput(raw.honours, raw.trophies), { playerId: info.id, rawPlayerId: id, provider: 'bsd', complete: raw.honours_complete === true }), currentTeam, teamId: currentTeam?.id || (clubId ? 'bsd_t_' + clubId : null), team: currentTeam?.name || '', teamBadge: currentTeam?.crest || imageUrl('team', clubId), nationalTeam, contractUntil: calendarDate(raw.contract_until), marketValue: numeric(raw.market_value_eur), abilityRating: numeric(raw.rating), competition: selected?.competition || '', matches: selected?.matches ?? null, goals: selected?.goals ?? null, assists: selected?.assists ?? null, minutes: selected?.minutes ?? null, rating: selected?.rating ?? null, ...extra, career, careerBySeason: career, transfers, statsContext: selected ? { teamId: selected.teamId, team: currentTeam?.name || '', competitionId: selected.competitionId, competition: selected.competition, seasonId: selected.seasonId, season: selected.season, scope: 'team_competition_season', source: 'bsd' } : null, statsCoverage, source: 'bsd' };
 };
 exports.getPlayer = exports.getPlayerDetails;
 function normalizePrediction(raw) {

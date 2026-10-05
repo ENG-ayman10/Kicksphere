@@ -216,12 +216,32 @@ exports.getTeamMatchesService = async (idOrName) => {
 };
 
 exports.getTeamSquadService = async (idOrName) => {
-  if (scopedTeamId(idOrName)?.startsWith('bsd_t_')) {
+  const bsdTeamId = scopedTeamId(idOrName);
+  if (bsdTeamId?.startsWith('bsd_t_')) {
+    let squad;
     try {
-      const squad = await bsdSportsService.getTeamSquad(idOrName);
-      if (Array.isArray(squad) && squad.coverage?.available !== false) return { ...serviceResult(squad, 'bsd'), coverage: squad.coverage };
+      squad = await bsdSportsService.getTeamSquad(bsdTeamId);
+      if (Array.isArray(squad) && squad.length > 0 && squad.coverage?.available !== false) {
+        return { ...serviceResult(squad, 'bsd'), coverage: squad.coverage };
+      }
     } catch (_) {}
-    return { success: false, statusCode: 503, message: 'Team squad unavailable' };
+    // Some national teams have no roster feed but do have confirmed selections.
+    // The deep BSD profile can recover that exact team's recent match selection;
+    // keep its scope/date so callers cannot present it as a full current roster.
+    try {
+      const profile = await bsdSportsService.getTeamDetails(bsdTeamId);
+      const selected = profile?.squad, context = profile?.squadContext, coverage = profile?.coverage?.squad;
+      if (String(profile?.info?.id) === bsdTeamId && Array.isArray(selected) && selected.length > 0 &&
+          context?.scope === 'match_squad' && context.teamId === bsdTeamId && context.source === 'bsd' &&
+          coverage?.scope === 'match_squad' && coverage.available === true && coverage.complete === false) {
+        return { ...serviceResult(selected, 'bsd'), coverage, squadContext: context };
+      }
+    } catch (_) {}
+    if (Array.isArray(squad) && squad.coverage?.available !== false) return {
+      ...serviceResult(squad, 'bsd'), coverage: squadCoverage(squad, 'bsd'),
+    };
+    return { success: false, statusCode: 503, source: 'bsd', message: 'Team squad unavailable',
+      coverage: unavailableCoverage('bsd', 'provider_squad_unavailable') };
   }
   if (reservedTeamId(idOrName) && !scopedTeamId(idOrName)) return { success: false, statusCode: 404, message: 'Team not found' };
   if (/^\d+$/.test(String(idOrName)) && !resolveLocalTeam(idOrName)) return serviceResult([], "unavailable");

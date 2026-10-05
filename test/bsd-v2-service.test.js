@@ -298,10 +298,137 @@ test('team profile uses scoped event fallback and missing availability is never 
   assert.equal(value.coverage.squad.complete, true);
   assert.equal(value.coverage.squad.partial, false);
   assert.equal(value.coverage.squad.possiblyTruncated, false);
-  assert.equal(value.coverage.complete, true);
+  assert.equal(value.coverage.complete, false);
+  assert.equal(value.coverage.stats.available, false);
   assert.equal(value.venue.name, 'Bernabéu');
   assert.ok(!requests.some(url => url.pathname.endsWith('/fixtures/')));
   assert.equal(await service.getTeamDetails('sc_t_real-madrid'), null);
+});
+
+test('a national profile recovers its exact away-side confirmed selection through narrow lineups requests', async () => {
+  const recent = new Date(Date.now() - 86400000).toISOString();
+  const raw = event(701, { event_date: recent, status: 'finished', home_team_id: 699, home_team: 'Costa Rica',
+    away_team_id: 465, away_team: 'Haiti', home_score: 0, away_score: 2 });
+  const { service, requests } = setup(url => {
+    if (url.pathname === '/api/v2/teams/465/') return { id: 465, name: 'Haiti', is_national: true };
+    if (url.pathname === '/api/v2/teams/465/squad/') return { team_id: 465, count: 0, players: [] };
+    if (url.pathname === '/api/v2/events/') return page([raw]);
+    if (url.pathname === '/api/v2/events/701/') return raw;
+    if (url.pathname === '/api/v2/events/701/lineups/') return { event_id: 701, lineup_status: 'confirmed',
+      lineups: { home: { team_id: 699, players: [{ id: 900, name: 'Opponent Player' }] },
+        away: { team_id: 465, players: [{ id: 901, name: 'Haiti Starter', jersey_number: 8,
+          photo: 'https://images.example/haiti-starter.png' }], substitutes: [{ id: 902, name: 'Haiti Substitute', jersey_number: 9 }] } } };
+    return null;
+  });
+  const day = recent.slice(0, 10);
+  const value = await service.getTeamDetails('bsd_t_465', { dateFrom: day, dateTo: day });
+  assert.deepEqual(value.squad.map(row => row.id), ['bsd_p_901', 'bsd_p_902']);
+  assert.equal(value.squad[0].image, 'https://images.example/haiti-starter.png');
+  assert.equal(value.squad[0].jerseyNumber, 8);
+  assert.equal(value.squad[0].selectionRole, 'starter');
+  assert.equal(value.squad[1].selectionRole, 'bench');
+  assert.equal(value.squadContext.fixtureId, 'bsd_701');
+  assert.equal(value.squadContext.fixtureDate, recent);
+  assert.equal(value.squadContext.teamId, 'bsd_t_465');
+  assert.equal(value.coverage.squad.scope, 'match_squad');
+  assert.equal(value.coverage.squad.rosterAvailable, false);
+  assert.equal(value.coverage.squad.complete, false);
+  assert.equal(value.coverage.complete, false);
+  assert.equal(value.info.type, 'national');
+  assert.equal(value.statsContext.scope, 'verified_fixture_sample');
+  assert.equal(value.stats.scoresFor, 2);
+  assert.equal(value.stats.scoresAgainst, 0);
+  assert.equal(Object.hasOwn(value.statsContext, 'season'), false);
+  assert.equal(requests.filter(url => url.pathname.endsWith('/lineups/')).length, 1);
+  assert.ok(!requests.some(url => /\/(?:stats|incidents|availability|player-stats)\/$/.test(url.pathname)),
+    'Squad recovery must not fetch unrelated match-detail resources');
+});
+
+test('narrow team-lineup callback rejects a different event resource and a different event summary', async () => {
+  for (const mismatch of ['lineup', 'summary']) {
+    const { service, requests } = setup(url => {
+      if (url.pathname === '/api/v2/events/701/') return event(mismatch === 'summary' ? 702 : 701);
+      if (url.pathname === '/api/v2/events/701/lineups/') return { event_id: mismatch === 'lineup' ? 702 : 701,
+        lineup_status: 'confirmed', lineups: { home: { team_id: 57, players: [{ id: 594, name: 'Mbappé' }] } } };
+      return null;
+    });
+    assert.equal(await service.getTeamMatchLineups('bsd_701'), null);
+    const previousRequests = requests.length;
+    assert.equal(await service.getTeamMatchLineups('ko_701'), null);
+    assert.equal(requests.length, previousRequests);
+    assert.ok(!requests.some(url => /\/(?:stats|incidents|availability|player-stats)\/$/.test(url.pathname)));
+  }
+});
+
+test('team numbers prefer the current domestic competition standings and retain cup and sample scopes separately', async () => {
+  const earlier = new Date(Date.now() - 2 * 86400000).toISOString(), later = new Date(Date.now() - 3600000).toISOString();
+  const cupSeason = { id: 888, name: 'Champions League 26/27', is_current: true };
+  const domestic = event(801, { event_date: earlier, status: 'finished', home_score: 2, away_score: 1 });
+  const cup = event(802, { event_date: later, status: 'finished', home_score: 1, away_score: 1,
+    league_id: 7, league_name: 'Champions League', season_id: 888, season: cupSeason });
+  const { service, requests } = setup(url => {
+    if (url.pathname === '/api/v2/teams/57/') return { id: 57, name: 'Real Madrid' };
+    if (url.pathname.endsWith('/squad/')) return { team_id: 57, count: 1, players: [{ id: 594, name: 'Mbappé' }] };
+    if (url.pathname === '/api/v2/events/') return page([domestic, cup]);
+    if (url.pathname === '/api/v2/leagues/3/') return league;
+    if (url.pathname === '/api/v2/leagues/7/') return { id: 7, name: 'Champions League', current_season: cupSeason };
+    if (url.pathname === '/api/v2/leagues/3/standings/') {
+      assert.equal(url.searchParams.get('season_id'), '1307');
+      return { league_id: 3, season, standings: [{ team_id: 57, team_name: 'Real Madrid', position: 2,
+        played: 6, won: 4, drawn: 1, lost: 1, gf: 12, ga: 5, gd: 7, pts: 13 }] };
+    }
+    if (url.pathname === '/api/v2/leagues/7/standings/') {
+      assert.equal(url.searchParams.get('season_id'), '888');
+      return { league_id: 7, season: cupSeason, standings: [{ team_id: 57, team_name: 'Real Madrid', position: 3,
+        played: 2, won: 1, drawn: 1, lost: 0, gf: 4, ga: 2, gd: 2, pts: 4 }] };
+    }
+    return null;
+  });
+  const value = await service.getTeamDetails('bsd_t_57', { dateFrom: earlier.slice(0, 10), dateTo: later.slice(0, 10) });
+  assert.deepEqual(value.stats, { matches: 6, wins: 4, draws: 1, losses: 1, scoresFor: 12, scoresAgainst: 5, position: 2, points: 13 });
+  assert.equal(value.statsContext.competitionId, 'PD');
+  assert.equal(value.statsContext.seasonId, 1307);
+  assert.equal(value.statsContext.season, 'LaLiga 26/27');
+  assert.equal(value.statsCoverage.scope, 'competition_season_standings');
+  assert.equal(value.statsCoverage.complete, true);
+  assert.equal(value.coverage.complete, true);
+  assert.equal(value.statsScopes.length, 3);
+  assert.equal(value.statsScopes[1].context.competitionId, 'CL');
+  assert.equal(value.statsScopes[1].stats.matches, 2);
+  const sample = value.statsScopes[2];
+  assert.equal(sample.context.scope, 'verified_fixture_sample');
+  assert.equal(sample.context.mixedCompetitionSeasons, true);
+  assert.equal(sample.stats.matches, 2);
+  assert.equal(sample.stats.scoresFor, 3);
+  assert.equal(sample.coverage.complete, false);
+  assert.equal(Object.hasOwn(sample.context, 'season'), false);
+  assert.ok(!requests.some(url => url.pathname.endsWith('/lineups/')), 'An existing roster must not trigger recovery');
+});
+
+test('wrong-season standings do not populate team season totals or hide a verified dated fixture sample', async () => {
+  const recent = new Date(Date.now() - 86400000).toISOString();
+  const raw = event(901, { event_date: recent, status: 'finished', home_score: 0, away_score: 0 });
+  const { service } = setup(url => {
+    if (url.pathname === '/api/v2/teams/57/') return { id: 57, name: 'Real Madrid' };
+    if (url.pathname.endsWith('/squad/')) return { team_id: 57, count: 1, players: [{ id: 594, name: 'Mbappé' }] };
+    if (url.pathname === '/api/v2/events/') return page([raw]);
+    if (url.pathname === '/api/v2/leagues/3/') return league;
+    if (url.pathname.endsWith('/standings/')) return { league_id: 3, season: { ...season, id: 999 },
+      standings: [{ team_id: 57, team_name: 'Real Madrid', played: 30, won: 25, drawn: 5, lost: 0, gf: 80, ga: 10, gd: 70, pts: 80 }] };
+    return null;
+  });
+  const value = await service.getTeamDetails('bsd_t_57', { dateFrom: recent.slice(0, 10), dateTo: recent.slice(0, 10) });
+  assert.equal(value.statsScopes.length, 1);
+  assert.equal(value.standing, null);
+  assert.equal(value.stats.matches, 1);
+  assert.equal(value.stats.draws, 1);
+  assert.equal(value.stats.scoresFor, 0);
+  assert.equal(value.statsContext.scope, 'verified_fixture_sample');
+  assert.equal(value.statsContext.dateFrom, recent.slice(0, 10));
+  assert.equal(value.statsContext.dateTo, recent.slice(0, 10));
+  assert.equal(Object.hasOwn(value.statsContext, 'season'), false);
+  assert.equal(value.statsCoverage.complete, false);
+  assert.equal(value.coverage.complete, false);
 });
 
 test('zero-count squad stays available but partial and propagates through team details', async () => {
@@ -326,6 +453,23 @@ test('zero-count squad stays available but partial and propagates through team d
   assert.equal(team.coverage.partial, true);
   assert.equal(team.squad.length, 0);
   assert.ok(!requests.some(url => url.pathname.endsWith('/lineups/')));
+});
+
+test('friendly ranking tables cannot become competitive team season standings', async () => {
+  const { service, requests } = setup(url => {
+    if (url.pathname === '/api/v2/teams/57/') return { id: 57, name: 'Real Madrid' };
+    if (url.pathname.endsWith('/squad/')) return { team_id: 57, players: [{ id: 594, name: 'Verified player' }] };
+    if (url.pathname === '/api/v2/events/') return page([event(1, { status: 'finished', home_score: 2, away_score: 1 })]);
+    return null;
+  });
+  service.getLeagues = async () => [{ rawId: 3, name: 'Club Friendlies', currentSeason: season }];
+  const team = await service.getTeamDetails('bsd_t_57', { dateFrom: '2026-10-01', dateTo: '2026-10-01' });
+  assert.equal(team.statsContext.scope, 'verified_fixture_sample');
+  assert.equal(team.stats.matches, 1);
+  assert.equal(team.stats.points, undefined);
+  assert.equal(team.stats.position, undefined);
+  assert.equal(team.statsContext.season, undefined);
+  assert.ok(!requests.some(url => url.pathname.endsWith('/standings/')));
 });
 
 test('empty squad with a positive reported count retains the truncation warning', async () => {

@@ -14,6 +14,7 @@ const normalizeTerm = (value) => String(value || '')
   .normalize('NFKD')
   .replace(/[\u0300-\u036f]/g, '')
   .toLowerCase()
+  .replace(/\s+/g, ' ')
   .trim();
 
 const toText = (value, fallback = '') => {
@@ -361,7 +362,7 @@ const mergeUnique = (primary = [], fallback = [], fields = ['name']) => {
   return merged;
 };
 
-exports.searchAll = async (query, options = {}) => {
+async function executeSearch(query, options = {}) {
   const rawQuery = toText(query);
   const q = normalizeTerm(rawQuery);
   if (!q) return emptyResult();
@@ -371,6 +372,7 @@ exports.searchAll = async (query, options = {}) => {
   let bsdProvider = emptyResult('bsd');
   const providerSources = [];
 
+  await Promise.all([ (async () => {
   if (options.useProvider !== false && q.length >= 2 && bsdSportsService.isConfigured?.()) {
     try {
       const bsdResult = await bsdSportsService.searchEntities(rawQuery, 10);
@@ -381,12 +383,11 @@ exports.searchAll = async (query, options = {}) => {
       }
     } catch (error) { logger.warn(`BSD search unavailable: ${error.message}`); }
   }
-
-  // 1. Try SportScore search
+  })(), (async () => {
   if (options.useProvider !== false && q.length >= 2) {
     try {
       const scResult = await sportscoreService.searchEntities(rawQuery, 10);
-      if (scResult && (scResult.teams?.length > 0 || scResult.competitions?.length > 0 || scResult.players?.length > 0)) {
+      if (scResult) {
         sportscoreProvider = {
           teams: (scResult.teams || []).map(t => ({
             id: scopedTeamId(t.slug || t.id, 'sportscore'),
@@ -406,7 +407,8 @@ exports.searchAll = async (query, options = {}) => {
              providerId: p.slug,
              name: p.name,
              shortName: p.name,
-             logo: p.logo || '',
+             logo: p.logo || p.image || p.photo || '',
+             image: p.image || p.photo || p.logo || '',
              slug: p.slug || ''
           })),
           leagues: (scResult.competitions || []).map(c => ({
@@ -420,7 +422,7 @@ exports.searchAll = async (query, options = {}) => {
             slug: c.slug || ''
           })),
           matches: [],
-          source: 'sportscore'
+          source: 'sportscore', coverage: scResult.coverage,
         };
         if (hasMatches(sportscoreProvider)) providerSources.push('sportscore');
       }
@@ -428,6 +430,7 @@ exports.searchAll = async (query, options = {}) => {
       logger.warn(`SportScore search failed for "${rawQuery}": ${error.message}`);
     }
   }
+  })() ]);
 
   const provider = {
     teams: mergeUnique(bsdProvider.teams, sportscoreProvider.teams, ['provider', 'id']),
@@ -447,9 +450,32 @@ exports.searchAll = async (query, options = {}) => {
     players,
     leagues,
     matches: [],
-    source: usedProvider ? [...new Set(providerSources)].join('+') : 'local-fallback',
-    ...(bsdProvider.coverage ? { coverage: { bsd: bsdProvider.coverage } } : {}),
+    source: usedProvider ? [...new Set(providerSources)].sort().join('+') : 'local-fallback',
+    coverage: { available: hasMatches({ teams, players, leagues }) || bsdProvider.coverage?.available === true || sportscoreProvider.coverage?.available === true,
+      complete: bsdProvider.coverage?.complete === true && sportscoreProvider.coverage?.complete === true,
+      partial: bsdProvider.coverage?.complete !== true || sportscoreProvider.coverage?.complete !== true,
+      bsd: bsdProvider.coverage, sportscore: sportscoreProvider.coverage },
   };
+}
+
+const searches = new Map(), pendingSearches = new Map();
+exports.searchAll = async (query, options = {}) => {
+  const canonical = String(query || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const key = (options.useProvider === false ? 'local:' : 'provider:') + normalizeTerm(canonical);
+  const cached = searches.get(key);
+  if (cached && Date.now() - cached.at < 120000) return cached.value;
+  searches.delete(key);
+  if (pendingSearches.has(key)) return pendingSearches.get(key);
+  const request = executeSearch(canonical, options).then(value => {
+    if (value.coverage?.available === true && (options.useProvider === false || value.source !== 'local-fallback' ||
+        value.coverage.bsd?.available === true || value.coverage.sportscore?.available === true)) {
+      searches.set(key, { at: Date.now(), value });
+      if (searches.size > 100) searches.delete(searches.keys().next().value);
+    }
+    return value;
+  }).finally(() => { if (pendingSearches.get(key) === request) pendingSearches.delete(key); });
+  pendingSearches.set(key, request);
+  return request;
 };
 
 exports.CLUBS = CLUBS;

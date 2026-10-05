@@ -584,7 +584,8 @@ exports.getDeepPlayerDetails = async (req, res) => {
         data: { info, seasonStats, statsContext: context, statsCoverage: player.statsCoverage,
           attributes: player.attributes || {}, careerTotals: player.careerTotals || {},
           careerBySeason: player.careerBySeason || player.career || [], formerTeams: player.formerTeams || [],
-          transfers: player.transfers || [], honours: player.honours || [], contracts: [], milestones: [] } });
+          transfers: player.transfers || [], honours: player.honours || [], honoursCoverage: player.honoursCoverage,
+          contracts: [], milestones: [] } });
     }
     if (playerId.startsWith('bsd_')) return res.status(404).json({ success: false, message: 'Player details not found' });
     const scopedKickoff = /^ko_p_[1-9]\d*$/.test(playerId);
@@ -635,7 +636,8 @@ exports.getDeepPlayerDetails = async (req, res) => {
     return res.json({
       success: true, source: ko ? 'kickoffapi' : scPlayer ? 'sportscore' : 'unavailable',
       data: { info, seasonStats, statsContext: context, attributes: {}, careerTotals: {},
-        careerBySeason: [], formerTeams: ko?.formerTeams || [], honours: [], contracts: [], milestones: [] }
+        careerBySeason: [], formerTeams: ko?.formerTeams || [], honours: player.honours || [],
+        honoursCoverage: player.honoursCoverage, contracts: [], milestones: [] }
     });
   } catch (error) {
     logger.error('getDeepPlayerDetails Error: ' + error.message);
