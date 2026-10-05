@@ -28,6 +28,48 @@ function statsController(mocks = {}) {
   });
 }
 
+test('BSD deep club restores its calendar from exact fixture identity when biography fails', async () => {
+  const calendar = { success: true, source: 'bsd', coverage: { available: true, complete: true, partial: false },
+    data: { recent: [{ id: 'bsd_12', homeTeam: { id: 'bsd_t_44', name: 'Actual Club' },
+      awayTeam: { id: 'bsd_t_45', name: 'Opponent' } }], upcoming: [], live: [] } };
+  const controller = statsController({ '../services/bsdSportsService': { getTeamDetails: async () => null },
+    '../services/teamService': { getTeamMatchesService: async id => { assert.equal(id, 'bsd_t_44'); return calendar; } } });
+  const res = response();
+  await controller.getDeepTeamDetails({ params: { id: ' bsd_t_44 ' } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.info.id, 'bsd_t_44');
+  assert.equal(res.body.data.info.name, 'Actual Club');
+  assert.equal(res.body.data.matches.recent[0].id, 'bsd_12');
+  assert.equal(res.body.coverage.fixtures.complete, true);
+  assert.equal(res.body.coverage.complete, false);
+  assert.equal(res.body.coverage.squad.available, false);
+});
+
+test('BSD calendar fallback cannot invent club details from a namesake fixture', async () => {
+  const controller = statsController({ '../services/bsdSportsService': { getTeamDetails: async () => null },
+    '../services/teamService': { getTeamMatchesService: async () => ({ success: true,
+      data: { recent: [{ homeTeam: { id: 'bsd_t_99', name: 'Same Name' } }] } }) } });
+  const res = response();
+  await controller.getDeepTeamDetails({ params: { id: 'bsd_t_44' } }, res);
+  assert.equal(res.statusCode, 404);
+  assert.equal(res.body.source, 'unavailable');
+  assert.equal(res.body.data, null);
+});
+
+test('BSD deep club retries unavailable calendar without discarding its valid biography', async () => {
+  const controller = statsController({ '../services/bsdSportsService': { getTeamDetails: async () => ({
+    info: { id: 'bsd_t_44', name: 'Actual Club', founded: 1910 }, squad: [],
+    matches: { recent: [], upcoming: [], live: [] }, coverage: { fixtures: { available: false } },
+  }) }, '../services/teamService': { getTeamMatchesService: async () => ({ success: true,
+    coverage: { available: true, complete: true, partial: false },
+    data: { recent: [], upcoming: [{ id: 'bsd_12' }], live: [] } }) } });
+  const res = response();
+  await controller.getDeepTeamDetails({ params: { id: 'bsd_t_44' } }, res);
+  assert.equal(res.body.data.info.founded, 1910);
+  assert.equal(res.body.data.matches.upcoming[0].id, 'bsd_12');
+  assert.equal(res.body.coverage.fixtures.available, true);
+});
+
 test('scores do not fabricate possession, xG, shots, passes, tackles, or missing incident totals', () => {
   const stats = statsController().buildBasicMatchStatistics({
     status: 'FINISHED', score: { fullTime: { home: 3, away: 0 } },

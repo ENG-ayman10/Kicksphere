@@ -7,7 +7,7 @@ const sportscoreService = require('../services/sportscoreService');
 const sportsDataService = require('../services/sportsDataService');
 const kickoffApiService = require('../services/kickoffApiService');
 const bsdSportsService = require('../services/bsdSportsService');
-const { resolveLocalTeam, resolveProviderTeamLookup } = require('../services/teamService');
+const { resolveLocalTeam, resolveProviderTeamLookup, getTeamMatchesService } = require('../services/teamService');
 const { getCached, setCache } = require('../services/cacheService');
 const logger = require('../utils/logger');
 const { scopedTeamId } = require('../utils/teamIdentity');
@@ -437,10 +437,28 @@ exports.getMatchLineups = async (req, res) => {
 // ==========================================
 exports.getDeepTeamDetails = async (req, res) => {
   try {
-    const teamId = req.params.id;
+    const teamId = String(req.params.id || '').trim();
     if (scopedTeamId(teamId)?.startsWith('bsd_t_')) {
-      const team = await callProvider('BSD team details', () => bsdSportsService.getTeamDetails(teamId));
-      if (!team?.info) return res.status(404).json({ success: false, message: 'Team details not found' });
+      let team = await callProvider('BSD team details', () => bsdSportsService.getTeamDetails(teamId));
+      if (team?.info && String(team.info.id) !== teamId) team = null;
+      if (!team?.info || team.coverage?.fixtures?.available === false) {
+        const calendar = await callProvider('BSD independent team calendar', () => getTeamMatchesService(teamId));
+        const matches = calendar?.data;
+        const rows = ['recent', 'upcoming', 'live'].flatMap(section => Array.isArray(matches?.[section]) ? matches[section] : []);
+        const fixtureInfo = rows.flatMap(row => [row.homeTeam, row.awayTeam])
+          .find(info => String(info?.id) === teamId && String(info.name || '').trim());
+        if (calendar?.success === true && calendar.coverage?.available !== false && (team?.info || fixtureInfo)) {
+          const profileCoverage = team?.coverage || { source: 'bsd',
+            info: { available: true, complete: false, partial: true, reason: 'fixture_identity_only' },
+            squad: { available: false, complete: false, partial: true, reason: 'squad_unavailable' } };
+          team = { ...(team || {}), info: team?.info || fixtureInfo, matches,
+            coverage: { ...profileCoverage, available: true, complete: false, partial: true,
+              fixtures: calendar.coverage } };
+        }
+      }
+      if (!team?.info) return res.status(404).json({ success: false, source: 'unavailable',
+        coverage: { available: false, complete: false, partial: true, reason: 'provider_entity_unavailable' },
+        data: null, message: 'Team details not found' });
       return res.json({ success: true, source: 'bsd', coverage: team.coverage,
         data: { ...team, info: normalizeTeamInfo(null, team.info), squad: team.squad || team.players || [],
           matches: team.matches || { recent: [], upcoming: [], live: [] },
