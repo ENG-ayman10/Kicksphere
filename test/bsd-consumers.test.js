@@ -41,6 +41,21 @@ function controller(bs) {
     '../services/cacheService': { getCached: () => null, setCache() {} } });
 }
 
+test('calendar exposes source-quality rejections and official evidence without claiming total coverage', async () => {
+  const sourceConflicts = [{ id: 'bsd_223136', reason: 'official_schedule_conflict',
+    sourceUrl: 'https://www.concacaf.com/competitions/nations-league/', checkedAt: '2026-10-05T01:10:00Z' }];
+  const api = service({ getMatchesByDate: async () => completeRows() }, bsd({ getMatches: async () => completeRows([], {
+    complete: false, partial: true, rejectedRows: 1, invalidRows: 0, sourceConflictRows: 1,
+    sourceConflicts, reason: 'official_schedule_conflict' }) }));
+  const result = await api.getMatchesByDate('2026-10-05');
+  const query = result.coverage.queries.find(row => row.provider === 'bsd');
+  assert.equal(result.coverage.complete, false);
+  assert.equal(result.coverage.partial, true);
+  assert.equal(query.rejectedRows, 1);
+  assert.equal(query.sourceConflictRows, 1);
+  assert.deepEqual(query.sourceConflicts, sourceConflicts);
+});
+
 test('BSD preferred fixture keeps its own child IDs and exact duplicate SportScore fixture is replaced', async () => {
   const preferred = fixture('bsd_10');
   const sc = fixture('old-score-slug', 'sportscore');

@@ -8,6 +8,11 @@ function event(id = 1, changes = {}) {
   return { id, league_id: 3, season_id: 1307, home_team_id: 57, home_team: 'Real Madrid', away_team_id: 44, away_team: 'FC Barcelona', event_date: '2026-10-01T18:00:00+00:00', status: 'notstarted', home_score: null, away_score: null, ...changes };
 }
 function page(results, next = null, count = results.length) { return { count, next, results }; }
+function conflictingEvent(id = 223136) {
+  return event(id, { league_id: 65, season_id: 1633, event_date: '2026-10-05T21:00:00+03:00',
+    home_team_id: id === 223136 ? 668 : 2308, home_team: id === 223136 ? 'Bermuda' : 'Guadeloupe',
+    away_team_id: id === 223136 ? 2293 : 681, away_team: id === 223136 ? 'Saint Lucia' : 'Barbados' });
+}
 function setup(handler, extraEnv = {}) {
   const file = '../services/bsdSportsService';
   delete require.cache[require.resolve(file)];
@@ -38,6 +43,69 @@ function setup(handler, extraEnv = {}) {
   }
   return { service, requests, logs, options };
 }
+
+test('officially conflicting scheduled records are excluded with partial coverage, not cancelled or aliased', async () => {
+  const correct = event(602460, { league_id: 65, season_id: 1633, home_team_id: 2308,
+    home_team: 'Guadeloupe', away_team_id: 2293, away_team: 'Saint Lucia', event_date: '2026-10-05T19:00:00Z' });
+  const { service } = setup(() => page([conflictingEvent(), conflictingEvent(223137), correct]));
+  const rows = await service.getMatches({ date: '2026-10-05' });
+  assert.deepEqual(rows.map(row => row.id), ['bsd_602460']);
+  assert.equal(rows[0].status, 'TIMED');
+  assert.equal(rows.coverage.reportedTotal, 3);
+  assert.equal(rows.coverage.rejectedRows, 2);
+  assert.equal(rows.coverage.invalidRows, 0);
+  assert.equal(rows.coverage.sourceConflictRows, 2);
+  assert.equal(rows.coverage.complete, false);
+  assert.equal(rows.coverage.partial, true);
+  assert.equal(rows.coverage.possiblyTruncated, false);
+  assert.equal(rows.coverage.reason, 'official_schedule_conflict');
+  assert.deepEqual(rows.coverage.sourceConflicts.map(row => row.id), ['bsd_223136', 'bsd_223137']);
+  assert.equal(service.normalizeMatch(conflictingEvent()), null);
+  assert.equal(service.normalizeMatch({ ...conflictingEvent(), away_team_id: 681 }).awayTeam.id, 'bsd_t_681');
+  assert.equal(service.normalizeMatch({ ...conflictingEvent(), status: 'finished' }).status, 'FINISHED');
+});
+
+test('summary, deep detail, timeline and predictions cannot serve a quarantined scheduled fixture', async () => {
+  const raw = conflictingEvent();
+  const { service, requests } = setup(url => {
+    if (url.pathname === '/api/v2/predictions/') return page([{ id: 1, event: raw }]);
+    if (url.pathname.endsWith('/prediction/')) return { id: 1, event: raw };
+    return raw;
+  });
+  assert.equal(await service.getMatchSummary('bsd_223136'), null);
+  assert.equal(await service.getMatchDetails('bsd_223136'), null);
+  assert.equal(await service.getMatchTimeline('bsd_223136'), null);
+  assert.equal(requests.some(url => url.pathname.endsWith('/incidents/')), false);
+  assert.equal(await service.getPredictionForMatch('bsd_223136'), null);
+  const predictions = await service.getPredictions();
+  assert.equal(predictions.length, 0);
+  assert.equal(predictions.coverage.sourceConflictRows, 1);
+  assert.equal(predictions.coverage.complete, false);
+});
+
+test('a corrected reviewed fixture can regain timeline coverage without a permanent ID ban', async () => {
+  const corrected = { ...conflictingEvent(), away_team_id: 681, away_team: 'Barbados', event_date: '2026-10-06T00:00:00Z' };
+  const { service, requests } = setup(url => url.pathname.endsWith('/incidents/')
+    ? { event_id: 223136, incidents: [] } : corrected);
+  const timeline = await service.getMatchTimeline('bsd_223136');
+  assert.ok(Array.isArray(timeline));
+  assert.ok(requests.some(url => url.pathname.endsWith('/incidents/')));
+});
+
+test('normalized audited Kirin fixtures expose organizer stages while keeping their provider competition', () => {
+  const { service } = setup(() => null);
+  const final = service.normalizeMatch(event(605568, { league_id: 31, season_id: 133,
+    home_team_id: 470, home_team: 'Japan', away_team_id: 482, away_team: 'New Zealand',
+    event_date: '2026-10-05T10:30:00Z', stage: 'league-phase' }));
+  const third = service.normalizeMatch(event(605595, { league_id: 31, season_id: 133,
+    home_team_id: 472, home_team: 'Ecuador', away_team_id: 496, away_team: 'Panama',
+    event_date: '2026-10-05T06:30:00Z', stage: 'league-phase' }));
+  assert.equal(final.stage, 'final');
+  assert.equal(third.stage, 'third-place');
+  assert.equal(final.competition.code, 'BSD:31');
+  assert.equal(final.fixtureStageEvidence.previousStage.stage, 'league-phase');
+  assert.equal(final.score.fullTime.home, null);
+});
 
 test('BSD v2 maps flat IDs, logos, exact UTC kickoff and missing scores without name identities', () => {
   const { service } = setup(() => null);

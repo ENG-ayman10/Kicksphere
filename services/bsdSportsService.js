@@ -3,6 +3,9 @@ const axios = require('axios');
 const { getCached, setCache } = require('./cacheService');
 const logger = require('../utils/logger');
 const { normalizeMatchTiming } = require('../utils/matchTiming');
+const { getFixtureSourceConflict, requiresFixtureSourceReview } = require('../utils/fixtureSourceQuality');
+const { annotateFixtureSourceStage } = require('../utils/fixtureSourceAnnotations');
+const { normalizeCareerCompetitionLabels } = require('../utils/careerCompetitionLabels');
 const API_TOKEN = String(process.env.BSD_API_TOKEN || '').trim();
 const BASE_URL = String(process.env.BSD_BASE_URL || 'https://sports.bzzoiro.com').replace(/\/+$/, '');
 const isConfigured = () => Boolean(API_TOKEN);
@@ -57,6 +60,21 @@ function normalizedCoverage(raw, invalidRows = 0, rejectedRows = 0) {
   const coverage = raw.coverage || unavailableCoverage();
   const complete = coverage.complete && invalidRows === 0 && rejectedRows === 0;
   return { ...coverage, complete, partial: !complete, invalidRows, rejectedRows };
+}
+function fixtureSourceConflict(raw) {
+  return getFixtureSourceConflict({ provider: 'bsd', id: 'bsd_' + positiveId(raw?.id ?? raw?.event_id),
+    competitionId: positiveId(raw?.league_id ?? raw?.league?.id ?? raw?.season?.league?.id),
+    seasonId: positiveId(raw?.season_id ?? raw?.season?.id),
+    homeTeamId: positiveId(raw?.home_team_obj?.id ?? raw?.home_team_id),
+    awayTeamId: positiveId(raw?.away_team_obj?.id ?? raw?.away_team_id),
+    utcDate: instant(raw?.event_date || raw?.date), status: normalizeStatus(raw?.status) });
+}
+function fixtureCoverage(raw, normalized, rejectedRows = 0) {
+  const sourceConflicts = raw.map(fixtureSourceConflict).filter(Boolean);
+  const count = sourceConflicts.length;
+  return { ...normalizedCoverage(raw, Math.max(0, raw.length - normalized.length - count), rejectedRows + count),
+    ...(count ? { sourceConflictRows: count, sourceConflicts,
+      reason: raw.coverage?.reason || 'official_schedule_conflict' } : {}) };
 }
 function paramsSorted(params) { return Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').sort(([a], [b]) => a.localeCompare(b))); }
 function safeRequest(path, expectedPath) {
@@ -177,11 +195,12 @@ function normalizeBsdMatch(raw, leagues = []) {
   const home = normalizeTeam(raw.home_team_obj, { id: raw.home_team_id, name: raw.home_team }), away = normalizeTeam(raw.away_team_obj, { id: raw.away_team_id, name: raw.away_team });
   const competitionId = positiveId(raw.league_id ?? raw.league?.id ?? raw.season?.league?.id);
   if (!id || !date || !status || !home || !away || !competitionId || home.id === away.id) return null;
+  if (fixtureSourceConflict(raw)) return null;
   const catalog = leagues.find(value => Number(value.rawId) === competitionId), code = BSD_ID_TO_LEAGUE_CODE[competitionId] || 'BSD:' + competitionId;
   const seasonId = positiveId(raw.season_id ?? raw.season?.id);
   const season = Number(catalog?.currentSeason?.id) === seasonId ? catalog.currentSeason : (Number(raw.season?.id) === seasonId ? raw.season : (seasonId ? { id: seasonId } : null));
   const timing = normalizeMatchTiming({ status: raw.status, period: raw.period, minute: raw.current_minute });
-  return {
+  return annotateFixtureSourceStage({
     id: 'bsd_' + id, rawId: id, slug: 'bsd_' + id, provider: 'bsd', source: 'bsd', utcDate: date, status,
     statusText: ['IN_PLAY', 'PAUSED'].includes(status) ? (raw.current_minute != null ? raw.current_minute + "'" : (raw.period || 'Live')) : status === 'FINISHED' ? 'Finished' : status === 'TIMED' ? 'Upcoming' : status,
     minute: integer(raw.current_minute), period: raw.period || '', ...timing, homeTeam: home, awayTeam: away,
@@ -192,7 +211,7 @@ function normalizeBsdMatch(raw, leagues = []) {
     penaltyShootout: raw.penalty_shootout || null, extraTimeScore: raw.extra_time_score || null,
     xg: { liveHome: null, liveAway: null, actualHome: null, actualAway: null, homeEstimated: null, awayEstimated: null, estimated: null, source: 'bsd' },
     lastUpdated: instant(raw.last_updated || raw.updated_at), hasXg: raw.has_xg === true, aiPreview: null,
-  };
+  });
 }
 function normalizeBsdStatistics(raw) {
   const stats = raw?.stats || raw;
@@ -312,14 +331,14 @@ exports.getMatches = async (input = {}) => {
   if (!raw) return null;
   const normalized = raw.map(value => normalizeBsdMatch(value, leagues || [])).filter(Boolean);
   const rows = normalized.filter(value => matchesFilters(value, params)).sort((a, b) => a.utcDate.localeCompare(b.utcDate));
-  return withCoverage(rows, normalizedCoverage(raw, raw.length - normalized.length, normalized.length - rows.length));
+  return withCoverage(rows, fixtureCoverage(raw, normalized, normalized.length - rows.length));
 };
 exports.getLiveMatches = async () => {
   const [raw, leagues] = await Promise.all([fetchList('/api/v2/events/live/', {}, TTL.live, ['events', 'results']), exports.getLeagues()]);
   if (!raw) return null;
   const normalized = raw.map(value => normalizeBsdMatch(value, leagues || [])).filter(Boolean);
   // The feed retains recently finished games; only active canonical states qualify as live.
-  return withCoverage(normalized.filter(value => ['IN_PLAY', 'PAUSED'].includes(value.status)), normalizedCoverage(raw, raw.length - normalized.length));
+  return withCoverage(normalized.filter(value => ['IN_PLAY', 'PAUSED'].includes(value.status)), fixtureCoverage(raw, normalized));
 };
 exports.getMatchSummary = async matchId => {
   const id = scopedId(matchId, 'bsd_'); if (!id) return null;
@@ -328,6 +347,7 @@ exports.getMatchSummary = async matchId => {
 };
 exports.getMatchTimeline = async matchId => {
   const id = scopedId(matchId, 'bsd_'); if (!id) return null;
+  if (requiresFixtureSourceReview('bsd', matchId) && !await exports.getMatchSummary(matchId)) return null;
   const raw = resource(await fetchBsd('/api/v2/events/' + id + '/incidents/', {}, TTL.live), id);
   if (!raw || !Array.isArray(raw.incidents)) return null;
   const rows = raw.incidents.map(normalizeIncident).filter(Boolean);
@@ -581,21 +601,28 @@ exports.getPlayerDetails = async (playerId, options = {}) => {
     }
   }
   await seasonEnrichment;
+  for (const row of career) Object.assign(row, normalizeCareerCompetitionLabels(row));
   return { ...info, currentTeam, teamId: currentTeam?.id || (clubId ? 'bsd_t_' + clubId : null), team: currentTeam?.name || '', teamBadge: currentTeam?.crest || imageUrl('team', clubId), nationalTeam, contractUntil: calendarDate(raw.contract_until), marketValue: numeric(raw.market_value_eur), abilityRating: numeric(raw.rating), competition: selected?.competition || '', matches: selected?.matches ?? null, goals: selected?.goals ?? null, assists: selected?.assists ?? null, minutes: selected?.minutes ?? null, rating: selected?.rating ?? null, ...extra, career, careerBySeason: career, transfers, statsContext: selected ? { teamId: selected.teamId, team: currentTeam?.name || '', competitionId: selected.competitionId, competition: selected.competition, seasonId: selected.seasonId, season: selected.season, scope: 'team_competition_season', source: 'bsd' } : null, statsCoverage, source: 'bsd' };
 };
 exports.getPlayer = exports.getPlayerDetails;
 function normalizePrediction(raw) {
   if (!raw || !positiveId(raw.event?.id)) return null;
+  if (fixtureSourceConflict(raw.event)) return null;
+  if (requiresFixtureSourceReview('bsd', 'bsd_' + positiveId(raw.event.id)) && !normalizeBsdMatch(raw.event)) return null;
   const m = raw.markets || {}, percent = value => { const n = numeric(value); return n !== null && n >= 0 && n <= 100 ? n : null; };
   return { id: positiveId(raw.id), eventId: positiveId(raw.event.id), match: normalizeBsdMatch(raw.event), probHomeWin: percent(m.match_result?.prob_home ?? raw.prob_home_win), probDraw: percent(m.match_result?.prob_draw ?? raw.prob_draw), probAwayWin: percent(m.match_result?.prob_away ?? raw.prob_away_win), predictedResult: m.match_result?.predicted || raw.predicted_result || '', mostLikelyScore: m.score?.most_likely || raw.most_likely_score || '', expectedHomeGoals: numeric(m.expected_goals?.home ?? raw.expected_home_goals), expectedAwayGoals: numeric(m.expected_goals?.away ?? raw.expected_away_goals), probOver15: percent(m.over_under?.prob_over_15 ?? raw.prob_over_15), probOver25: percent(m.over_under?.prob_over_25 ?? raw.prob_over_25), probOver35: percent(m.over_under?.prob_over_35 ?? raw.prob_over_35), probBttsYes: percent(m.btts?.prob_yes ?? raw.prob_btts_yes), confidence: confidencePercent(raw.model?.confidence ?? raw.confidence), confidenceRaw: numeric(raw.model?.confidence ?? raw.confidence), confidenceScale: 100, modelVersion: raw.model?.version || raw.model_version || '', probabilityScale: 100, prediction: true, aiPreview: raw.ai_preview?.text || null, source: 'bsd_catboost_ml' };
 }
 exports.getPredictions = async (input = {}) => {
   const params = matchFilters(input); if (!params) return null;
   const raw = await fetchList('/api/v2/predictions/', params, TTL.predictions); if (!raw) return null;
-  const rows = raw.map(normalizePrediction).filter(Boolean); return withCoverage(rows, normalizedCoverage(raw, raw.length - rows.length));
+  const rows = raw.map(normalizePrediction).filter(Boolean);
+  const events = raw.map(row => row?.event);
+  Object.defineProperty(events, 'coverage', { value: raw.coverage });
+  return withCoverage(rows, fixtureCoverage(events, rows));
 };
 exports.getPredictionForMatch = async matchId => {
   const id = scopedId(matchId, 'bsd_'); if (!id) return null;
+  if (requiresFixtureSourceReview('bsd', matchId) && !await exports.getMatchSummary(matchId)) return null;
   const raw = await fetchBsd('/api/v2/events/' + id + '/prediction/', {}, TTL.predictions), value = normalizePrediction(raw);
   return value?.eventId === id ? value : null;
 };

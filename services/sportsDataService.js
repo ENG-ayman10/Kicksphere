@@ -56,10 +56,12 @@ const queryCoverage = (matches, provider, competition = null) => {
       coverage?.complete !== false && coverage?.partial !== true,
     ...(coverage?.pages !== undefined ? { pages: coverage.pages } : {}),
     ...Object.fromEntries(['upstreamReturned', 'accepted', 'recovered', 'invalidRecords',
-      'outsideDate', 'outsideCompetition', 'outsideStatus'].filter(key => Number.isFinite(coverage?.[key]))
+      'outsideDate', 'outsideCompetition', 'outsideStatus', 'invalidRows', 'rejectedRows',
+      'sourceConflictRows'].filter(key => Number.isFinite(coverage?.[key]))
       .map(key => [key, coverage[key]])),
     ...(typeof coverage?.reason === 'string' ? { reason: coverage.reason } : {}),
     ...(Array.isArray(coverage?.partitions) ? { partitions: coverage.partitions.slice(0, 3) } : {}),
+    ...(Array.isArray(coverage?.sourceConflicts) ? { sourceConflicts: coverage.sourceConflicts.slice(0, 20) } : {}),
   };
 };
 
