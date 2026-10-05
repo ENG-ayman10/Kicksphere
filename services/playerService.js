@@ -79,7 +79,10 @@ const fetchLeagueSquads = async (leagueCode, teamLimit) => {
 
   for (const team of teams) {
     try {
-      const squadResult = await getTeamSquadService(team.name || team.id);
+      // Standings rows carry provider-scoped IDs. Resolving a squad by the
+      // display name can select a namesake club from another provider and was
+      // the main reason league player lists were incomplete or mismatched.
+      const squadResult = await getTeamSquadService(team.id || team.name);
       const squad = Array.isArray(squadResult.data) ? squadResult.data : [];
       players.push(
         ...squad

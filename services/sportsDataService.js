@@ -251,6 +251,7 @@ exports.getCompetitionMatches = async (competitionCode, dateFrom, dateTo) => {
   const days = Math.round((Date.parse(last) - Date.parse(first)) / 86400000) + 1;
   if (days > 35) return { success: false, statusCode: 400, message: 'Date range must not exceed 35 days' };
   let bsdMatches = null;
+  let bsdCoverage = null;
   const bsdReadable = await canReadBsdCompetition(league);
   if (/^BSD:/.test(league) && !bsdReadable) {
     const catalog = bsdConfigured() ? await bsdSportsService.getLeagues() : null;
@@ -265,16 +266,20 @@ exports.getCompetitionMatches = async (competitionCode, dateFrom, dateTo) => {
         const day = String(match.utcDate || '').slice(0, 10);
         return match.competition?.code === league && day >= first && day <= last;
       });
+      bsdCoverage = { ...queryCoverage(bsdMatches, 'bsd', league),
+        returned: filtered.length, requestedFrom: first, requestedTo: last };
+      Object.defineProperty(filtered, 'coverage', { value: bsdCoverage, enumerable: false });
       if (bsdMatches.coverage?.complete === true && bsdMatches.coverage?.possiblyTruncated !== true &&
           filtered.length === bsdMatches.length) return { success: true, source: 'bsd', data: filtered,
-        coverage: { ...bsdMatches.coverage, returned: filtered.length } };
+        coverage: bsdCoverage };
       bsdMatches = filtered;
     } else bsdMatches = null;
   }
   // A BSD-only competition can never leak into SportScore's default league feed.
   if (!sportscoreService.COMPETITION_SLUGS?.[league] && /^(BSD:|CIT$|DFB$|CLI$|ARG$)/.test(league)) {
     return Array.isArray(bsdMatches) ? { success: true, source: 'bsd', data: bsdMatches,
-      coverage: { available: true, complete: false, partial: true } } :
+      coverage: bsdCoverage || { provider: 'bsd', available: true, complete: false, partial: true,
+        returned: bsdMatches.length } } :
       { success: false, statusCode: 503, source: 'unavailable', message: 'Competition provider unavailable', data: [] };
   }
   try {
@@ -293,6 +298,10 @@ exports.getCompetitionMatches = async (competitionCode, dateFrom, dateTo) => {
       }
     }));
     const matches = results.flat();
+    const sportscoreQueries = results.map((result, index) => queryCoverage(
+      result, 'sportscore', league));
+    const sportscoreAvailable = sportscoreQueries.some(query => query.available);
+    const sportscoreComplete = sportscoreAvailable && sportscoreQueries.every(query => query.complete);
     const seen = new Set();
     const filtered = matches.filter(m => {
       const date = String(m.utcDate || '').slice(0, 10);
@@ -302,13 +311,34 @@ exports.getCompetitionMatches = async (competitionCode, dateFrom, dateTo) => {
       return true;
     });
     if (filtered.length > 0) {
-      return { success: true, source: Array.isArray(bsdMatches) ? 'bsd+sportscore' : 'sportscore', data: mergeProviderFixtures(bsdMatches || [], filtered) };
+      const data = mergeProviderFixtures(bsdMatches || [], filtered);
+      const coverage = { available: true,
+        complete: Boolean((bsdCoverage ? bsdCoverage.complete : true) && sportscoreComplete),
+        partial: !Boolean((bsdCoverage ? bsdCoverage.complete : true) && sportscoreComplete),
+        returned: data.length, providers: [bsdCoverage, {
+          provider: 'sportscore', available: sportscoreAvailable,
+          complete: sportscoreComplete, partial: !sportscoreComplete,
+          returned: filtered.length, queries: sportscoreQueries
+        }].filter(Boolean) };
+      return { success: true, source: Array.isArray(bsdMatches) ? 'bsd+sportscore' : 'sportscore', data, coverage };
     }
-
-    return { success: true, source: Array.isArray(bsdMatches) ? 'bsd+sportscore' : 'sportscore', data: bsdMatches || [] };
+    const coverage = { available: Boolean(Array.isArray(bsdMatches) || sportscoreAvailable),
+      complete: Boolean(bsdCoverage ? bsdCoverage.complete : sportscoreComplete),
+      partial: !Boolean(bsdCoverage ? bsdCoverage.complete : sportscoreComplete),
+      returned: (bsdMatches || []).length, providers: [bsdCoverage, {
+        provider: 'sportscore', available: sportscoreAvailable,
+        complete: sportscoreComplete, partial: !sportscoreComplete,
+        returned: filtered.length, queries: sportscoreQueries
+      }].filter(Boolean) };
+    return { success: true, source: Array.isArray(bsdMatches) ? 'bsd+sportscore' : 'sportscore',
+      data: bsdMatches || [], coverage };
   } catch (error) {
     logger.warn('getCompetitionMatches failed: ' + error.message);
-    return Array.isArray(bsdMatches) ? { success: true, source: 'bsd', data: bsdMatches, coverage: { available: true, complete: false, partial: true } } : { success: true, source: 'unavailable', data: [], coverage: { available: false } };
+    return Array.isArray(bsdMatches) ? { success: true, source: 'bsd', data: bsdMatches,
+      coverage: bsdCoverage || { provider: 'bsd', available: true, complete: false, partial: true,
+        returned: bsdMatches.length, reason: 'sportscore_provider_failed' } } :
+      { success: false, statusCode: 503, source: 'unavailable', message: 'Competition providers unavailable',
+        data: [], coverage: { available: false, complete: false, partial: true, reason: 'provider_unavailable' } };
   }
 };
 
@@ -339,7 +369,9 @@ exports.getStandings = async (competitionCode) => {
     logger.warn(`SportScore getStandings failed: ${error.message}`);
   }
 
-  return { success: true, source: 'unavailable', data: [] };
+  return { success: false, statusCode: 503, source: 'unavailable',
+    message: 'Standings provider unavailable', data: [],
+    coverage: { available: false, complete: false, partial: true, reason: 'provider_unavailable' } };
 };
 
 exports.getTopScorers = async (competitionCode, limit, stat = 'goals') => {
@@ -371,11 +403,13 @@ exports.getTopScorers = async (competitionCode, limit, stat = 'goals') => {
     logger.warn(`SportScore getTopScorers failed: ${error.message}`);
   }
 
-  return { success: true, source: 'unavailable', data: [] };
+  return { success: false, statusCode: 503, source: 'unavailable',
+    message: 'Scorers provider unavailable', data: [],
+    coverage: { available: false, complete: false, partial: true, reason: 'provider_unavailable' } };
 };
 
 exports.getSupportedCompetitions = () => {
-  return Object.entries(sportscoreService.COMPETITION_SLUGS).map(([code, info]) => ({
+  const rows = Object.entries(sportscoreService.COMPETITION_SLUGS).map(([code, info]) => ({
     id: code,
     code,
     name: info.name,
@@ -384,6 +418,11 @@ exports.getSupportedCompetitions = () => {
     logo: info.logo,
     slug: info.slug
   }));
+  Object.defineProperties(rows, { source: { value: 'supported-contract' }, coverage: { value: {
+    source: 'supported-contract', available: true, complete: true, partial: false,
+    providerCount: rows.length, supplementalCount: 0
+  } } });
+  return rows;
 };
 
 exports.getCompetitionCatalog = async () => {

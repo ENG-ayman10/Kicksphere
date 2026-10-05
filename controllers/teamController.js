@@ -11,7 +11,10 @@ const sendResult = (res, result) => {
   if (!result.success) {
     return res.status(result.statusCode || 400).json({
       success: false,
-      message: result.message
+      message: result.message,
+      ...(result.source ? { source: result.source } : {}),
+      ...(result.coverage ? { coverage: result.coverage } : {}),
+      ...(result.data !== undefined ? { data: result.data } : {})
     });
   }
 
@@ -25,7 +28,10 @@ const sendResult = (res, result) => {
 
 exports.getTeams = async (req, res) => {
   try {
-    const result = await getTeamsService(req.query.league);
+    const result = await getTeamsService(req.query.league || req.query.competition, {
+      seasonId: req.query.seasonId ?? req.query.season_id ?? req.query.season,
+      name: req.query.name ?? req.query.search,
+    });
     return sendResult(res, result);
   } catch (error) {
     logger.error(`getTeams Error: ${error.message}`);

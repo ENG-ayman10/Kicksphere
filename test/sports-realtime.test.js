@@ -475,8 +475,8 @@ test('unavailable player data never returns invented ratings, values, or career 
   });
   const res = { status(value) { this.statusCode = value; return this; }, json(value) { this.body = value; return this; } };
   await controller.getDeepPlayerDetails({ params: { id: 'unknown-test-player' } }, res);
+  assert.equal(res.statusCode, 404);
   assert.equal(res.body.source, 'unavailable');
-  assert.deepEqual(res.body.data.info, {});
-  assert.deepEqual(res.body.data.seasonStats, {});
-  assert.deepEqual(res.body.data.careerTotals, {});
+  assert.equal(res.body.data, null);
+  assert.equal(res.body.coverage.available, false);
 });

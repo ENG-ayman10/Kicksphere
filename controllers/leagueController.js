@@ -17,10 +17,12 @@ const findCompetition = async (id) => {
 
 exports.getLeagues = async (req, res) => {
   try {
+    const catalog = await sportsDataService.getCompetitionCatalog();
     return res.json({
       success: true,
-      source: 'supported-contract',
-      data: await sportsDataService.getCompetitionCatalog()
+      source: catalog.source || 'supported-contract',
+      coverage: catalog.coverage,
+      data: catalog
     });
   } catch (error) {
     logger.error(`getLeagues Error: ${error.message}`);
@@ -30,7 +32,9 @@ exports.getLeagues = async (req, res) => {
 
 exports.getLeagueById = async (req, res) => {
   try {
-    const competition = await findCompetition(req.params.id);
+    const catalog = await sportsDataService.getCompetitionCatalog();
+    const code = normalizeCompetitionCode(req.params.id);
+    const competition = code ? catalog.find(item => item.code === code) : null;
 
     if (!competition) {
       return res.status(404).json({
@@ -41,7 +45,8 @@ exports.getLeagueById = async (req, res) => {
 
     return res.json({
       success: true,
-      source: 'supported-contract',
+      source: catalog.source || 'supported-contract',
+      coverage: catalog.coverage,
       data: competition
     });
   } catch (error) {

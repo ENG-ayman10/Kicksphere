@@ -2,7 +2,11 @@ const { normalizeCompetitionCode } = require('./sportsContracts');
 const { matchTeamId } = require('./teamIdentity');
 const { validatedProviderIdentities } = require('./matchProviderIdentities');
 
-const normalized = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[-\s]+/g, ' ').trim();
+// Provider feeds frequently differ only by accents (for example Curaçao /
+// Curacao). Fold combining marks for the exact same competition/date/fixture
+// comparison; IDs and country/scope checks still prevent namesake joins.
+const normalized = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase().replace(/[-\s]+/g, ' ').trim();
 const country = value => {
   const name = normalized(value);
   return ['us', 'usa', 'united states', 'united states of america'].includes(name) ? 'usa' : name;

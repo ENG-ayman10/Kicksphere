@@ -122,7 +122,10 @@ exports.getCompetitionMatches = async (req, res) => {
     if (!result.success) {
       return res.status(result.statusCode || 400).json({
         success: false,
-        message: result.message
+        message: result.message,
+        source: result.source,
+        coverage: result.coverage,
+        data: result.data || []
       });
     }
 
@@ -181,11 +184,21 @@ exports.searchMatches = async (req, res) => {
 
     const query = q.toLowerCase();
     const result = await sportsDataService.getMatchesByDate('TODAY');
-    const today = result.success ? result.data : [];
+    if (!result.success || result.coverage?.available === false) {
+      return res.status(result.statusCode || 503).json({
+        success: false,
+        message: result.message || 'Match provider unavailable',
+        source: result.source,
+        coverage: result.coverage,
+        data: []
+      });
+    }
+    const today = result.data;
     
     const data = today.filter(m => searchableMatchText(m).includes(query));
 
-    res.json({ success: true, count: data.length, data });
+    res.json({ success: true, source: result.source, coverage: result.coverage,
+      count: data.length, data });
   } catch (error) {
     logger.error(`❌ SEARCH MATCHES ERROR: ${error.message}`);
     serverError(res);

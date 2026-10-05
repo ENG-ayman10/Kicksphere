@@ -233,7 +233,10 @@ exports.getTopPlayers = async (req, res) => {
     if (!result.success) {
       return res.status(result.statusCode || 400).json({
         success: false,
-        message: result.message
+        message: result.message,
+        source: result.source,
+        coverage: result.coverage,
+        data: result.data || []
       });
     }
 
@@ -254,7 +257,10 @@ exports.getTopTeams = async (req, res) => {
     if (!result.success) {
       return res.status(result.statusCode || 400).json({
         success: false,
-        message: result.message
+        message: result.message,
+        source: result.source,
+        coverage: result.coverage,
+        data: result.data || []
       });
     }
 
@@ -271,7 +277,8 @@ exports.getTopTeams = async (req, res) => {
 exports.getLeaguesStandings = async (req, res) => {
   try {
     const leagues = await sportsDataService.getCompetitionCatalog();
-    res.json({ success: true, data: leagues });
+    res.json({ success: true, source: leagues.source || 'supported-contract',
+      coverage: leagues.coverage, data: leagues });
   } catch (error) {
     logger.error(`❌ LEAGUES ERROR: ${error.message}`);
     serverError(res);
@@ -563,6 +570,15 @@ exports.getDeepPlayerDetails = async (req, res) => {
       ? await callProvider('KickOff player details', () => kickoffApiService.getPlayerDetails(playerId)) : null;
     const ko = koPlayer || fallback;
     const player = ko || scPlayer;
+    // Do not turn an unavailable provider response into a cached empty
+    // profile. The client must distinguish a missing entity from incomplete
+    // optional statistics.
+    if (!player || !String(player.name || '').trim()) {
+      return res.status(404).json({ success: false, source: 'unavailable',
+        message: 'Player details not found', data: null,
+        coverage: { available: false, complete: false, partial: true,
+          reason: 'provider_entity_unavailable' } });
+    }
     const info = player ? {
       id: player.id, provider: ko ? 'kickoffapi' : 'sportscore', providerId: player.providerId || player.id,
       name: player.name, fullName: player.fullName || player.name,

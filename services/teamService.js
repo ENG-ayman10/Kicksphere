@@ -61,26 +61,61 @@ const serviceResult = (data, source = 'sportscore') => ({
   data
 });
 
-exports.getTeamsService = async (competitionCode) => {
-  let teams = localTeams();
+const unavailableCoverage = (source, reason) => ({ source, available: false, complete: false, partial: true, reason });
+const reservedTeamId = value => /^(?:bsd_|ko_|sc_)/.test(String(value || '').trim());
+const positiveId = value => /^[1-9]\d{0,14}$/.test(String(value ?? '')) && Number.isSafeInteger(Number(value)) ? Number(value) : null;
+const squadCoverage = (rows, source) => rows?.coverage || {
+  source, available: Array.isArray(rows), complete: false, partial: true,
+  ...(Array.isArray(rows) && rows.length === 0 ? { reason: 'empty_squad' } : {}),
+};
 
+exports.getTeamsService = async (competitionCode, options = {}) => {
+  let teams = localTeams();
+  let leagueCode;
   if (competitionCode) {
-    const leagueCode = normalizeCompetitionCode(competitionCode, '');
+    leagueCode = normalizeCompetitionCode(competitionCode, '');
     if (!leagueCode) {
       return { success: false, statusCode: 400, message: 'Unsupported league code' };
     }
-    if (bsdSportsService.isConfigured?.()) {
-      try {
-        const provided = await bsdSportsService.getTeams({ competition: leagueCode });
-        if (Array.isArray(provided) && provided.coverage?.available !== false) return {
-          ...serviceResult(provided, 'bsd'), coverage: provided.coverage || { complete: false },
-        };
-      } catch (_) {}
-    }
     teams = teams.filter(team => team.leagueCode === leagueCode);
   }
-
-  return { ...serviceResult(teams, 'local-catalog'), coverage: { complete: false } };
+  const suppliedSeason = options.seasonId ?? options.season_id ?? options.season;
+  let seasonId = suppliedSeason === undefined ? null : positiveId(suppliedSeason);
+  if (suppliedSeason !== undefined && (!seasonId || !leagueCode)) return {
+    success: false, statusCode: 400, message: 'Valid season and competition required',
+  };
+  const name = typeof options.name === 'string' ? options.name.trim().slice(0, 100) : '';
+  if (bsdSportsService.isConfigured?.()) {
+    try {
+      if (leagueCode && !seasonId && typeof bsdSportsService.getLeagueDetails === 'function') {
+        const league = await bsdSportsService.getLeagueDetails(leagueCode);
+        seasonId = positiveId(league?.currentSeason?.id);
+      }
+      const provided = await bsdSportsService.getTeams({
+        ...(leagueCode ? { competition: leagueCode, in_competition: true } : {}),
+        ...(seasonId ? { seasonId } : {}), ...(name ? { name } : {}),
+      });
+      if (Array.isArray(provided) && provided.coverage?.available !== false) {
+        const coverage = provided.coverage || { available: true, complete: false, partial: true };
+        const unknownSeason = Boolean(leagueCode && !seasonId);
+        return { ...serviceResult(provided, 'bsd'), coverage: {
+          ...coverage, scope: leagueCode ? 'competition_season_teams' : 'provider_team_catalog',
+          ...(leagueCode ? { competitionCode: leagueCode, seasonId } : {}),
+          ...(unknownSeason ? { complete: false, partial: true, reason: 'season_unknown' } : {}),
+        } };
+      }
+    } catch (_) {}
+  }
+  // The bundled shortlist cannot represent a historical season or BSD-only
+  // tournament when its provider is unavailable.
+  if (suppliedSeason !== undefined || /^BSD:/.test(leagueCode || '')) return {
+    success: false, statusCode: 503, source: 'bsd', message: 'Team catalog unavailable',
+    coverage: unavailableCoverage('bsd', 'provider_unavailable'), data: [],
+  };
+  if (name) teams = teams.filter(team => normalizeText(team.name).includes(normalizeText(name)));
+  return { ...serviceResult(teams, 'local-catalog'), coverage: {
+    source: 'local-catalog', available: true, complete: false, partial: true, reason: 'local_shortlist',
+  } };
 };
 
 exports.getTeamByIdService = async (idOrName) => {
@@ -96,11 +131,19 @@ exports.getTeamByIdService = async (idOrName) => {
   if (scopedId?.startsWith('sc_t_')) {
     try {
       const team = await sportscoreService.getTeamDetails(scopedId.slice(5));
-      if (team?.info) return serviceResult({ ...team.info, id: scopedId, targetId: scopedId,
+      if (team?.info && [scopedId, scopedId.slice(5)].includes(String(team.info.id))) return serviceResult({ ...team.info, id: scopedId, targetId: scopedId,
         provider: 'sportscore', providerId: scopedId.slice(5) }, 'sportscore');
     } catch (_) {}
     return { success: false, statusCode: 404, message: 'Team not found' };
   }
+  if (scopedId?.startsWith('ko_t_')) {
+    try {
+      const team = await kickoffApiService.getTeamDetails(scopedId);
+      if (team && scopedTeamId(team.id || team.providerId, 'kickoffapi') === scopedId) return serviceResult(team, 'kickoffapi');
+    } catch (_) {}
+    return { success: false, statusCode: 404, message: 'Team not found' };
+  }
+  if (reservedTeamId(idOrName)) return { success: false, statusCode: 404, message: 'Team not found' };
   // Prefer stable app-facing ids/names before provider lookup because numeric
   // ids can be ambiguous outside our own compatibility contract.
   const localTeam = resolveLocalTeam(idOrName);
@@ -130,20 +173,31 @@ exports.getTeamMatchesService = async (idOrName) => {
     } catch (_) {}
     return { success: false, statusCode: 503, message: 'Team fixtures unavailable' };
   }
-  if (String(idOrName || '').startsWith('bsd_')) return { success: false, statusCode: 404, message: 'Team not found' };
+  if (reservedTeamId(idOrName) && !scopedTeamId(idOrName)) return { success: false, statusCode: 404, message: 'Team not found' };
   const lookup = resolveProviderTeamLookup(idOrName);
-  if (/^ko_t_\d+$/.test(lookup)) return serviceResult(await kickoffApiService.getTeamFixtures(lookup), "kickoffapi");
+  if (/^ko_t_\d+$/.test(lookup)) {
+    try {
+      const fixtures = await kickoffApiService.getTeamFixtures(lookup);
+      if (fixtures) return { ...serviceResult(fixtures, 'kickoffapi'), coverage: fixtures.coverage || {
+        source: 'kickoffapi', available: true, complete: false, partial: true,
+      } };
+    } catch (_) {}
+    return { success: false, statusCode: 503, source: 'kickoffapi', message: 'Team fixtures unavailable',
+      coverage: unavailableCoverage('kickoffapi', 'provider_unavailable') };
+  }
   if (/^\d+$/.test(String(idOrName)) && !resolveLocalTeam(idOrName)) return serviceResult({ recent: [], upcoming: [] }, "unavailable");
 
   // Try SportScore API
   try {
     const scTeam = await sportscoreService.getTeamDetails(lookup);
-    if (scTeam?.matches && (scTeam.matches.recent?.length || scTeam.matches.upcoming?.length)) {
-      return serviceResult(scTeam.matches, 'sportscore');
+    if (scTeam?.matches && (!scopedTeamId(idOrName)?.startsWith('sc_t_') || [String(idOrName).trim(), lookup].includes(String(scTeam.info?.id)))) {
+      return { ...serviceResult(scTeam.matches, 'sportscore'), coverage: scTeam.coverage?.fixtures || {
+        source: 'sportscore', available: true, complete: false, partial: true,
+      } };
     }
   } catch (_) {}
 
-  return serviceResult({ recent: [], upcoming: [] }, 'empty');
+  return { ...serviceResult({ recent: [], upcoming: [] }, 'empty'), coverage: unavailableCoverage('sportscore', 'provider_unavailable') };
 };
 
 exports.getTeamSquadService = async (idOrName) => {
@@ -154,21 +208,32 @@ exports.getTeamSquadService = async (idOrName) => {
     } catch (_) {}
     return { success: false, statusCode: 503, message: 'Team squad unavailable' };
   }
-  if (String(idOrName || '').startsWith('bsd_')) return { success: false, statusCode: 404, message: 'Team not found' };
+  if (reservedTeamId(idOrName) && !scopedTeamId(idOrName)) return { success: false, statusCode: 404, message: 'Team not found' };
   if (/^\d+$/.test(String(idOrName)) && !resolveLocalTeam(idOrName)) return serviceResult([], "unavailable");
   const lookup = resolveProviderTeamLookup(idOrName);
+  if (/^ko_t_[1-9]\d*$/.test(lookup)) {
+    try {
+      const squad = await kickoffApiService.getTeamSquad(lookup);
+      if (Array.isArray(squad)) return { ...serviceResult(squad, 'kickoffapi'), coverage: squadCoverage(squad, 'kickoffapi') };
+    } catch (_) {}
+    return { success: false, statusCode: 503, source: 'kickoffapi', message: 'Team squad unavailable',
+      coverage: unavailableCoverage('kickoffapi', 'provider_unavailable') };
+  }
   if (scopedTeamId(idOrName)?.startsWith('sc_t_')) {
     try {
       const team = await sportscoreService.getTeamDetails(lookup);
-      return serviceResult(team?.squad || [], team ? 'sportscore' : 'unavailable');
-    } catch (_) { return serviceResult([], 'unavailable'); }
+      if (team && [String(idOrName).trim(), lookup].includes(String(team.info?.id)) && Array.isArray(team.squad)) return {
+        ...serviceResult(team.squad, 'sportscore'), coverage: team.coverage?.squad || squadCoverage(team.squad, 'sportscore'),
+      };
+      return { ...serviceResult([], 'unavailable'), coverage: unavailableCoverage('sportscore', 'provider_squad_unavailable') };
+    } catch (_) { return { ...serviceResult([], 'unavailable'), coverage: unavailableCoverage('sportscore', 'provider_unavailable') }; }
   }
 
   // Try KickOff API first for complete squad lists and player images
   try {
     const koSquad = await kickoffApiService.getTeamSquad(lookup);
     if (koSquad && koSquad.length > 0) {
-      return serviceResult(koSquad, 'kickoffapi');
+      return { ...serviceResult(koSquad, 'kickoffapi'), coverage: squadCoverage(koSquad, 'kickoffapi') };
     }
   } catch (_) {}
 
@@ -176,12 +241,12 @@ exports.getTeamSquadService = async (idOrName) => {
   try {
     const scTeam = await sportscoreService.getTeamDetails(lookup);
     if (scTeam?.squad && scTeam.squad.length > 0) {
-      return serviceResult(scTeam.squad, 'sportscore');
+      return { ...serviceResult(scTeam.squad, 'sportscore'), coverage: scTeam.coverage?.squad || squadCoverage(scTeam.squad, 'sportscore') };
     }
   } catch (_) {}
 
   // No static roster is presented as a current squad.
-  return serviceResult([], 'empty');
+  return { ...serviceResult([], 'empty'), coverage: unavailableCoverage('unavailable', 'provider_squad_unavailable') };
 };
 
 exports.resolveLocalTeam = resolveLocalTeam;
