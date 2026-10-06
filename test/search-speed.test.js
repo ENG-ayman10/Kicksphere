@@ -62,7 +62,7 @@ test('normalized simultaneous searches share provider calls and finished results
   );
   const first = search.searchAll('  Spéed   Club  ');
   const second = search.searchAll('SPEED CLUB');
-  assert.deepEqual(calls, [['bsd', 'Spéed Club', 10], ['sportscore', 'Spéed Club', 10]]);
+  assert.deepEqual(calls, [['bsd', 'speed club', 50], ['sportscore', 'speed club', 50]]);
   bsd.resolve(bsdResult());
   sc.resolve(scResult());
   const [a, b] = await Promise.all([first, second]);

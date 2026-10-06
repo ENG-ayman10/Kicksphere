@@ -13,6 +13,7 @@ const logger = require('../utils/logger');
 const { scopedTeamId } = require('../utils/teamIdentity');
 const { validatedProviderIdentities } = require('../utils/matchProviderIdentities');
 const { filterPresentedTimeline } = require('../utils/matchTimelineTiming');
+const { validateLineupIntegrity } = require('../utils/lineupIntegrity');
 
 const serverError = (res) => res.status(500).json({ success: false, message: 'Server Error' });
 
@@ -334,27 +335,36 @@ function mapKickoffPlayer(item) {
   const p = item.player || item;
   const name = p.name || [p.firstname,p.lastname].filter(Boolean).join(' ').trim();
   if (!name) return null;
-  const id = p.id ? 'ko_p_' + String(p.id) : name;
+  const id = p.id ? 'ko_p_' + String(p.id) : null;
   const number = p.number ?? null;
   const image = p.photo || item.photo || '';
   return { id, provider: 'kickoffapi', providerId: p.id?.toString() || '', name, image,
-    playerName: name, number, position: p.pos || p.position || '', captain: Boolean(p.captain),
+    playerName: name, number, position: p.pos || p.position || '', grid: p.grid ?? item.grid ?? null, captain: Boolean(p.captain),
     rating: toNumberOrNull(p.rating), player: { id, name, number, image, provider: 'kickoffapi' } };
 }
 
 async function resolveMatchLineups(id) {
+  const checked = (source, lineups, match, coverage) => {
+    if (!lineups || (lineups.matchId && String(lineups.matchId) !== String(id))) return null;
+    const data = validateLineupIntegrity({ ...lineups, matchId: id,
+      homeTeamId: match?.homeTeam?.id, awayTeamId: match?.awayTeam?.id },
+      { homeTeamId: match?.homeTeam?.id, awayTeamId: match?.awayTeam?.id, provider: source });
+    return { source, lineups: data, matchStatus: match?.status,
+      coverage: { ...coverage, available: Boolean(data.home?.length || data.away?.length),
+        complete: data.integrity.complete, partial: data.integrity.partial, integrity: data.integrity } };
+  };
   if (/^bsd_[1-9]\d*$/.test(String(id))) {
     const details = await callProvider('BSD match lineups', () => bsdSportsService.getMatchDetails(id));
-    return details?.matchInfo ? { source: 'bsd', lineups: details.lineups || null, coverage: details.coverage } : null;
+    return details?.matchInfo?.id === id ? checked('bsd', details.lineups, details.matchInfo, details.coverage) : null;
   }
   if (String(id).startsWith('bsd_')) return null;
   // The ID must first resolve to a real fixture. Query hints cannot fabricate
   // teams/date or select another meeting between the same clubs.
   const result = await sportsDataService.getMatchDetails(id);
   const match = result?.data;
-  if (!match) return null;
+  if (!match || String(match.id) !== String(id)) return null;
   if (match.lineups && (hasItems(match.lineups.home) || hasItems(match.lineups.away))) {
-    return { source: result.source, lineups: match.lineups, coverage: result.coverage };
+    return checked(result.source, match.lineups, match, result.coverage);
   }
   const kickoffIdentity = /^ko_[1-9]\d*$/.test(String(id)) && match.id === id
     ? { id, homeTeamId: match.homeTeam?.id, awayTeamId: match.awayTeam?.id }
@@ -365,7 +375,8 @@ async function resolveMatchLineups(id) {
   const awayId = scopedTeamId(kickoffIdentity.awayTeamId, 'kickoffapi');
   if (!homeId?.startsWith('ko_t_') || !awayId?.startsWith('ko_t_') || homeId === awayId) return null;
   const raw = await kickoffApiService.safeFetch('/api/v1/fixtures/lineups', { fixture: fixtureId });
-  const sides = raw?.response || [];
+  if (!Array.isArray(raw?.response) || (raw.parameters?.fixture !== undefined && String(raw.parameters.fixture) !== String(fixtureId))) return null;
+  const sides = raw.response;
   const sideFor = id => {
     const matches = sides.filter(side => String(side.team?.id) === id.slice(5));
     return matches.length === 1 ? matches[0] : null;
@@ -374,14 +385,14 @@ async function resolveMatchLineups(id) {
   const homePlayers = (home?.startXI || []).map(mapKickoffPlayer).filter(Boolean);
   const awayPlayers = (away?.startXI || []).map(mapKickoffPlayer).filter(Boolean);
   if (!homePlayers.length && !awayPlayers.length) return null;
-  return { source: 'kickoffapi', lineups: {
+  return checked('kickoffapi', {
     confirmed: homePlayers.length === 11 && awayPlayers.length === 11,
     homeFormation: home?.formation || '', awayFormation: away?.formation || '',
     homeCoach: home?.coach?.name || null, awayCoach: away?.coach?.name || null,
     home: homePlayers, away: awayPlayers,
     homeBench: (home?.substitutes || []).map(mapKickoffPlayer).filter(Boolean),
     awayBench: (away?.substitutes || []).map(mapKickoffPlayer).filter(Boolean)
-  } };
+  }, match);
 }
 
 exports.getMatchLineups = async (req, res) => {
@@ -402,7 +413,9 @@ exports.getMatchLineups = async (req, res) => {
 
     const result = await resolveMatchLineups(id, home, away, date);
     if (result && result.lineups && (result.lineups.home?.length > 0 || result.lineups.away?.length > 0)) {
-      const ttl = result.lineups.confirmed ? 15 * 60 * 1000 : 2 * 60 * 1000;
+      // Before and during a game a confirmed list may still be corrected.
+      const finished = ['FINISHED', 'FT', 'AET', 'PEN'].includes(String(result.matchStatus || '').toUpperCase());
+      const ttl = finished && result.lineups.confirmed ? 15 * 60 * 1000 : result.lineups.confirmed ? 30000 : 15000;
       setCache(cacheKey, result, ttl);
 
       return res.json({
@@ -418,6 +431,7 @@ exports.getMatchLineups = async (req, res) => {
       source: 'unavailable',
       coverage: { available: false, complete: false, partial: true, reason: 'lineups_unavailable' },
       data: {
+        matchId: id,
         message: 'Lineups not available for this match yet',
         formation: { home: '', away: '' },
         home: [],
@@ -498,12 +512,19 @@ exports.getDeepTeamDetails = async (req, res) => {
       info.provider = 'sportscore';
     }
     let squad = scTeam?.squad || [];
+    let squadCoverage = scTeam?.coverage?.squad || squad.coverage;
+    let squadContext = scTeam?.squadContext;
     const matches = scTeam?.matches || { recent: [], upcoming: [] };
 
     // 1. Enrich squad if empty from SportScore
     if (!hasItems(squad) && koInfo?.id) {
       try {
         const koSquad = await kickoffApiService.getTeamSquad(koInfo.id);
+        if (koSquad?.coverage) {
+          squadCoverage = koSquad.coverage;
+          squadContext = { teamId: koSquad.coverage.teamId || koInfo.id,
+            source: 'kickoffapi', ...(koSquad.coverage.scope ? { scope: koSquad.coverage.scope } : {}) };
+        }
         if (hasItems(koSquad)) {
           squad = koSquad;
           sources.push('kickoffapi');
@@ -537,6 +558,8 @@ exports.getDeepTeamDetails = async (req, res) => {
       trophies: info.trophies || [],
       honours: info.honours || ''
     };
+    if (squadCoverage) data.coverage = { ...(scTeam?.coverage || {}), squad: squadCoverage };
+    if (squadContext) data.squadContext = squadContext;
 
     if (scTeam?.standing) data.standing = scTeam.standing;
     if (scTeam?.statistics) data.stats = scTeam.statistics;
@@ -551,6 +574,8 @@ exports.getDeepTeamDetails = async (req, res) => {
     return res.json({
       success: true,
       source: sources.length > 0 ? [...new Set(sources)].join('+') : 'local',
+      ...(squadCoverage ? { coverage: { source: sources.length > 0 ? [...new Set(sources)].join('+') : 'local',
+        available: true, complete: false, partial: true, squad: squadCoverage } } : {}),
       data
     });
   } catch (error) {
@@ -563,7 +588,9 @@ exports.getDeepPlayerDetails = async (req, res) => {
   try {
     const playerId = String(req.params.id || '').trim();
     if (/^bsd_p_[1-9]\d*$/.test(playerId)) {
-      const player = await callProvider('BSD player details', () => bsdSportsService.getPlayerDetails(playerId));
+      const scope = Object.fromEntries(['seasonId', 'season', 'competition', 'teamId']
+        .filter(key => req.query?.[key] !== undefined).map(key => [key, req.query[key]]));
+      const player = await callProvider('BSD player details', () => bsdSportsService.getPlayerDetails(playerId, scope));
       if (!player?.name || String(player.id || '') !== playerId) {
         return res.status(404).json({ success: false, source: 'unavailable', data: null,
           message: 'Player details not found', coverage: { available: false, complete: false,
@@ -578,10 +605,13 @@ exports.getDeepPlayerDetails = async (req, res) => {
         shots: player.shots ?? null, shotsOnTarget: player.shotsOnTarget ?? null,
         passes: player.passes ?? null, passesAccuracy: player.passesAccuracy ?? null,
         tackles: player.tackles ?? null, interceptions: player.interceptions ?? null,
+        dribbles: player.dribbles ?? null, dribblesAttempted: player.dribblesAttempted ?? null,
+        keyPasses: player.keyPasses ?? null, saves: player.saves ?? null,
         yellowCards: player.yellowCards ?? null, redCards: player.redCards ?? null,
       };
       return res.json({ success: true, source: 'bsd', coverage: player.coverage,
         data: { info, seasonStats, statsContext: context, statsCoverage: player.statsCoverage,
+          coverage: player.coverage, careerCoverage: player.careerCoverage, transfersCoverage: player.transfersCoverage,
           attributes: player.attributes || {}, careerTotals: player.careerTotals || {},
           careerBySeason: player.careerBySeason || player.career || [], formerTeams: player.formerTeams || [],
           transfers: player.transfers || [], honours: player.honours || [], honoursCoverage: player.honoursCoverage,
@@ -594,12 +624,15 @@ exports.getDeepPlayerDetails = async (req, res) => {
         message: 'Player details not found' });
     }
     const legacyName = /\s/.test(playerId);
-    const koPlayer = scopedKickoff ? await callProvider('KickOff player details', () => kickoffApiService.getPlayerDetails(playerId)) : null;
+    const kickoffScope = { ...(req.query?.season !== undefined ? { season: req.query.season } : {}),
+      ...(req.query?.competition !== undefined ? { competition: req.query.competition } : {}),
+      ...(req.query?.teamId !== undefined ? { teamId: req.query.teamId } : {}) };
+    const koPlayer = scopedKickoff ? await callProvider('KickOff player details', () => kickoffApiService.getPlayerDetails(playerId, kickoffScope)) : null;
     const scPlayer = scopedKickoff ? null : await callProvider('SportScore player details', () => sportscoreService.getPlayerDetails(playerId));
     // Opaque provider IDs cannot be replaced by a namesake from another source.
     // Only a legacy human-readable name request may use a provider search.
     const fallback = legacyName && !scopedKickoff && !scPlayer
-      ? await callProvider('KickOff player details', () => kickoffApiService.getPlayerDetails(playerId)) : null;
+      ? await callProvider('KickOff player details', () => kickoffApiService.getPlayerDetails(playerId, kickoffScope)) : null;
     const ko = koPlayer || fallback;
     const player = ko || scPlayer;
     // Do not turn an unavailable provider response into a cached empty
@@ -613,16 +646,19 @@ exports.getDeepPlayerDetails = async (req, res) => {
           reason: player && !identityMatches ? 'provider_identity_mismatch' : 'provider_entity_unavailable' } });
     }
     const info = player ? {
+      ...player,
       id: player.id, provider: ko ? 'kickoffapi' : 'sportscore', providerId: player.providerId || player.id,
       name: player.name, fullName: player.fullName || player.name,
       image: player.image, team: player.team, teamBadge: player.teamBadge,
       competition: player.competition || '', position: player.position || '',
-      country: player.country || '', jerseyNumber: player.jerseyNumber ?? null,
+      country: player.country || player.nationality || '', nationality: player.nationality || player.country || '',
+      jerseyNumber: player.jerseyNumber ?? player.number ?? null,
       age: player.age ?? null,
-      dateBorn: player.dateBorn || '', height: player.height || '', weight: player.weight || '',
+      dateBorn: player.dateBorn || player.dateOfBirth || '', dateOfBirth: player.dateOfBirth || player.dateBorn || '',
+      height: player.height ?? null, weight: player.weight ?? null,
       marketValue: player.marketValue ?? null
     } : {};
-    const context = ko ? { team: ko.team, competition: ko.seasonStats?.competition || '', season: ko.seasonStats?.season || null } : (scPlayer?.statsContext || {});
+    const context = ko ? ko.statsContext || {} : (scPlayer?.statsContext || {});
     const seasonStats = ko ? ko.seasonStats || {} : scPlayer ? {
       ...context, matches: scPlayer.matches, goals: scPlayer.goals,
       assists: scPlayer.assists, minutes: scPlayer.minutes, rating: scPlayer.rating,
@@ -634,10 +670,13 @@ exports.getDeepPlayerDetails = async (req, res) => {
       yellowCards: scPlayer.yellowCards, redCards: scPlayer.redCards
     } : {};
     return res.json({
-      success: true, source: ko ? 'kickoffapi' : scPlayer ? 'sportscore' : 'unavailable',
-      data: { info, seasonStats, statsContext: context, attributes: {}, careerTotals: {},
-        careerBySeason: [], formerTeams: ko?.formerTeams || [], honours: player.honours || [],
-        honoursCoverage: player.honoursCoverage, contracts: [], milestones: [] }
+      success: true, source: ko ? 'kickoffapi' : scPlayer ? 'sportscore' : 'unavailable', coverage: player.coverage,
+      data: { info, seasonStats, statsContext: context, statsCoverage: player.statsCoverage,
+        coverage: player.coverage, careerCoverage: player.careerCoverage, transfersCoverage: player.transfersCoverage,
+        attributes: player.attributes || {}, careerTotals: player.careerTotals || {},
+        careerBySeason: player.careerBySeason || player.career || [], formerTeams: player.formerTeams || [],
+        transfers: player.transfers || [], honours: player.honours || [],
+        honoursCoverage: player.honoursCoverage, contracts: player.contracts || [], milestones: player.milestones || [] }
     });
   } catch (error) {
     logger.error('getDeepPlayerDetails Error: ' + error.message);

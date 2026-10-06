@@ -274,7 +274,7 @@ test('KickOff fixture IDs are scoped, live scores do not establish a winner, and
   assert.equal(provider.normalizeFixture({ teams: { home: { name: 'A' }, away: { name: 'B' } } }), null);
 });
 
-test('KickOff current season zero appearances stays current and missing player stats stay null', async () => {
+test('KickOff verified season zero appearances keeps its scope and missing player stats stay null', async () => {
   const previous = process.env.KICKOFF_API_KEY;
   process.env.KICKOFF_API_KEY = 'offline-test-key';
   const calls = [];
@@ -286,13 +286,15 @@ test('KickOff current season zero appearances stays current and missing player s
         if (_endpoint === '/api/v1/trophies') return { data: { parameters: { player: '123' },
           errors: [], results: 0, paging: { current: 1, total: 1 }, response: [] } };
         return { data: { response: [{ player: { id: 123, name: 'Test Player' }, statistics: [{
-          team: { name: 'Current Team' }, games: { appearences: 0, minutes: 0 }, goals: { total: 0, assists: null },
+          team: { id: 529, name: 'FC Barcelona' }, league: { id: 140, name: 'La Liga', season: 2026 },
+          games: { appearences: 0, minutes: 0 }, goals: { total: 0, assists: null },
         }] }] } };
       } }) },
     });
-    const player = await provider.getPlayerDetails('ko_p_123');
+    const player = await provider.getPlayerDetails('ko_p_123', { season: 2026 });
     assert.equal(calls.length, 2);
     assert.equal(calls[0].params.id, 123);
+    assert.equal(calls[0].params.season, 2026);
     assert.equal(calls[1].endpoint, '/api/v1/trophies');
     assert.deepEqual(calls[1].params, { player: 123 });
     assert.equal(player.id, 'ko_p_123');
@@ -300,7 +302,11 @@ test('KickOff current season zero appearances stays current and missing player s
     assert.equal(player.seasonStats.goals, 0);
     assert.equal(player.seasonStats.assists, null);
     assert.equal(player.seasonStats.yellowCards, null);
-    assert.equal(player.seasonStats.season, `${provider.currentFootballSeason()}/${provider.currentFootballSeason() + 1}`);
+    assert.equal(player.seasonStats.season, '2026');
+    assert.equal(player.statsContext.teamId, 'ko_t_529');
+    assert.equal(player.statsContext.competitionId, 'PD');
+    assert.equal(player.statsContext.competition, 'La Liga');
+    assert.equal(player.statsContext.scope, 'team_competition_season');
   } finally {
     if (previous === undefined) delete process.env.KICKOFF_API_KEY;
     else process.env.KICKOFF_API_KEY = previous;

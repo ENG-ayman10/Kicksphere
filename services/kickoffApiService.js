@@ -31,6 +31,63 @@ const ageFromBirthDate = (dateBorn, currentDate = new Date()) => {
   return age >= 0 && age <= 100 ? age : null;
 };
 
+function positiveProviderId(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  const text = String(value);
+  return /^[1-9]\d{0,14}$/.test(text) && Number.isSafeInteger(Number(text)) ? Number(text) : null;
+}
+function squadRows(rows, coverage) {
+  Object.defineProperty(rows, 'coverage', { value: { source: 'kickoffapi', ...coverage },
+    enumerable: false, configurable: true });
+  return rows;
+}
+function sourceNumber(value) {
+  if ((typeof value !== 'number' && typeof value !== 'string') || String(value).trim() === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+function normalizePlayerStatistics(block) {
+  const team = block.team || {}, league = block.league || {}, games = block.games || {};
+  const goals = block.goals || {}, shots = block.shots || {}, passes = block.passes || {};
+  const teamId = positiveProviderId(team.id), leagueId = positiveProviderId(league.id);
+  const year = positiveProviderId(league.season);
+  const seasonYear = year >= 1900 && year <= 2099 ? year : null;
+  // league.season is the provider's declared year, not a generic European range.
+  // Preserve an explicit season ID only when the provider actually supplies it.
+  const season = typeof league.season === 'string' || typeof league.season === 'number'
+    ? String(league.season).trim() : '';
+  const seasonId = positiveProviderId(league.season_id ?? league.seasonId);
+  const matches = sourceNumber(games.appearences ?? games.appearances);
+  const perGame = total => {
+    const value = sourceNumber(total);
+    return value !== null && matches > 0 ? Number((value / matches).toFixed(1)) : null;
+  };
+  const totalGoals = sourceNumber(goals.total), assists = sourceNumber(goals.assists);
+  return {
+    teamId: teamId ? 'ko_t_' + teamId : null, team: typeof team.name === 'string' ? team.name : '',
+    teamBadge: firstPlayerImage(team.logo), teamIsNational: typeof team.national === 'boolean' ? team.national : null,
+    leagueId, competitionId: leagueId ? REVERSE_LEAGUE_MAP[leagueId] || 'KO:' + leagueId : null,
+    competition: typeof league.name === 'string' ? league.name : '', league: typeof league.name === 'string' ? league.name : '',
+    seasonId, season, seasonInfo: { ...(seasonId ? { id: seasonId } : {}), name: season, year: seasonYear },
+    scope: teamId && leagueId && seasonYear ? 'team_competition_season' : 'unverified_statistics_scope',
+    source: 'kickoffapi', provider: 'kickoffapi',
+    jerseyNumber: sourceNumber(games.number), position: typeof games.position === 'string' ? games.position : '',
+    matches, minutes: sourceNumber(games.minutes), goals: totalGoals, assists,
+    rating: sourceNumber(games.rating), shots: sourceNumber(shots.total), shotsOnTarget: sourceNumber(shots.on),
+    shotsPerGame: perGame(shots.total), passes: sourceNumber(passes.total), passAccuracy: null,
+    passesAccuracy: null, passesAccuracyRaw: sourceNumber(passes.accuracy),
+    keyPasses: sourceNumber(passes.key), keyPassesPerGame: perGame(passes.key),
+    dribbles: sourceNumber(block.dribbles?.success), dribblesPerGame: perGame(block.dribbles?.success),
+    tackles: sourceNumber(block.tackles?.total), tacklesPerGame: perGame(block.tackles?.total),
+    interceptions: sourceNumber(block.tackles?.interceptions),
+    yellowCards: sourceNumber(block.cards?.yellow), redCards: sourceNumber(block.cards?.red),
+    goalContributions: totalGoals !== null && assists !== null ? totalGoals + assists : null,
+    penaltyGoals: sourceNumber(block.penalty?.scored),
+    cleanSheets: games.position === 'Goalkeeper' ? sourceNumber(games.cleanSheets) : null,
+    saves: sourceNumber(goals.saves),
+  };
+}
+
 // League ID mapping (API-Football / KickOff API standard IDs)
 
 const FAMOUS_CLUBS_MAP = {
@@ -351,36 +408,45 @@ exports.getTopScorers = async (leagueCode = 'PL', limit = 20, season = currentFo
  * 6. Fetch Team Squad by Team ID or Name
  */
 exports.getTeamSquad = async (teamIdOrName) => {
-  if (!isConfigured()) return [];
+  const unavailable = (reason, context = {}) => squadRows([], { available: false, complete: false,
+    partial: true, rosterAvailable: false, reason, ...context });
+  if (!isConfigured()) return unavailable('provider_unconfigured');
 
   const rawTeamId = String(teamIdOrName || '').replace(/^ko_t_/, '');
-  let numericId = /^\d+$/.test(rawTeamId) ? Number(rawTeamId) : null;
+  let numericId = positiveProviderId(rawTeamId);
   if (!numericId) {
     const team = await exports.getTeamDetails(teamIdOrName);
-    numericId = Number(team?.providerId || String(team?.id || "").replace(/^ko_t_/, ""));
+    numericId = positiveProviderId(team?.providerId || String(team?.id || "").replace(/^ko_t_/, ""));
   }
-  if (!numericId) return [];
+  if (!numericId) return unavailable('provider_team_identity_unavailable');
 
   const cacheKey = `kickoff:squad:${numericId}`;
   const cached = getCached(cacheKey, TTL.SQUAD);
   if (cached) return cached;
 
   const data = await safeFetch('/api/v1/players/squads', { team: numericId });
-  const rawList = data?.response || [];
-
-  let players = [];
-  if (rawList.length > 0 && rawList[0].players) {
-    players = rawList[0].players;
-  } else {
-    players = rawList;
+  const rosterContext = { teamId: 'ko_t_' + numericId };
+  if (data?.parameters?.team !== undefined && positiveProviderId(data.parameters.team) !== numericId) {
+    return unavailable('provider_team_identity_mismatch', rosterContext);
   }
-
-  const formatted = players.map(item => {
+  const rawList = data?.response;
+  if (!Array.isArray(rawList) || !rawList.length ||
+      (data.errors && Object.keys(data.errors).length > 0)) return unavailable('provider_squad_unavailable', rosterContext);
+  // A successful filter alone does not verify the returned roster's owner.
+  // Reject contradictions before any rows enter the requested team's cache.
+  if (rawList.some(row => positiveProviderId(row?.team?.id) !== numericId)) {
+    return unavailable('provider_team_identity_mismatch', rosterContext);
+  }
+  if (rawList.some(row => !Array.isArray(row.players))) return unavailable('provider_squad_unavailable', rosterContext);
+  const players = rawList.flatMap(row => row.players);
+  const validPlayers = players.filter(item => positiveProviderId(item?.player?.id ?? item?.id ?? item?.playerId));
+  const formatted = validPlayers.map(item => {
     const p = item.player || item;
+    const playerId = positiveProviderId(p.id ?? item.playerId);
     return {
-      id: p.id || item.playerId ? 'ko_p_' + String(p.id || item.playerId) : '',
+      id: 'ko_p_' + playerId,
       provider: 'kickoffapi',
-      providerId: p.id?.toString() || item.playerId?.toString() || '',
+      providerId: String(playerId),
       name: p.name || `${p.firstname || ''} ${p.lastname || ''}`.trim() || 'Player',
       position: item.position || p.position || '',
       number: item.number || p.number || null,
@@ -393,7 +459,10 @@ exports.getTeamSquad = async (teamIdOrName) => {
         (p.id ? `https://images.kickoffapi.com/images/players/${p.id}.png` : ''),
     };
   });
-
+  const complete = Number(data.paging?.current) === 1 && Number(data.paging?.total) === 1 &&
+    Number(data.results) === rawList.length && validPlayers.length === players.length;
+  squadRows(formatted, { available: true, complete, partial: !complete, rosterAvailable: true,
+    scope: 'team_roster', teamId: 'ko_t_' + numericId, invalidRows: players.length - validPlayers.length });
   setCache(cacheKey, formatted);
   logger.info(`✅ KickOff API: ${formatted.length} squad players for team ${numericId}`);
   return formatted;
@@ -527,12 +596,15 @@ exports.getPlayerHonours = async (playerId) => {
 /**
  * 9. Fetch Player Details by ID or Name
  */
-exports.getPlayerDetails = async (playerIdOrName) => {
-  const cacheKey = `kickoff:player:${playerIdOrName}`;
+exports.getPlayerDetails = async (playerIdOrName, options = {}) => {
+  const scopeKey = [options.season ?? '', options.competition ?? '', options.teamId ?? ''].join(':');
+  const cacheKey = `kickoff:player:${playerIdOrName}:${scopeKey}`;
   const cached = getCached(cacheKey, TTL.SQUAD);
   if (cached) return cached;
 
-  const season = currentFootballSeason();
+  const suppliedSeason = options.season === undefined ? currentFootballSeason() : positiveProviderId(options.season);
+  const season = suppliedSeason >= 1900 && suppliedSeason <= 2099 ? suppliedSeason : null;
+  if (!season) return null;
   let params = { season };
   const rawPlayerId = String(playerIdOrName || '').replace(/^ko_p_/, '');
   if (/^\d+$/.test(rawPlayerId)) {
@@ -541,11 +613,9 @@ exports.getPlayerDetails = async (playerIdOrName) => {
     params.search = rawPlayerId.replace(/-/g, ' ').trim();
   }
 
-  let data = await safeFetch('/api/v1/players', params);
-  
-  const actualSeason = season;
-
-  const rawList = data?.response || [];
+  const data = await safeFetch('/api/v1/players', params);
+  const rawList = Array.isArray(data?.response) ? data.response : [];
+  if (params.id && data?.parameters?.id !== undefined && positiveProviderId(data.parameters.id) !== params.id) return null;
   if (rawList.length === 0) return null;
 
   // Sort rawList by appearances to prefer active/famous players
@@ -574,21 +644,19 @@ exports.getPlayerDetails = async (playerIdOrName) => {
     ? normalizePlayerHonours(embeddedHonours, { playerId: 'ko_p_' + String(player.id), rawPlayerId: player.id,
       provider: 'kickoffapi', complete: player.honours_complete === true || raw.honours_complete === true })
     : await exports.getPlayerHonours('ko_p_' + String(player.id));
-  const stat = raw.statistics?.[0] || {};
-  const team = stat.team || {};
-  const games = stat.games || {};
-  const goals = stat.goals || {};
-  const passes = stat.passes || {};
-  const tackles = stat.tackles || {};
-  const dribbles = stat.dribbles || {};
-  const cards = stat.cards || {};
-  const shots = stat.shots || {};
-  const appearances = games.appearences ?? games.appearances ?? null;
-  const appearancesBase = Number(appearances) > 0 ? Number(appearances) : null;
-  const perGame = (total) => {
-    if (total === undefined || total === null || appearancesBase === null) return null;
-    return parseFloat((Number(total) / appearancesBase).toFixed(1));
-  };
+  const rawStatistics = Array.isArray(raw.statistics) ? raw.statistics : [];
+  const careerBySeason = rawStatistics.filter(block => block && typeof block === 'object' && !Array.isArray(block))
+    .map(normalizePlayerStatistics);
+  const eligible = careerBySeason.filter(row => row.scope === 'team_competition_season' && row.seasonInfo.year === season &&
+    (options.competition === undefined || [row.competitionId, String(row.leagueId), 'KO:' + row.leagueId].includes(String(options.competition))) &&
+    (options.teamId === undefined || row.teamId === String(options.teamId) || row.teamId === 'ko_t_' + options.teamId));
+  // Multiple club/national or competition blocks are alternatives, never a sum
+  // and never an arbitrary first block. The client can select the retained rows.
+  const selected = eligible.length === 1 ? eligible[0] : null;
+  const statsContext = selected ? { teamId: selected.teamId, team: selected.team,
+    competitionId: selected.competitionId, competition: selected.competition, leagueId: selected.leagueId,
+    seasonId: selected.seasonId, season: selected.season, seasonInfo: selected.seasonInfo,
+    scope: selected.scope, source: 'kickoffapi' } : null;
 
   const formatted = {
     id: player.id ? 'ko_p_' + String(player.id) : '',
@@ -596,10 +664,12 @@ exports.getPlayerDetails = async (playerIdOrName) => {
     providerId: player.id?.toString() || '',
     name: `${player.firstname || ''} ${player.lastname || ''}`.trim() || player.name || '',
     shortName: player.name || '',
-    team: team.name || '',
-    teamBadge: team.logo || '',
-    jerseyNumber: games.number || null,
-    position: games.position || '',
+    team: selected?.team || '',
+    teamId: selected?.teamId || null,
+    teamBadge: selected?.teamBadge || '',
+    competition: selected?.competition || '',
+    jerseyNumber: selected?.jerseyNumber ?? null,
+    position: selected?.position || player.position || '',
     country: player.nationality || player.birth?.country || '',
     flag: '',
     dateBorn: player.birth?.date || '',
@@ -614,27 +684,13 @@ exports.getPlayerDetails = async (playerIdOrName) => {
     image: firstPlayerImage(player.photo, player.image, player.logo, raw.photo, raw.image) ||
       (player.id ? `https://images.kickoffapi.com/images/players/${player.id}.png` : ''),
     description: '',
-    seasonStats: {
-      season: `${actualSeason}/${actualSeason + 1}`,
-      matches: appearances ?? null,
-      minutes: games.minutes ?? null,
-      goals: goals.total ?? null,
-      assists: goals.assists ?? null,
-      rating: games.rating ? parseFloat(games.rating) : null,
-      shotsPerGame: perGame(shots.total),
-      // Provider passes.accuracy is an opaque raw metric, not a verified percentage.
-      passAccuracy: null,
-      passesAccuracyRaw: passes.accuracy ?? null,
-      keyPassesPerGame: perGame(passes.key),
-      dribblesPerGame: perGame(dribbles.success),
-      tacklesPerGame: perGame(tackles.total),
-      yellowCards: cards.yellow ?? null,
-      redCards: cards.red ?? null,
-      goalContributions: goals.total !== undefined && goals.total !== null && goals.assists !== undefined && goals.assists !== null ? Number(goals.total) + Number(goals.assists) : null,
-      penaltyGoals: stat.penalty?.scored ?? null,
-      cleanSheets: games.position === 'Goalkeeper' ? (games.cleanSheets ?? null) : null,
-      saves: goals.saves ?? null,
-    },
+    seasonStats: selected ? { ...selected } : {},
+    statsContext,
+    statsCoverage: { source: 'kickoffapi', available: Boolean(selected), complete: false, partial: true,
+      reason: selected ? 'provider_statistics_scope_not_guaranteed' : eligible.length > 1
+        ? 'ambiguous_statistics_scope' : 'requested_season_statistics_unavailable',
+      scopesAvailable: careerBySeason.length, rejectedRows: rawStatistics.length - careerBySeason.length },
+    careerBySeason,
     formerTeams: (raw.transfers || []).map(tr => ({
       team: tr.teams?.out?.name || '',
       teamBadge: tr.teams?.out?.logo || '',

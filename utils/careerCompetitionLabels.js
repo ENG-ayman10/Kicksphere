@@ -26,7 +26,7 @@ function verifiedSeason(row) {
 }
 
 /**
- * Use an edition-neutral name for a verified BSD Gold Cup career context.
+ * Use edition-neutral names for explicitly verified BSD tournament contexts.
  * BSD's league catalog currently calls league 69 "CONCACAF Gold Cup 2025",
  * including when a career row belongs to the separately verified 2023 edition.
  * The year stays in the existing season field. Identity, stats and provider
@@ -36,22 +36,27 @@ function normalizeCareerCompetitionLabels(row) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
   const result = { ...row };
   const provider = row.provider ?? row.source;
-  if (provider !== 'bsd' || positiveInteger(row.leagueId) !== 69 ||
-      (row.competitionId !== undefined && row.competitionId !== 'BSD:69')) return result;
+  const leagueId = positiveInteger(row.leagueId);
+  const context = leagueId === 69
+    ? { ids: ['BSD:69'], label: 'CONCACAF Gold Cup', editionLabel: /^(?:CONCACAF\s+)?Gold\s+Cup\s+(?:19|20)\d{2}$/i }
+    : leagueId === 27
+      ? { ids: ['WC', 'BSD:27'], label: 'World Cup', editionLabel: /^(?:FIFA\s+)?World\s+Cup\s+(?:19|20)\d{2}$/i }
+      : null;
+  if (provider !== 'bsd' || !context ||
+      (row.competitionId !== undefined && !context.ids.includes(row.competitionId))) return result;
   const season = verifiedSeason(row);
   if (!season) return result;
-  const editionLabel = /^(?:CONCACAF\s+)?Gold\s+Cup\s+(?:19|20)\d{2}$/i;
   const originals = {};
   for (const field of ['competition', 'league']) {
-    if (typeof row[field] !== 'string' || !editionLabel.test(row[field].trim())) continue;
+    if (typeof row[field] !== 'string' || !context.editionLabel.test(row[field].trim())) continue;
     originals[field] = row[field];
-    result[field] = 'CONCACAF Gold Cup';
+    result[field] = context.label;
   }
   if (Object.keys(originals).length) {
     result.competitionLabelProvenance = {
       source: 'bsd',
       method: 'season_catalog_edition_neutral_name',
-      leagueId: 69,
+      leagueId,
       seasonId: season.id,
       seasonYear: season.year,
       originalLabels: originals,

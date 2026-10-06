@@ -222,7 +222,12 @@ test('predicted lineups retain prediction origin, percent confidence, bench and 
   assert.equal(rows.home[0].id, 'bsd_p_594');
   assert.equal(rows.home[0].position, '');
   assert.equal(rows.homeBench.length, 1);
-  assert.equal(rows.away.length, 0);
+  assert.equal(rows.away.length, 1);
+  assert.equal(rows.away[0].name, 'Anonymous');
+  assert.equal(rows.away[0].id, null);
+  assert.equal(rows.away[0].image, '');
+  assert.equal(rows.integrity.partial, true);
+  assert.ok(rows.integrity.away.reasons.includes('player_identity_missing'));
   assert.equal(service.normalizeLineups({ ...raw, event_id: 2 }, match), null);
 });
 

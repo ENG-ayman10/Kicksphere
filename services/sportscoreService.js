@@ -13,6 +13,7 @@ const { normalizedTeamName, fixtureTeam, standingsTeamIdentity, buildMembershipI
 const { selectMatchesInInterval } = require('../utils/matchCalendar');
 const { normalizeMatchTiming } = require('../utils/matchTiming');
 const { normalizePlayerHonours, playerHonourInput, firstPlayerImage } = require('../utils/playerHonours');
+const { validateLineupIntegrity } = require('../utils/lineupIntegrity');
 
 const BASE_URL = 'https://sportscore.com';
 const SPORT = 'football';
@@ -136,7 +137,7 @@ function cacheFixtureScores(matches) {
 
 function deduplicateMatches(matches) {
   const byFixture = new Map();
-  const statusRank = { FINISHED: 4, IN_PLAY: 3, POSTPONED: 2, TIMED: 1 };
+  const statusRank = { FINISHED: 4, CANCELLED: 4, SUSPENDED: 4, IN_PLAY: 3, POSTPONED: 2, TIMED: 1 };
   for (const match of matches) {
     const key = `${match.id}|${match.utcDate}`;
     const previous = byFixture.get(key);
@@ -308,7 +309,9 @@ function inspectFixtureBatch(raw, { date, competition = null, status = null, inc
     records.push(match);
   }
   const start = Date.parse(`${date}T00:00:00Z`);
-  const selected = selectMatchesInInterval(records, includePreviousDay ? start - 86400000 : start, start + 86400000);
+  // Resolve conflicting duplicate states before the interval helper retains
+  // the first fixture ID, so a terminal row cannot become an upcoming one.
+  const selected = selectMatchesInInterval(deduplicateMatches(records), includePreviousDay ? start - 86400000 : start, start + 86400000);
   report.invalidRecords += selected.invalidRecords;
   report.outsideDate = selected.outsideInterval;
   report.accepted = selected.data.length;
@@ -640,51 +643,65 @@ exports.getTeamDetails = async (teamSlugOrName) => {
 // ═══════════════════════════════════════════════════════════════════
 exports.searchEntities = async (query, limit = 15) => {
   try {
-    const q = String(query || '').trim();
+    const { searchQuery, playerSearchTerms, sortByRelevance } = require('../utils/searchQueries');
+    const q = searchQuery(query).term;
     if (q.length < 2) return { teams: [], competitions: [], players: [] };
-
-    const raw = await fetchSportScore('/api/v1/search/', { q, limit: Math.min(limit, 20) }, TTL.SEARCH);
-    if (!raw) return { teams: [], competitions: [], players: [], coverage: { available: false, complete: false, partial: true } };
-
-    const teams = (raw.teams || []).map(t => ({
-      id: t.slug || t.name,
+    const cap = Math.min(20, Math.max(1, Number.isInteger(Number(limit)) ? Number(limit) : 15));
+    const terms = playerSearchTerms(q);
+    // The documented endpoint caps each query at 20. Supplement only players;
+    // extra full-name retrieval never changes the relevance of the original term.
+    const batches = await Promise.all(terms.map(term => fetchSportScore('/api/v1/search/',
+      { q: term, limit: 20 }, TTL.SEARCH)));
+    const raw = batches[0];
+    if (!batches.some(Boolean)) return { teams: [], competitions: [], players: [], coverage: { available: false, complete: false, partial: true } };
+    const text = value => typeof value === 'string' ? value : typeof value?.name === 'string' ? value.name : '';
+    const context = value => ({
+      country: text(value.country), countryCode: value.country_code || value.country?.code || '',
+      nationality: text(value.nationality), gender: text(value.gender),
+      ...(typeof value.is_women === 'boolean' ? { isWomen: value.is_women } : {}),
+      league: text(value.competition || value.league),
+      leagueCode: value.competition_code || value.competition?.code || value.league?.code || ''
+    });
+    const teams = (raw?.teams || []).map(t => ({
+      id: t.slug || t.id || null,
       name: t.name,
-      shortName: t.name,
+      shortName: t.short_name || t.name,
       logo: t.logo || '',
       crest: t.logo || '',
       slug: t.slug || '',
       url: t.url || '',
-      type: 'club',
+      ...context(t),
+      type: t.is_national === true ? 'national' : 'club',
       provider: 'sportscore'
     }));
 
-    const competitions = (raw.competitions || []).map(c => ({
-      id: c.slug || c.name,
+    const competitions = (raw?.competitions || []).map(c => ({
+      id: c.slug || c.id || null,
       name: c.name,
       logo: c.logo || '',
       emblem: c.logo || '',
       slug: c.slug || '',
       url: c.url || '',
+      ...context(c),
       type: 'league',
       provider: 'sportscore'
     }));
 
-    const players = (raw.players || []).map(p => ({
-      id: p.slug || p.name, name: p.name, shortName: p.name,
+    const players = [...new Map(batches.flatMap(batch => (batch?.players || []).map(p => ({
+      id: p.slug || p.id || null, name: p.name, fullName: p.full_name || p.name, shortName: p.short_name || p.name,
       logo: firstPlayerImage(p.logo, p.image, p.photo, p.player_logo),
       image: firstPlayerImage(p.logo, p.image, p.photo, p.player_logo), slug: p.slug || '',
-      url: p.url || '', type: 'player', provider: 'sportscore'
-    })).sort((a, b) => {
-      const imageRank = Number(Boolean(b.logo)) - Number(Boolean(a.logo));
-      if (imageRank !== 0) return imageRank;
-      return String(a.name || '').length - String(b.name || '').length;
-    });
+      url: p.url || '', ...context(p), team: text(p.team), type: 'player', provider: 'sportscore'
+    }))).filter(p => p.id).map(p => [p.id, p])).values()];
 
     return {
-      teams,
-      competitions,
-      players,
-      coverage: { available: true, complete: false, partial: true }
+      teams: sortByRelevance(teams, q, 'teams').slice(0, cap),
+      competitions: sortByRelevance(competitions, q, 'leagues').slice(0, cap),
+      players: sortByRelevance(players, q, 'players').slice(0, cap),
+      coverage: { available: true, complete: false, partial: true, limit: 20,
+        resultLimit: teams.length > cap || competitions.length > cap || players.length > cap,
+        possiblyTruncated: batches.some(batch => ['teams', 'competitions', 'players'].some(key => batch?.[key]?.length >= 20)),
+        queries: terms.map((term, index) => ({ term, available: Boolean(batches[index]) })) }
     };
   } catch (e) {
     logger.error(`[SportScore] searchEntities error: ${e.message}`);
@@ -811,22 +828,11 @@ function resolveCompetition(competitionName) {
 }
 
 function normalizeSportScoreMatch(m) {
-  const statusRaw = String(m.status || '').trim().toLowerCase();
-  let normalizedStatus = 'TIMED';
-  let isLive = false;
-  let isFinished = false;
-
-  if (statusRaw === 'finished' || statusRaw === 'ft' || statusRaw === 'aet' || statusRaw === 'pen') {
-    normalizedStatus = 'FINISHED';
-    isFinished = true;
-  } else if (['live', 'in_progress', 'inprogress', 'inplay', 'in_play', '1h', '2h', '1t', '2t', 'ht', 'first_half', '1st_half', 'second_half', '2nd_half', 'extra_time', 'extra_time_first_half', 'extra_time_second_half', 'halftime', 'half_time', 'paused', 'penalties', 'penalty_shootout'].includes(statusRaw)) {
-    normalizedStatus = 'IN_PLAY';
-    isLive = true;
-  } else if (statusRaw === 'postponed' || statusRaw === 'cancelled') {
-    normalizedStatus = 'POSTPONED';
-  } else {
-    normalizedStatus = 'TIMED';
-  }
+  const { canonicalMatchStatus, STATUS_LABELS } = require('../utils/matchStatus');
+  const canonicalStatus = canonicalMatchStatus(m.status);
+  // SportScore live partitions expose halftime as IN_PLAY; phase metadata
+  // continues to carry the pause without dropping these active fixture rows.
+  const normalizedStatus = canonicalStatus === 'PAUSED' ? 'IN_PLAY' : canonicalStatus;
 
   const scoreOrNull = value => {
     const number = numericOrNull(value);
@@ -857,7 +863,10 @@ function normalizeSportScoreMatch(m) {
     slug: matchId,
     utcDate: m.time || null,
     status: normalizedStatus,
-    statusText: m.status_text || (isFinished ? 'Finished' : (isLive ? 'Live' : 'Upcoming')),
+    statusText: ['IN_PLAY', 'PAUSED', 'TIMED', 'FINISHED'].includes(normalizedStatus) &&
+      typeof m.status_text === 'string' && m.status_text.trim()
+      ? m.status_text : STATUS_LABELS[canonicalStatus],
+    sourceStatus: m.status ?? null,
     minute: m.live_minute ?? null,
     period: m.period || '',
     ...timing,
@@ -927,7 +936,7 @@ function normalizeSportScoreMatchDetail(m, slug) {
   const mapPlayer = p => {
     const name = p.name || p.playerName || '';
     if (!name) return null;
-    const id = String(p.slug || p.id || name);
+    const id = p.slug || p.id ? String(p.slug || p.id) : null;
     const number = p.number ?? null;
     return {
       id,
@@ -937,6 +946,7 @@ function normalizeSportScoreMatchDetail(m, slug) {
       playerName: name,
       number,
       position: p.position || '',
+      grid: p.grid ?? p.player?.grid ?? null,
       captain: Boolean(p.captain),
       rating: normalizedRating(p.rating),
       player: {
@@ -961,7 +971,11 @@ function normalizeSportScoreMatchDetail(m, slug) {
     incidentCoverage: { available: Array.isArray(m.incidents), complete: m.incidents_complete === true,
       partial: m.incidents_complete !== true },
     providerStatistics: Array.isArray(m.stats) ? m.stats : [],
-    lineups: {
+    lineups: validateLineupIntegrity({
+      matchId: base.id || slug,
+      homeTeamId: base.homeTeam?.id,
+      awayTeamId: base.awayTeam?.id,
+      source: 'sportscore',
       homeFormation: lineups.home_formation || '',
       awayFormation: lineups.away_formation || '',
       homeCoach: lineups.home_coach || null,
@@ -971,7 +985,7 @@ function normalizeSportScoreMatchDetail(m, slug) {
       away: awayXi,
       homeBench: homeSubs,
       awayBench: awaySubs
-    },
+    }, { homeTeamId: base.homeTeam?.id, awayTeamId: base.awayTeam?.id, provider: 'sportscore' }),
     tracker: m.tracker || null,
     source: 'sportscore'
   };

@@ -9,13 +9,7 @@ const bsdSportsService = require('./bsdSportsService');
 const { COMPETITION_SLUGS } = require('./sportscoreService');
 const { normalizeCompetitionCode } = require('../utils/sportsContracts');
 const { scopedTeamId } = require('../utils/teamIdentity');
-
-const normalizeTerm = (value) => String(value || '')
-  .normalize('NFKD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .toLowerCase()
-  .replace(/\s+/g, ' ')
-  .trim();
+const { normalizeTerm, searchQuery, sortByRelevance } = require('../utils/searchQueries');
 
 const toText = (value, fallback = '') => {
   if (value === undefined || value === null) return fallback;
@@ -248,20 +242,6 @@ const hasMatches = (results = {}) => (
   (results.matches || []).length > 0
 );
 
-const relevanceScore = (item, q, fields) => {
-  const values = fields.map(field => normalizeTerm(item[field]));
-  if (values.some(value => value === q)) return 0;
-  if (values.some(value => value.startsWith(q))) return 1;
-  if (values.some(value => value.includes(q))) return 2;
-  return 3;
-};
-
-const sortByRelevance = (items, q, fields) => items.sort((a, b) => {
-  const score = relevanceScore(a, q, fields) - relevanceScore(b, q, fields);
-  if (score !== 0) return score;
-  return toText(a.name).localeCompare(toText(b.name));
-});
-
 const mapLocalTeam = ([name, data]) => ({
   id: data.id,
   targetId: name,
@@ -335,9 +315,9 @@ const searchLocal = (q) => {
     ].some(value => normalizeTerm(value).includes(q)));
 
   return {
-    teams: sortByRelevance(teams, q, ['name', 'league', 'country']).slice(0, 10),
-    players: sortByRelevance(players, q, ['name', 'team', 'nationality']).slice(0, 10),
-    leagues: sortByRelevance(leagues, q, ['code', 'name', 'country']).slice(0, 8),
+    teams: sortByRelevance(teams, q, 'teams').slice(0, 10),
+    players: sortByRelevance(players, q, 'players').slice(0, 10),
+    leagues: sortByRelevance(leagues, q, 'leagues').slice(0, 8),
     matches: []
   };
 };
@@ -348,10 +328,9 @@ const mergeUnique = (primary = [], fallback = [], fields = ['name']) => {
 
   const add = (item) => {
     if (!item || typeof item !== 'object') return;
-    const key = fields
-      .map(field => normalizeTerm(item[field]))
-      .filter(Boolean)
-      .join(':');
+    const parts = fields.map(field => normalizeTerm(item[field]));
+    if (parts.some(part => !part)) return;
+    const key = parts.join(':');
     if (!key || seen.has(key)) return;
     seen.add(key);
     merged.push(item);
@@ -363,8 +342,7 @@ const mergeUnique = (primary = [], fallback = [], fields = ['name']) => {
 };
 
 async function executeSearch(query, options = {}) {
-  const rawQuery = toText(query);
-  const q = normalizeTerm(rawQuery);
+  const { term: rawQuery, key: q } = searchQuery(query);
   if (!q) return emptyResult();
 
   const fallback = searchLocal(q);
@@ -375,7 +353,7 @@ async function executeSearch(query, options = {}) {
   await Promise.all([ (async () => {
   if (options.useProvider !== false && q.length >= 2 && bsdSportsService.isConfigured?.()) {
     try {
-      const bsdResult = await bsdSportsService.searchEntities(rawQuery, 10);
+      const bsdResult = await bsdSportsService.searchEntities(rawQuery, 50);
       if (bsdResult) {
         bsdProvider = { ...emptyResult('bsd'), teams: bsdResult.teams || [], players: bsdResult.players || [],
           leagues: bsdResult.competitions || bsdResult.leagues || [], coverage: bsdResult.coverage };
@@ -386,37 +364,40 @@ async function executeSearch(query, options = {}) {
   })(), (async () => {
   if (options.useProvider !== false && q.length >= 2) {
     try {
-      const scResult = await sportscoreService.searchEntities(rawQuery, 10);
+      const scResult = await sportscoreService.searchEntities(rawQuery, 50);
       if (scResult) {
         sportscoreProvider = {
           teams: (scResult.teams || []).map(t => ({
+            ...t,
             id: scopedTeamId(t.slug || t.id, 'sportscore'),
             targetId: scopedTeamId(t.slug || t.id, 'sportscore'),
             provider: 'sportscore',
-            providerId: t.slug,
+            providerId: t.slug || t.id,
             name: t.name,
             country: t.country || '',
-            shortName: t.name,
+            shortName: t.shortName || t.name,
             logo: t.logo || t.crest || '',
             slug: t.slug || ''
           })),
           players: (scResult.players || []).map(p => ({
+             ...p,
              id: p.slug || p.id,
              targetId: p.slug || p.id,
              provider: 'sportscore',
-             providerId: p.slug,
+             providerId: p.slug || p.id,
              name: p.name,
-             shortName: p.name,
+             shortName: p.shortName || p.name,
              logo: p.logo || p.image || p.photo || '',
              image: p.image || p.photo || p.logo || '',
              slug: p.slug || ''
           })),
           leagues: (scResult.competitions || []).map(c => ({
+            ...c,
             id: normalizeCompetitionCode(c.slug) || c.slug || c.id,
             targetId: normalizeCompetitionCode(c.slug) || c.slug || c.id,
             code: normalizeCompetitionCode(c.slug) || c.slug,
             provider: 'sportscore',
-            providerId: c.slug,
+            providerId: c.slug || c.id,
             name: c.name,
             logo: c.logo || c.emblem || '',
             slug: c.slug || ''
@@ -435,15 +416,19 @@ async function executeSearch(query, options = {}) {
   const provider = {
     teams: mergeUnique(bsdProvider.teams, sportscoreProvider.teams, ['provider', 'id']),
     players: mergeUnique(bsdProvider.players, sportscoreProvider.players, ['provider', 'id']),
-    leagues: mergeUnique(bsdProvider.leagues, sportscoreProvider.leagues, ['code', 'id']),
+    leagues: mergeUnique(bsdProvider.leagues, sportscoreProvider.leagues, ['provider', 'id']),
   };
   const usedProvider = hasMatches(provider);
 
   // Provider IDs distinguish namesakes. Static name entries are only suggestions
   // when no provider returned an entity in that category.
-  const teams = (provider.teams.length ? provider.teams : fallback.teams).slice(0, 10);
-  const players = (provider.players.length ? provider.players : fallback.players).slice(0, 10);
-  const leagues = mergeUnique(provider.leagues || [], fallback.leagues, ['id']).slice(0, 8);
+  const teamCandidates = provider.teams.length ? provider.teams : fallback.teams;
+  const playerCandidates = provider.players.length ? provider.players : fallback.players;
+  const leagueCandidates = mergeUnique(provider.leagues || [], fallback.leagues, ['id']);
+  const teams = sortByRelevance(teamCandidates, q, 'teams').slice(0, 10);
+  const players = sortByRelevance(playerCandidates, q, 'players').slice(0, 10);
+  const leagues = sortByRelevance(leagueCandidates, q, 'leagues').slice(0, 8);
+  const resultLimit = teamCandidates.length > teams.length || playerCandidates.length > players.length || leagueCandidates.length > leagues.length;
 
   return {
     teams,
@@ -452,21 +437,22 @@ async function executeSearch(query, options = {}) {
     matches: [],
     source: usedProvider ? [...new Set(providerSources)].sort().join('+') : 'local-fallback',
     coverage: { available: hasMatches({ teams, players, leagues }) || bsdProvider.coverage?.available === true || sportscoreProvider.coverage?.available === true,
-      complete: bsdProvider.coverage?.complete === true && sportscoreProvider.coverage?.complete === true,
-      partial: bsdProvider.coverage?.complete !== true || sportscoreProvider.coverage?.complete !== true,
+      complete: !resultLimit && bsdProvider.coverage?.complete === true && sportscoreProvider.coverage?.complete === true,
+      partial: resultLimit || bsdProvider.coverage?.complete !== true || sportscoreProvider.coverage?.complete !== true,
+      resultLimit,
       bsd: bsdProvider.coverage, sportscore: sportscoreProvider.coverage },
   };
 }
 
 const searches = new Map(), pendingSearches = new Map();
 exports.searchAll = async (query, options = {}) => {
-  const canonical = String(query || '').replace(/\s+/g, ' ').trim().slice(0, 120);
-  const key = (options.useProvider === false ? 'local:' : 'provider:') + normalizeTerm(canonical);
+  const canonical = searchQuery(query);
+  const key = (options.useProvider === false ? 'local:' : 'provider:') + canonical.key;
   const cached = searches.get(key);
   if (cached && Date.now() - cached.at < 120000) return cached.value;
   searches.delete(key);
   if (pendingSearches.has(key)) return pendingSearches.get(key);
-  const request = executeSearch(canonical, options).then(value => {
+  const request = executeSearch(canonical.term, options).then(value => {
     if (value.coverage?.available === true && (options.useProvider === false || value.source !== 'local-fallback' ||
         value.coverage.bsd?.available === true || value.coverage.sportscore?.available === true)) {
       searches.set(key, { at: Date.now(), value });
