@@ -383,14 +383,15 @@ test('missing incident coverage is different from a supplied empty event list', 
 });
 
 test('SportScore lineup retains provider portrait and identity on the outer and player records', async () => {
+  const fixtureUrl = '/football/match/a-vs-b/k82rekh2z4yvrep/';
   const provider = load('../services/sportscoreService', {
     '../utils/logger': logger, './cacheService': cacheMock(),
-    axios: { get: async () => ({ data: { match: { slug: 'a-vs-b', home: 'A', away: 'B',
+    axios: { get: async () => ({ data: { match: { slug: 'a-vs-b', url: fixtureUrl, home: 'A', away: 'B',
       time: '2026-09-30T20:00:00Z', incidents: [], lineups: { home_xi: [
         { slug: 'real-player', name: 'Player', logo: 'https://example.test/player.png' },
       ] } } } }) },
   });
-  const match = await provider.getMatchDetails('a-vs-b');
+  const match = await provider.getMatchDetails('a-vs-bk82rekh2z4yvrep');
   assert.equal(match.lineups.home[0].image, 'https://example.test/player.png');
   assert.equal(match.lineups.home[0].player.image, 'https://example.test/player.png');
   assert.equal(match.lineups.home[0].provider, 'sportscore');

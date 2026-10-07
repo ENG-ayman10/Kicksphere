@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Module = require('node:module');
-const { sportscoreMatchLocator } = require('../utils/sportscoreMatchLocator');
+const { sportscoreMatchLocator, sportscoreMatchLookupCandidate } = require('../utils/sportscoreMatchLocator');
 const logger = { info() {}, warn() {}, error() {} };
 const slug = 'aff-guatemala-vs-nueva-santa-rosa-cdf';
 const token = 'k82rekh2z4yvrep';
@@ -67,6 +67,76 @@ test('an explicit full provider URL resolves cold without arbitrary legacy-ID pa
   assert.equal(calls[0].searchParams.get('slug'), slug);
   assert.equal(result.id, id);
   assert.equal(result.detailsAvailable, true);
+});
+
+test('a supported canonical application ID guides one cold lookup and still requires the exact returned URL', async () => {
+  assert.deepEqual(sportscoreMatchLookupCandidate(id), { id, slug, token, url });
+  assert.equal(sportscoreMatchLocator(id), null, 'Candidate parsing never establishes verified URL provenance');
+  const { api, calls, values } = loadProvider(() => details());
+  assert.equal(values.size, 0, 'The fresh provider module has no fixture or locator cache');
+  const result = await api.getMatchDetails(id);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].searchParams.get('slug'), slug);
+  assert.equal(result.id, id);
+  assert.equal(result.matchLocator.url, url);
+  assert.equal(result.detailsAvailable, true);
+  assert.equal(result.timeline[0].player, 'Verified scorer');
+});
+
+test('an all-letter 15-character opaque token resolves cold only after exact returned URL verification', async () => {
+  const letters = 'abcdefghijklmno';
+  const lettersId = slug + letters;
+  const lettersUrl = `/football/match/${slug}/${letters}/`;
+  const { api, calls } = loadProvider(() => details({ url: lettersUrl }));
+  const result = await api.getMatchDetails(lettersId);
+  assert.equal(result.id, lettersId);
+  assert.equal(result.matchLocator.url, lettersUrl);
+  assert.equal(result.detailsAvailable, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].searchParams.get('slug'), slug);
+  const mismatch = loadProvider(() => details({ url }));
+  assert.equal(await mismatch.api.getMatchDetails(lettersId), null);
+});
+
+test('long canonical participant slugs remain bounded without changing their saved fixture ID', async () => {
+  const longSlug = `${'a'.repeat(100)}-vs-${'b'.repeat(100)}`;
+  const longId = longSlug + token;
+  const longUrl = `/football/match/${longSlug}/${token}/`;
+  assert.ok(longId.length > 120 && longId.length < 256);
+  const { api, calls } = loadProvider(() => details({ url: longUrl }));
+  const result = await api.getMatchDetails(longId);
+  assert.equal(result.id, longId);
+  assert.equal(result.matchLocator.url, longUrl);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].searchParams.get('slug'), longSlug);
+});
+
+test('a cold candidate cannot accept a same-pair rematch, missing URL token or mismatched full fixture ID', async () => {
+  for (const changes of [
+    { url: `/football/match/${slug}/k82rekh2z4yvrxx/` },
+    { url: `/football/match/another-vs-rematch/${token}/` },
+    { url: undefined, slug },
+    { url: `/football/match/${slug}/` }
+  ]) {
+    const { api, calls } = loadProvider(() => details(changes));
+    assert.equal(await api.getMatchDetails(id), null, JSON.stringify(changes));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].searchParams.get('slug'), slug);
+  }
+});
+
+test('invalid or unsupported cold IDs do not trigger provider guesses; known legacy rows retain summary only', async () => {
+  const { api, calls, values } = loadProvider(() => assert.fail('Invalid identities must not make a provider request'));
+  for (const value of [null, undefined, 123, {}, '', slug, 'old-opaque-slug', id + '?x=1',
+    id.toUpperCase(), '/football/match/' + slug + '/', 'a'.repeat(257), `${'a'.repeat(240)}-vs-b${token}`, `https://other.example${url}`]) {
+    assert.equal(await api.getMatchDetails(value), null, String(value));
+  }
+  values.set('sportscore:fixture:legacy-stable-key', { id: 'legacy-stable-key', status: 'IN_PLAY', score: { fullTime: { home: 1, away: 0 } } });
+  const summary = await api.getMatchDetails('legacy-stable-key');
+  assert.equal(summary.id, 'legacy-stable-key');
+  assert.equal(summary.detailsAvailable, false);
+  assert.deepEqual(summary.timeline, []);
+  assert.equal(calls.length, 0);
 });
 
 test('a widget rematch of the same teams and same kickoff cannot replace another opaque fixture', async () => {

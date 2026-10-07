@@ -14,7 +14,7 @@ const { selectMatchesInInterval } = require('../utils/matchCalendar');
 const { normalizeMatchTiming } = require('../utils/matchTiming');
 const { normalizePlayerHonours, playerHonourInput, firstPlayerImage } = require('../utils/playerHonours');
 const { validateLineupIntegrity } = require('../utils/lineupIntegrity');
-const { sportscoreMatchLocator, sameSportscoreFixture } = require('../utils/sportscoreMatchLocator');
+const { sportscoreMatchLocator, sameSportscoreFixture, sportscoreMatchLookupCandidate } = require('../utils/sportscoreMatchLocator');
 
 const BASE_URL = 'https://sportscore.com';
 const SPORT = 'football';
@@ -467,26 +467,27 @@ exports.getMatchesByDate = async (dateStr, { competition } = {}) => {
 exports.getMatchDetails = async (matchSlugOrId) => {
   let known = null;
   try {
-    let id = String(matchSlugOrId).trim();
+    let id = typeof matchSlugOrId === 'string' ? matchSlugOrId.trim() : '';
     const inputLocator = sportscoreMatchLocator(id);
     if (inputLocator) id = inputLocator.id;
-    else if (id.startsWith('/football/match/')) {
-      id = id.replace('/football/match/', '').replace(/\//g, '');
-    }
 
     known = getCached('sportscore:fixture:' + id);
     const remembered = rememberedFixtureLocator(id);
-    const locator = inputLocator || sportscoreMatchLocator(known?.matchLocator?.url) || remembered?.locator;
-    const slug = locator?.slug || id;
+    const locator = inputLocator || sportscoreMatchLocator(known?.matchLocator?.url) || remembered?.locator ||
+      sportscoreMatchLookupCandidate(id);
+    if (!locator || locator.id !== id) return summaryOnly(known);
+    const slug = locator.slug;
     const raw = await fetchSportScore('/api/widget/match/', { slug }, TTL.MATCH_DETAIL);
     if (!raw?.match) return summaryOnly(known);
     // A widget slug can select a later rematch of the same two teams. Only the
     // exact URL token establishes that these incidents/lineups belong here.
-    if (locator && !sameSportscoreFixture(locator, sportscoreMatchLocator(raw.match.url))) {
+    const returnedLocator = sportscoreMatchLocator(raw.match.url);
+    if (!sameSportscoreFixture(locator, returnedLocator) || returnedLocator.id !== id) {
       logger.warn('[SportScore] Ignored detail for another fixture URL');
       return summaryOnly(known);
     }
     let details = normalizeSportScoreMatchDetail(raw.match, slug);
+    if (details.id !== id) return summaryOnly(known);
     if (known || remembered) {
       const identitiesMatch = sameEntity(details.homeTeam?.name, known?.homeTeam?.name || remembered?.home) &&
         sameEntity(details.awayTeam?.name, known?.awayTeam?.name || remembered?.away);
