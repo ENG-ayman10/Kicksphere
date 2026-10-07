@@ -14,6 +14,7 @@ const { selectMatchesInInterval } = require('../utils/matchCalendar');
 const { normalizeMatchTiming } = require('../utils/matchTiming');
 const { normalizePlayerHonours, playerHonourInput, firstPlayerImage } = require('../utils/playerHonours');
 const { validateLineupIntegrity } = require('../utils/lineupIntegrity');
+const { sportscoreMatchLocator, sameSportscoreFixture } = require('../utils/sportscoreMatchLocator');
 
 const BASE_URL = 'https://sportscore.com';
 const SPORT = 'football';
@@ -27,6 +28,11 @@ let activeProviderReads = 0;
 const MAX_PENDING_PROVIDER_READS = 128;
 const FIXTURE_LIMIT = 200;
 const FIXTURE_STATUS_PARTITIONS = ['live', 'finished', 'upcoming'];
+// Retain source lookup metadata after the short score cache expires. This map
+// contains identity only: an old locator never supplies a fresh score or clock.
+const fixtureLocators = new Map();
+const FIXTURE_LOCATOR_TTL = 24 * 60 * 60 * 1000;
+const MAX_FIXTURE_LOCATORS = 1000;
 
 async function withProviderReadSlot(work) {
   if (activeProviderReads < 3) activeProviderReads++;
@@ -131,9 +137,33 @@ function sameEntity(a, b) {
 function cacheFixtureScores(matches) {
   for (const match of matches) {
     if (match.id) setCache('sportscore:fixture:' + match.id, match, 120 * 1000);
+    rememberFixtureLocator(match);
   }
   return matches;
 }
+
+function rememberFixtureLocator(match) {
+  const locator = sportscoreMatchLocator(match?.matchLocator?.url);
+  if (!locator || locator.id !== match.id) return;
+  fixtureLocators.delete(match.id);
+  fixtureLocators.set(match.id, { locator, utcDate: match.utcDate,
+    home: match.homeTeam?.name, away: match.awayTeam?.name, fetchedAt: Date.now() });
+  while (fixtureLocators.size > MAX_FIXTURE_LOCATORS) {
+    fixtureLocators.delete(fixtureLocators.keys().next().value);
+  }
+}
+
+function rememberedFixtureLocator(id) {
+  const entry = fixtureLocators.get(id);
+  if (!entry) return null;
+  if (Date.now() - entry.fetchedAt >= FIXTURE_LOCATOR_TTL) {
+    fixtureLocators.delete(id); return null;
+  }
+  return entry;
+}
+
+const summaryOnly = known => known ? { ...known, detailsAvailable: false,
+  timeline: [], lineups: null, providerStatistics: [] } : null;
 
 function deduplicateMatches(matches) {
   const byFixture = new Map();
@@ -400,24 +430,38 @@ exports.getMatchesByDate = async (dateStr, { competition } = {}) => {
 // 🔍 2. MATCH DETAILS, INCIDENTS & LINEUPS
 // ═══════════════════════════════════════════════════════════════════
 exports.getMatchDetails = async (matchSlugOrId) => {
+  let known = null;
   try {
-    let slug = String(matchSlugOrId).trim();
-    if (slug.startsWith('/football/match/')) {
-      slug = slug.replace('/football/match/', '').replace(/\//g, '');
+    let id = String(matchSlugOrId).trim();
+    const inputLocator = sportscoreMatchLocator(id);
+    if (inputLocator) id = inputLocator.id;
+    else if (id.startsWith('/football/match/')) {
+      id = id.replace('/football/match/', '').replace(/\//g, '');
     }
 
-    const known = getCached('sportscore:fixture:' + slug);
+    known = getCached('sportscore:fixture:' + id);
+    const remembered = rememberedFixtureLocator(id);
+    const locator = inputLocator || sportscoreMatchLocator(known?.matchLocator?.url) || remembered?.locator;
+    const slug = locator?.slug || id;
     const raw = await fetchSportScore('/api/widget/match/', { slug }, TTL.MATCH_DETAIL);
-    if (!raw?.match) return known ? { ...known, detailsAvailable: false, timeline: [], lineups: null, providerStatistics: [] } : null;
+    if (!raw?.match) return summaryOnly(known);
+    // A widget slug can select a later rematch of the same two teams. Only the
+    // exact URL token establishes that these incidents/lineups belong here.
+    if (locator && !sameSportscoreFixture(locator, sportscoreMatchLocator(raw.match.url))) {
+      logger.warn('[SportScore] Ignored detail for another fixture URL');
+      return summaryOnly(known);
+    }
     let details = normalizeSportScoreMatchDetail(raw.match, slug);
-    if (known) {
-      const identitiesMatch = sameEntity(details.homeTeam?.name, known.homeTeam?.name) && sameEntity(details.awayTeam?.name, known.awayTeam?.name);
-      const datesMatch = !details.utcDate || !known.utcDate || Date.parse(details.utcDate) === Date.parse(known.utcDate);
+    if (known || remembered) {
+      const identitiesMatch = sameEntity(details.homeTeam?.name, known?.homeTeam?.name || remembered?.home) &&
+        sameEntity(details.awayTeam?.name, known?.awayTeam?.name || remembered?.away);
+      const expectedDate = known?.utcDate || remembered?.utcDate;
+      const datesMatch = !details.utcDate || !expectedDate || Date.parse(details.utcDate) === Date.parse(expectedDate);
       if (!identitiesMatch || !datesMatch) {
         logger.warn('[SportScore] Ignored mismatched detail identity for cached fixture');
-        return { ...known, detailsAvailable: false, timeline: [], lineups: null, providerStatistics: [] };
+        return summaryOnly(known);
       }
-      if (known.competition?.code === details.competition?.code) {
+      if (known && known.competition?.code === details.competition?.code) {
         for (const side of ['homeTeam', 'awayTeam']) {
           if (!details[side]?.id && known[side]?.id && !details[side]?.identityConflict) {
             details[side] = { ...details[side], id: known[side].id, provider: 'sportscore',
@@ -428,10 +472,11 @@ exports.getMatchDetails = async (matchSlugOrId) => {
       }
     }
     [details] = await enrichFixtureTeamIdentities([details]);
+    rememberFixtureLocator(details);
     return { ...details, detailsAvailable: true };
   } catch (e) {
     logger.error(`[SportScore] getMatchDetails error: ${e.message}`);
-    return null;
+    return summaryOnly(known);
   }
 };
 
@@ -844,6 +889,7 @@ function normalizeSportScoreMatch(m) {
     statusText: m.status_text, minute: m.live_minute });
 
   const matchId = (m.url || m.slug || `${m.home}-vs-${m.away}`).replace('/football/match/', '').replace(/\//g, '');
+  const matchLocator = sportscoreMatchLocator(m.url);
 
   // Resolve known competition
   const namedCompetition = typeof m.competition === 'string' ? resolveCompetition(m.competition) : null;
@@ -861,6 +907,7 @@ function normalizeSportScoreMatch(m) {
   return {
     id: matchId,
     slug: matchId,
+    ...(matchLocator?.id === matchId ? { matchLocator } : {}),
     utcDate: m.time || null,
     status: normalizedStatus,
     statusText: ['IN_PLAY', 'PAUSED', 'TIMED', 'FINISHED'].includes(normalizedStatus) &&
