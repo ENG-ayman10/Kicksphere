@@ -27,6 +27,9 @@ exports.emitLiveMatches = async (io) => {
     if (Array.isArray(data) && (data.length > 0 || Array.isArray(result) || result.coverage?.complete === true)) {
       io.emit('liveMatches', data);
     }
+    // The transition detector consumes exactly the scoreboard snapshot. It must
+    // not start a second broad provider read on an unrelated event timer.
+    return result;
   } catch (error) {
     logger.error(`❌ Live Error: ${error.message}`);
   } finally { running = false; }

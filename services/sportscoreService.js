@@ -27,6 +27,9 @@ const waitingProviderReadSlots = [];
 let activeProviderReads = 0;
 const MAX_PENDING_PROVIDER_READS = 128;
 const FIXTURE_LIMIT = 200;
+// The documented request limit is not permission to silently discard rows an
+// upstream response already supplied. Keep a separate malformed-response guard.
+const MAX_FIXTURE_BATCH_RECORDS = 1000;
 const FIXTURE_STATUS_PARTITIONS = ['live', 'finished', 'upcoming'];
 // Retain source lookup metadata after the short score cache expires. This map
 // contains identity only: an old locator never supplies a fresh score or clock.
@@ -165,14 +168,43 @@ function rememberedFixtureLocator(id) {
 const summaryOnly = known => known ? { ...known, detailsAvailable: false,
   timeline: [], lineups: null, providerStatistics: [] } : null;
 
+function mergeDuplicateTeamIdentities(chosen, other) {
+  const sameScope = chosen.competition?.code === other.competition?.code &&
+    (chosen.competition?.slug || '') === (other.competition?.slug || '');
+  const sameTeams = ['homeTeam', 'awayTeam'].every(side =>
+    normalizedTeamName(chosen[side]?.name) &&
+    normalizedTeamName(chosen[side]?.name) === normalizedTeamName(other[side]?.name));
+  const sameLocator = chosen.matchLocator || other.matchLocator ?
+    sameSportscoreFixture(chosen.matchLocator, other.matchLocator) : true;
+  if (!sameScope || !sameTeams || !sameLocator) return chosen;
+  const merged = { ...chosen };
+  for (const side of ['homeTeam', 'awayTeam']) {
+    const team = chosen[side], candidate = other[side];
+    if (team.identityConflict || candidate.identityConflict ||
+        (team.id && candidate.id && team.id !== candidate.id)) {
+      merged[side] = { ...team, id: null, identityBasis: null, identityConflict: true };
+    } else if (!team.id && candidate.id) {
+      // Preserve the selected status/score. Only explicit source identity from
+      // this exact duplicate fixture may survive a later status-only row.
+      merged[side] = { ...team, id: candidate.id, provider: candidate.provider,
+        identityBasis: candidate.identityBasis,
+        ...(candidate.identityCompetitionCode ? { identityCompetitionCode: candidate.identityCompetitionCode } : {}),
+        ...(candidate.identityCompetitionSlug ? { identityCompetitionSlug: candidate.identityCompetitionSlug } : {}) };
+    }
+  }
+  return merged;
+}
+
 function deduplicateMatches(matches) {
   const byFixture = new Map();
   const statusRank = { FINISHED: 4, CANCELLED: 4, SUSPENDED: 4, IN_PLAY: 3, POSTPONED: 2, TIMED: 1 };
   for (const match of matches) {
     const key = `${match.id}|${match.utcDate}`;
     const previous = byFixture.get(key);
-    if (!previous || (statusRank[match.status] || 0) > (statusRank[previous.status] || 0)) {
-      byFixture.set(key, match);
+    if (!previous) byFixture.set(key, match);
+    else {
+      const newer = (statusRank[match.status] || 0) > (statusRank[previous.status] || 0);
+      byFixture.set(key, mergeDuplicateTeamIdentities(newer ? match : previous, newer ? previous : match));
     }
   }
   return [...byFixture.values()];
@@ -313,11 +345,13 @@ function inspectFixtureBatch(raw, { date, competition = null, status = null, inc
   const available = Array.isArray(raw?.matches);
   const report = { status, available, returned: available ? raw.matches.length : 0,
     accepted: 0, possiblyTruncated: available && raw.matches.length >= FIXTURE_LIMIT,
+    locallyDiscarded: available ? Math.max(0, raw.matches.length - MAX_FIXTURE_BATCH_RECORDS) : 0,
     invalidRecords: 0, outsideDate: 0, outsideCompetition: 0, outsideStatus: 0 };
   if (!available) return { matches: [], report };
   const records = [];
-  // Bound malformed/oversized upstream responses as well as the documented limit.
-  for (const row of raw.matches.slice(0, FIXTURE_LIMIT)) {
+  // Accept extra source rows without issuing another request. A defensive
+  // processing cap is reported separately from the provider's request limit.
+  for (const row of raw.matches.slice(0, MAX_FIXTURE_BATCH_RECORDS)) {
     if (!row || typeof row !== 'object' || Array.isArray(row) ||
         ![row.url, row.slug].some(value => typeof value === 'string' && value.trim())) {
       report.invalidRecords++;
@@ -350,7 +384,7 @@ function inspectFixtureBatch(raw, { date, competition = null, status = null, inc
 
 function fixtureCoverage(primary, partitions, matches) {
   const reports = [primary.report, ...partitions.map(partition => partition.report)];
-  const sums = Object.fromEntries(['invalidRecords', 'outsideDate', 'outsideCompetition', 'outsideStatus']
+  const sums = Object.fromEntries(['invalidRecords', 'outsideDate', 'outsideCompetition', 'outsideStatus', 'locallyDiscarded']
     .map(key => [key, reports.reduce((sum, report) => sum + report[key], 0)]));
   const possiblyTruncated = reports.some(report => report.possiblyTruncated);
   const complete = reports.every(report => report.available) && !possiblyTruncated &&
@@ -360,7 +394,8 @@ function fixtureCoverage(primary, partitions, matches) {
     accepted: matches.length, recovered: Math.max(0, matches.length - deduplicateMatches(primary.matches).length),
     complete, partial: !complete, possiblyTruncated,
     ...sums, partitions: partitions.map(partition => partition.report),
-    ...(possiblyTruncated ? { reason: 'provider_result_limit' } :
+    ...(sums.locallyDiscarded ? { reason: 'local_processing_limit' } :
+      possiblyTruncated ? { reason: 'provider_result_limit' } :
       reports.some(report => !report.available) ? { reason: 'partition_unavailable' } :
       !complete ? { reason: 'rejected_provider_records' } : {}) };
 }

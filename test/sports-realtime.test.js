@@ -18,10 +18,10 @@ function fixture(status, home = null, away = null) {
 }
 
 function harness({ usersByTeam, fixtureRead, subscribedMatchIds = [], deviceRecipients,
-  recipientAllowed, restrictSocketAlerts, retryRead, now, fixtureRefreshIntervalMs } = {}) {
+  recipientAllowed, restrictSocketAlerts, retryRead, now, fixtureRefreshIntervalMs, detailRead } = {}) {
   const state = { fixtures: [], fixtureReads: 0, live: [], detail: null, detailsRead: 0,
     delivered: [], retryFlushes: 0, queriedMatchIds: [], timelineRequests: [],
-    reads: [], activeReads: 0, peakReads: 0, activeNotifications: 0, peakNotifications: 0 };
+    reads: [], liveReads: 0, detailIds: [], activeReads: 0, peakReads: 0, activeNotifications: 0, peakNotifications: 0 };
   const emitted = []; const persisted = []; const notifications = [];
   const io = { sockets: { adapter: { rooms: new Map() } }, to(rooms) {
     const target = { excluded: [], except(values) { this.excluded = values; return this; },
@@ -62,7 +62,7 @@ function harness({ usersByTeam, fixtureRead, subscribedMatchIds = [], deviceReci
       deliver: async (device, event) => { state.delivered.push({ userId: device.userId, event }); } },
     './sportscoreService': { getMatchesByDate: async () => {
       state.fixtureReads++; return fixtureRead ? fixtureRead(state) : state.fixtures;
-    }, getLiveMatches: async () => state.live,
+    }, getLiveMatches: async () => { state.liveReads++; return state.live; },
       getMatchDetails: async () => { state.detailsRead++; return state.detail; } },
     './notificationService': { saveNotification: async (id, data) => {
       state.peakNotifications = Math.max(state.peakNotifications, ++state.activeNotifications);
@@ -74,12 +74,116 @@ function harness({ usersByTeam, fixtureRead, subscribedMatchIds = [], deviceReci
   });
   return { state, io, emitted, persisted, notifications,
     poll: service.createLiveEventsEmitter({ recipientAllowed, restrictSocketAlerts, now, fixtureRefreshIntervalMs,
-      getMatchDetails: async (_, options) => {
-        state.detailsRead++; state.timelineRequests.push(options?.includeTimeline === true); return state.detail;
+      getMatchDetails: async (id, options) => {
+        state.detailsRead++; state.detailIds.push(id); state.timelineRequests.push(options?.includeTimeline === true);
+        return detailRead ? detailRead(id, options) : state.detail;
       } }) };
 }
 
 const flushTasks = () => new Promise(resolve => setImmediate(resolve));
+
+test('shared snapshots detect goals immediately without another broad read or optional detail work', async () => {
+  const h = harness({ subscribedMatchIds: ['test-match'] });
+  await h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 0, 0)], includeDetails: false });
+  await h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 1, 0)], includeDetails: false });
+  await h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 1, 0)], includeDetails: false });
+  assert.equal(h.state.liveReads, 0);
+  assert.equal(h.state.detailsRead, 0);
+  assert.equal(h.state.queriedMatchIds.length, 0);
+  assert.deepEqual(h.persisted.map(event => event.type), ['goal']);
+});
+
+test('subscribed details take priority over older disappeared games within six reads and three concurrent requests', async () => {
+  let active = 0; let peak = 0;
+  const h = harness({ subscribedMatchIds: ['subscribed-match'], detailRead: async () => {
+    peak = Math.max(peak, ++active); await flushTasks(); active--; return null;
+  } });
+  const subscribed = { ...fixture('IN_PLAY', 0, 0), id: 'subscribed-match' };
+  h.state.live = [...Array.from({ length: 8 }, (_, n) => ({ ...fixture('IN_PLAY', 0, 0), id: `missing-${n}` })), subscribed];
+  await h.poll(h.io);
+  h.state.detailIds.length = 0;
+  h.state.live = [subscribed];
+  await h.poll(h.io);
+  assert.equal(h.state.detailIds[0], 'subscribed-match');
+  assert.equal(h.state.detailIds.length, 6);
+  assert.equal(peak, 3);
+});
+
+test('detail overrides reject lagging un-timestamped lists while authoritative score corrections still apply', async () => {
+  const h = harness({ subscribedMatchIds: ['test-match'] });
+  h.state.live = [fixture('IN_PLAY', 0, 0)]; h.state.detail = fixture('IN_PLAY', 0, 0);
+  await h.poll(h.io);
+  h.state.detail = fixture('IN_PLAY', 1, 0); await h.poll(h.io);
+  h.state.detail = null;
+  await h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 0, 1)], includeDetails: false });
+  assert.deepEqual(h.persisted.map(event => event.score), ['1 - 0'], 'A conflicting lagging list cannot erase the detail baseline');
+  h.state.detail = fixture('IN_PLAY', 0, 0); await h.poll(h.io);
+  assert.equal(h.persisted.length, 1, 'A confirmed score correction is not a goal');
+  h.state.live = [fixture('IN_PLAY', 0, 0)];
+  await h.poll(h.io, { liveSnapshot: h.state.live, includeDetails: false });
+  h.state.live = [fixture('IN_PLAY', 0, 1)];
+  await h.poll(h.io, { liveSnapshot: h.state.live, includeDetails: false });
+  assert.deepEqual(h.persisted.map(event => event.score), ['1 - 0', '0 - 1'], 'The corrected baseline is used for the next genuine goal');
+});
+
+test('a newer provider timestamp accepts a real cancellation after a fresher detail goal', async () => {
+  const h = harness({ subscribedMatchIds: ['test-match'] });
+  const at = (home, away, second) => ({ ...fixture('IN_PLAY', home, away), lastUpdated: `2026-10-02T12:00:${second}Z` });
+  h.state.live = [at(0, 0, '00')]; h.state.detail = at(0, 0, '00'); await h.poll(h.io);
+  h.state.detail = at(1, 0, '10'); await h.poll(h.io);
+  await h.poll(h.io, { liveSnapshot: [at(0, 0, '20')], includeDetails: false });
+  await h.poll(h.io, { liveSnapshot: [at(0, 1, '30')], includeDetails: false });
+  assert.deepEqual(h.persisted.map(event => event.score), ['1 - 0', '0 - 1']);
+});
+
+test('a live list that catches the detail baseline releases its override despite an old active calendar row', async () => {
+  const h = harness({ subscribedMatchIds: ['test-match'] });
+  h.state.fixtures = [fixture('IN_PLAY', 0, 0)];
+  h.state.live = [fixture('IN_PLAY', 0, 0)]; h.state.detail = fixture('IN_PLAY', 0, 0); await h.poll(h.io);
+  h.state.detail = fixture('IN_PLAY', 1, 0); await h.poll(h.io);
+  h.state.detail = null;
+  await h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 1, 0)], includeDetails: false });
+  await h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 2, 0)], includeDetails: false });
+  assert.deepEqual(h.persisted.map(event => event.score), ['1 - 0', '2 - 0']);
+});
+
+test('an un-timestamped conflicting list cannot freeze forever or replay a cancelled goal after the detail lease expires', async () => {
+  let time = 0;
+  const h = harness({ subscribedMatchIds: ['test-match'], now: () => time });
+  h.state.live = [fixture('IN_PLAY', 0, 0)]; h.state.detail = fixture('IN_PLAY', 0, 0); await h.poll(h.io);
+  time = 30000; h.state.detail = fixture('IN_PLAY', 1, 0); await h.poll(h.io);
+  time = 60000; h.state.detail = fixture('IN_PLAY', 0, 0); await h.poll(h.io);
+  h.state.detail = null;
+  const conflicting = { liveSnapshot: [fixture('IN_PLAY', 1, 0)], includeDetails: false };
+  time = 120000; await h.poll(h.io, conflicting);
+  time = 239999; await h.poll(h.io, conflicting);
+  assert.deepEqual(h.persisted.map(event => event.score), ['1 - 0']);
+  time = 240000; await h.poll(h.io, conflicting);
+  assert.equal(h.persisted.length, 1, 'The uncertain rebase cannot replay the cancelled goal');
+  time = 300000;
+  await h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 1, 1)], includeDetails: false });
+  assert.deepEqual(h.persisted.map(event => event.score), ['1 - 0', '1 - 1'], 'A later observed change uses the rebased list instead of staying frozen');
+});
+
+test('controlled-clock integration measures a 30-second alert improvement for the same provider observation', async () => {
+  let time = 0; let score = 0; let broadReads = 0;
+  const previous = harness({ now: () => time });
+  const shared = harness({ now: () => time });
+  const { createLivePollingCoordinator } = require('../services/livePollingService');
+  const polling = createLivePollingCoordinator({ now: () => time, matchesIntervalMs: 60000, eventsIntervalMs: 90000,
+    readAndEmitMatches: async () => { broadReads++; return [fixture('IN_PLAY', score, 0)]; },
+    emitEvents: cycle => shared.poll(shared.io, cycle) });
+  previous.state.live = [fixture('IN_PLAY', 0, 0)]; await previous.poll(previous.io);
+  await polling.pollLiveMatches(); await polling.idleEvents();
+  time = 30000; score = 1; previous.state.live = [fixture('IN_PLAY', score, 0)];
+  time = 60000; await polling.pollLiveMatches(); await polling.idleEvents();
+  time = 90000; await previous.poll(previous.io); await polling.pollLiveEvents();
+  const oldLatency = previous.persisted[0].createdAt.getTime() - 30000;
+  const newLatency = shared.persisted[0].createdAt.getTime() - 30000;
+  assert.deepEqual({ oldLatency, newLatency, broadReads, events: shared.persisted.length },
+    { oldLatency: 60000, newLatency: 30000, broadReads: 2, events: 1 });
+  assert.equal(shared.state.liveReads, 0, 'Neither event phase reads the broad source again');
+});
 
 const aliasedFixture = (home = 0, status = 'IN_PLAY') => ({
   id: 'bsd_209462', provider: 'bsd', source: 'bsd', status, utcDate: '2026-10-02T01:30:00Z',

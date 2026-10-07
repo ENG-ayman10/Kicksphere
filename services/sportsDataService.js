@@ -57,7 +57,7 @@ const queryCoverage = (matches, provider, competition = null) => {
     ...(coverage?.pages !== undefined ? { pages: coverage.pages } : {}),
     ...Object.fromEntries(['upstreamReturned', 'accepted', 'recovered', 'invalidRecords',
       'outsideDate', 'outsideCompetition', 'outsideStatus', 'invalidRows', 'rejectedRows',
-      'sourceConflictRows'].filter(key => Number.isFinite(coverage?.[key]))
+      'sourceConflictRows', 'locallyDiscarded'].filter(key => Number.isFinite(coverage?.[key]))
       .map(key => [key, coverage[key]])),
     ...(typeof coverage?.reason === 'string' ? { reason: coverage.reason } : {}),
     ...(Array.isArray(coverage?.partitions) ? { partitions: coverage.partitions.slice(0, 3) } : {}),

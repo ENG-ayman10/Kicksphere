@@ -62,6 +62,7 @@ const imageRoutes = require('./routes/imageRoutes');
 // ==========================================
 const { emitLiveMatches } = require('./services/liveService');
 const { emitLiveEvents } = require('./services/liveEventsService');
+const { createLivePollingCoordinator } = require('./services/livePollingService');
 const { saveMessage } = require('./services/chatService');
 
 const app = express();
@@ -180,7 +181,9 @@ app.get('/api/ready', (req, res) => {
     status: shuttingDown ? 'draining' : 'ready',
     checks: { configuration: true, firebaseInitialized: true, http: !shuttingDown },
     livePollingEnabled: runtimeConfig.livePollingEnabled,
+    liveMatchesPollIntervalMs: runtimeConfig.liveMatchesPollIntervalMs,
     liveEventsPollIntervalMs: runtimeConfig.liveEventsPollIntervalMs,
+    liveEventsShareMatchSnapshot: true,
     providerReachabilityChecked: false,
     timestamp: Date.now()
   });
@@ -455,83 +458,24 @@ io.on('connection', (socket) => {
 // 🔄 9. Live Polling System
 // ==========================================
 const livePollingEnabled = runtimeConfig.livePollingEnabled;
-let liveMatchesRunning = false;
-let liveEventsRunning = false;
 let liveMatchesInterval = null;
 let liveEventsInterval = null;
-
-/**
- * ⚽ Poll live matches every 60 sec
- */
-const pollLiveMatches = async () => {
-
-  if (liveMatchesRunning) {
-
-    logger.warn('⚠️ Skipping live matches poll (already running)');
-    return;
-
-  }
-
-  try {
-
-    liveMatchesRunning = true;
-
-    logger.info('📡 Polling live matches...');
-
-    await emitLiveMatches(io);
-
-  } catch (error) {
-
-    logger.error(`❌ Live Matches Error: ${error.message}`);
-
-  } finally {
-
-    liveMatchesRunning = false;
-
-  }
-
-};
-
-/**
- * 📢 Poll live events every 90 sec
- */
-const pollLiveEvents = async () => {
-
-  if (liveEventsRunning) {
-
-    logger.warn('⚠️ Skipping live events poll (already running)');
-    return;
-
-  }
-
-  try {
-
-    liveEventsRunning = true;
-
-    logger.info('📡 Polling live events...');
-
-    await emitLiveEvents(io);
-
-  } catch (error) {
-
-    logger.error(`❌ Live Events Error: ${error.message}`);
-
-  } finally {
-
-    liveEventsRunning = false;
-
-  }
-
-};
+const livePolling = createLivePollingCoordinator({
+  readAndEmitMatches: () => emitLiveMatches(io),
+  emitEvents: cycle => emitLiveEvents(io, cycle),
+  matchesIntervalMs: runtimeConfig.liveMatchesPollIntervalMs,
+  eventsIntervalMs: runtimeConfig.liveEventsPollIntervalMs,
+  onError: (kind, error) => logger.error(`Live ${kind} poll failed: ${error.message}`)
+});
+const { pollLiveMatches, pollLiveEvents } = livePolling;
 
 if (livePollingEnabled) {
   // Establish the initial baseline immediately, rather than waiting a full
   // interval before new score/status changes can be detected.
   void pollLiveMatches();
-  void pollLiveEvents();
   liveMatchesInterval = setInterval(pollLiveMatches, runtimeConfig.liveMatchesPollIntervalMs);
   liveEventsInterval = setInterval(pollLiveEvents, runtimeConfig.liveEventsPollIntervalMs);
-  logger.info(`📡 Live polling enabled; event interval ${runtimeConfig.liveEventsPollIntervalMs}ms.`);
+  logger.info(`📡 Live polling enabled; shared snapshot ${runtimeConfig.liveMatchesPollIntervalMs}ms, bounded details ${runtimeConfig.liveEventsPollIntervalMs}ms.`);
 } else {
   logger.info('📡 Live polling disabled. Set ENABLE_LIVE_POLLING=true to enable background polling.');
 }
@@ -548,6 +492,7 @@ const gracefulShutdown = (signal) => {
 
   if (liveMatchesInterval) clearInterval(liveMatchesInterval);
   if (liveEventsInterval) clearInterval(liveEventsInterval);
+  livePolling.stop();
 
   io.close(() => {
     logger.info('🔌 Socket.io closed.');

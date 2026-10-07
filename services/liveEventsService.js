@@ -25,6 +25,7 @@ const MAX_DETAIL_REQUESTS = 6;
 const RECIPIENT_PAGE_SIZE = 200;
 const STATE_TTL = 6 * 60 * 60 * 1000;
 const FIXTURE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const DETAIL_OVERRIDE_TTL_MS = 3 * 60 * 1000;
 const activeStatuses = new Set(['IN_PLAY', 'PAUSED']);
 const scheduledStatuses = new Set(['TIMED', 'SCHEDULED']);
 
@@ -37,6 +38,7 @@ async function mapConcurrent(items, limit, action) {
 
 const scoreValue = value => value === null || value === undefined || value === ''
   ? null : (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null);
+const sourceTime = value => Date.parse(normalizeProviderTimestamp(value) || '');
 const incidentKey = incident => JSON.stringify([
   incident.id || null, incident.minute, incident.type, incident.side, incident.player, incident.label
 ]);
@@ -113,11 +115,12 @@ function createLiveEventsEmitter(options = {}) {
     detailChecks.delete(id);
   };
 
-  return async function emitLiveEvents(io) {
+  return async function emitLiveEvents(io, cycle = {}) {
     if (running) return;
     running = true;
     try {
       const now = clock();
+      const overrideTtlMs = cycle.detailOverrideTtlMs ?? options.detailOverrideTtlMs ?? DETAIL_OVERRIDE_TTL_MS;
       if (!retryFlush) {
         retryFlush = Promise.resolve().then(() => deviceService.flushRetries?.())
           .catch(() => { logger.warn('Pending push retry processing failed.'); })
@@ -131,12 +134,16 @@ function createLiveEventsEmitter(options = {}) {
       }
 
       refreshFixtures(now);
-      const live = await Promise.resolve().then(() => provider.getLiveMatches())
+      const live = await Promise.resolve().then(() => Object.hasOwn(cycle, 'liveSnapshot')
+        ? cycle.liveSnapshot : provider.getLiveMatches())
         .then(value => ({ status: 'fulfilled', value }), reason => ({ status: 'rejected', reason }));
       const liveRows = live.status === 'fulfilled' ? snapshotRows(live.value) : null;
       seedScheduledFixtures(now, new Set((liveRows || [])
         .filter(match => activeStatuses.has(match.status)).map(match => String(match.id))));
       const matches = new Map();
+      const detailOverrides = new Set();
+      const renewedOverrides = new Set();
+      const uncertainBaselines = new Set();
       for (const result of [{ status: 'fulfilled', value: fixtureSnapshot }, live]) {
         const snapshot = result.status === 'fulfilled' ? result.value : null;
         const rows = snapshotRows(snapshot);
@@ -146,12 +153,20 @@ function createLiveEventsEmitter(options = {}) {
             const previous = previousMatches.get(id);
             if (match.liveSnapshotStale === true) {
               if (previous?.observedMatch) matches.set(id, previous.observedMatch);
+              if (previous?.detailOverride) detailOverrides.add(id);
               continue;
             }
             const fromCalendar = snapshot === fixtureSnapshot;
-            const incomingTime = Date.parse(match.lastUpdated || '');
-            const previousTime = Date.parse(previous?.observedMatch?.lastUpdated || '');
+            const incomingTime = sourceTime(match.lastUpdated);
+            const previousTime = sourceTime(previous?.observedMatch?.lastUpdated);
             const olderSnapshot = Number.isFinite(incomingTime) && Number.isFinite(previousTime) && incomingTime < previousTime;
+            const newerSnapshot = Number.isFinite(incomingTime) &&
+              (!Number.isFinite(previousTime) || incomingTime > previousTime);
+            const priorScore = previous?.observedMatch?.score?.fullTime;
+            const incomingScore = match.score?.fullTime;
+            const differsFromDetail = previous?.detailOverride && priorScore &&
+              (scoreValue(incomingScore?.home) !== scoreValue(priorScore.home) ||
+                scoreValue(incomingScore?.away) !== scoreValue(priorScore.away) || match.status !== previous.status);
             // A retained daily fixture is useful for scheduling, but cannot
             // roll an already observed score back while the live feed omits it.
             const incoming = { ...match,
@@ -159,7 +174,16 @@ function createLiveEventsEmitter(options = {}) {
             const identities = validatedProviderIdentities(incoming);
             if (identities.length) incoming.providerIdentities = identities;
             else delete incoming.providerIdentities;
-            matches.set(id, previous?.observedMatch && (olderSnapshot || (fromCalendar && activeStatuses.has(match.status)))
+            const leaseActive = previous?.detailOverride &&
+              now < (previous.detailOverrideExpiresAt ?? now + overrideTtlMs);
+            const retainDetail = !fromCalendar && differsFromDetail && !newerSnapshot && leaseActive;
+            // Without source clocks, an expired conflicting list cannot prove
+            // a new goal or cancellation. Rebase silently rather than freeze
+            // forever or replay a previously cancelled goal as a fresh event.
+            if (!fromCalendar && differsFromDetail && !newerSnapshot && !olderSnapshot && !leaseActive) uncertainBaselines.add(id);
+            if (retainDetail || (previous?.detailOverride && (olderSnapshot || (!newerSnapshot && fromCalendar)))) detailOverrides.add(id);
+            else if (!fromCalendar) detailOverrides.delete(id);
+            matches.set(id, previous?.observedMatch && (olderSnapshot || retainDetail || (fromCalendar && activeStatuses.has(match.status)))
               ? previous.observedMatch : incoming);
           }
         } else if (result.status === 'rejected') {
@@ -170,7 +194,7 @@ function createLiveEventsEmitter(options = {}) {
       const details = new Map();
       const candidates = new Set();
       let deviceMatchIds = new Set();
-      try {
+      if (cycle.includeDetails !== false) try {
         const observedActive = new Map([...matches].filter(([, match]) => activeStatuses.has(match.status)));
         for (const [id, state] of previousMatches) if (activeStatuses.has(state.status) && !observedActive.has(id)) {
           observedActive.set(id, state.observedMatch || { id });
@@ -196,9 +220,10 @@ function createLiveEventsEmitter(options = {}) {
         }
       }
       const lookups = [...candidates]
-        .sort((a, b) => (detailChecks.get(a) || 0) - (detailChecks.get(b) || 0))
+        .sort((a, b) => Number(deviceMatchIds.has(b) || hasAlertRoom(b)) - Number(deviceMatchIds.has(a) || hasAlertRoom(a)) ||
+          (detailChecks.get(a) || 0) - (detailChecks.get(b) || 0))
         .slice(0, MAX_DETAIL_REQUESTS);
-      await mapConcurrent(lookups, 3, async id => {
+      await mapConcurrent(cycle.includeDetails === false ? [] : lookups, 3, async id => {
         detailChecks.set(id, now);
         try {
           const detail = await readDetail(id, {
@@ -207,8 +232,8 @@ function createLiveEventsEmitter(options = {}) {
           if (detail && (!detail.id || String(detail.id) === id)) {
             details.set(id, detail);
             const listed = matches.get(id);
-            const detailTime = Date.parse(detail.lastUpdated || '');
-            const listedTime = Date.parse(listed?.lastUpdated || '');
+            const detailTime = sourceTime(detail.lastUpdated);
+            const listedTime = sourceTime(listed?.lastUpdated);
             const olderDetail = Number.isFinite(detailTime) && Number.isFinite(listedTime) && detailTime < listedTime;
             const newerDetail = Number.isFinite(detailTime) &&
               (!Number.isFinite(listedTime) || detailTime >= listedTime);
@@ -219,13 +244,27 @@ function createLiveEventsEmitter(options = {}) {
             const scoreAdvances = detailHome !== null && detailAway !== null &&
               (listedHome === null || detailHome >= listedHome) &&
               (listedAway === null || detailAway >= listedAway);
+            // Once a detail endpoint establishes a different score, an
+            // un-timestamped live list may remain behind that endpoint. Re-read
+            // the same detail source to accept real corrections in either
+            // direction; the score is not a monotonic counter.
+            const confirmedDetail = previousMatches.get(id)?.detailOverride &&
+              !Number.isFinite(detailTime) && !Number.isFinite(listedTime);
             // The detail endpoint can be ahead of a cached active list. Keep the
             // subscribed identity, but reject older detail data and unverified
             // score regressions when neither endpoint exposes an update time.
             if (!listed || (!olderDetail && (detail.status === 'FINISHED' ||
                 (activeStatuses.has(detail.status) && (scheduledStatuses.has(listed.status) ||
-                  (activeStatuses.has(listed.status) && (newerDetail || scoreAdvances))))))) {
+                  (activeStatuses.has(listed.status) && (newerDetail || scoreAdvances || confirmedDetail))))))) {
               matches.set(id, { ...listed, ...detail, id });
+              const differsFromList = detailHome !== listedHome || detailAway !== listedAway || detail.status !== listed?.status;
+              if (differsFromList || detailOverrides.has(id)) detailOverrides.add(id);
+              else detailOverrides.delete(id);
+              const previous = previousMatches.get(id);
+              if (detailOverrides.has(id) && (!previous?.detailOverride || detailHome !== previous.home ||
+                  detailAway !== previous.away || detail.status !== previous.status)) renewedOverrides.add(id);
+              // A due detail read resolves ambiguity from an expired lease.
+              uncertainBaselines.delete(id);
             }
           }
         } catch (error) {
@@ -267,7 +306,7 @@ function createLiveEventsEmitter(options = {}) {
             competitionCode: match.competition?.code
           } : {})
         };
-        if (previous) {
+        if (previous && !uncertainBaselines.has(id)) {
           if (scheduledStatuses.has(previous.status) && activeStatuses.has(match.status)) {
             record({ ...base, type: 'matchStart' }, `${id}:start`);
           }
@@ -316,6 +355,9 @@ function createLiveEventsEmitter(options = {}) {
           previousIncidents.set(id, seen);
         }
         previousMatches.set(id, { status: match.status, home, away, homeTeam, awayTeam, homeId, awayId, seenAt: now,
+          detailOverride: detailOverrides.has(id),
+          detailOverrideExpiresAt: detailOverrides.has(id)
+            ? renewedOverrides.has(id) ? now + overrideTtlMs : previous?.detailOverrideExpiresAt ?? now + overrideTtlMs : null,
           observedMatch: { id, status: match.status, source: match.source, provider: match.provider,
             utcDate: match.utcDate, lastUpdated: match.lastUpdated, minute: match.minute,
             homeTeam: match.homeTeam, awayTeam: match.awayTeam, score: match.score, competition: match.competition,

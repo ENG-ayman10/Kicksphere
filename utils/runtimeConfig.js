@@ -101,6 +101,8 @@ function loadRuntimeConfig(env = process.env) {
   return Object.freeze({ environment, production, allowedOrigins, allowAllOrigins, publicBaseUrl: publicOrigin,
     trustProxy, port, livePollingEnabled: env.ENABLE_LIVE_POLLING === 'true',
     liveMatchesPollIntervalMs: pollingInterval('LIVE_MATCHES_POLL_INTERVAL_MS', 60000),
+    // Score/status detection shares every live match snapshot. This interval
+    // independently bounds optional subscribed/disappeared match detail work.
     liveEventsPollIntervalMs: pollingInterval('LIVE_EVENTS_POLL_INTERVAL_MS', 90000) });
 }
 
