@@ -8,7 +8,8 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 const { getCached, setCache } = require('./cacheService');
-const { normalizePlayerHonours, playerHonourInput, firstPlayerImage } = require('../utils/playerHonours');
+const { playerHonourInput, firstPlayerImage } = require('../utils/playerHonours');
+const { normalizeKickoffHonoursHistory } = require('../utils/kickoffHonoursHistory');
 
 const BASE_URL = 'https://api.kickoffapi.com';
 const API_KEY = String(process.env.KICKOFF_API_KEY || '').trim();
@@ -180,6 +181,7 @@ const TTL = {
   TEAM: 2 * 60 * 60 * 1000,    // 2 hours for team info
   SQUAD: 2 * 60 * 60 * 1000,   // 2 hours for squad
   HONOURS: 24 * 60 * 60 * 1000, // Historical player records change infrequently.
+  HONOURS_FAILURE: 5 * 60 * 1000,
 };
 
 const client = axios.create({
@@ -194,6 +196,23 @@ const client = axios.create({
 
 let isQuotaExhausted = false;
 let quotaExhaustedUntil = 0;
+const pendingProviderReads = new Map();
+const MAX_PENDING_PROVIDER_READS = 64;
+
+function providerList(data) {
+  // Access errors are often returned with HTTP 200 and response: []. They must
+  // not become a successful empty cache entry that masks the next recovery.
+  const errors = data?.errors;
+  if (errors && (typeof errors !== 'object' || Object.keys(errors).length > 0)) return null;
+  return Array.isArray(data?.response) ? data.response : null;
+}
+function unavailableRows(reason = 'provider_unavailable') {
+  return squadRows([], { available: false, complete: false, partial: true, reason });
+}
+function declaredFilterMismatch(data, expected) {
+  return Object.entries(expected).some(([key, value]) =>
+    data?.parameters?.[key] !== undefined && String(data.parameters[key]) !== String(value));
+}
 
 /**
  * Safe fetch with logging, error handling and 429 rate limit backoff
@@ -204,19 +223,34 @@ const safeFetch = async (endpoint, params = {}) => {
     return null;
   }
 
-  try {
-    const response = await client.get(endpoint, { params });
-    return response.data;
-  } catch (error) {
-    if (error.response?.status === 429) {
-      isQuotaExhausted = true;
-      quotaExhaustedUntil = Date.now() + 60 * 60 * 1000;
-      logger.warn(`[KickOff API] Free allowance exhausted or rate limited (429). Backing off for 1 hour.`);
-      return null;
-    }
-    logger.error(`KickOff API error on ${endpoint}: ${error.message}`);
+  const sortedParams = Object.fromEntries(Object.entries(params).sort(([a], [b]) => a.localeCompare(b)));
+  const key = JSON.stringify([endpoint, sortedParams]);
+  const existing = pendingProviderReads.get(key);
+  if (existing) return structuredClone(await existing);
+  if (pendingProviderReads.size >= MAX_PENDING_PROVIDER_READS) {
+    logger.warn('[KickOff API] Upstream request capacity reached');
     return null;
   }
+  const pending = (async () => {
+    try {
+      const response = await client.get(endpoint, { params: sortedParams });
+      return response.data;
+    } catch (error) {
+      if (error.response?.status === 429) {
+        isQuotaExhausted = true;
+        quotaExhaustedUntil = Date.now() + 60 * 60 * 1000;
+        logger.warn(`[KickOff API] Free allowance exhausted or rate limited (429). Backing off for 1 hour.`);
+        return null;
+      }
+      logger.error(`KickOff API error on ${endpoint}: ${error.message}`);
+      return null;
+    }
+  })();
+  pendingProviderReads.set(key, pending);
+  // Each consumer normalizes its own response. Sharing a mutable raw envelope
+  // could let one route's normalization alter another user's result.
+  try { return structuredClone(await pending); }
+  finally { pendingProviderReads.delete(key); }
 };
 exports.safeFetch = safeFetch;
 
@@ -231,8 +265,8 @@ exports.getStatus = async () => {
   if (cached) return cached;
 
   const data = await safeFetch('/api/v1/status');
-  if (data?.response) {
-    setCache(cacheKey, data.response);
+  if (data?.response && (!data.errors || Object.keys(data.errors).length === 0)) {
+    setCache(cacheKey, data.response, TTL.STATUS);
     return data.response;
   }
   return null;
@@ -249,10 +283,11 @@ exports.getLiveMatches = async () => {
   if (cached) return cached;
 
   const data = await safeFetch('/api/v1/fixtures', { live: 'all' });
-  const rawList = data?.response || [];
+  const rawList = providerList(data);
+  if (!rawList) return unavailableRows();
 
   const formatted = rawList.map(item => normalizeKickoffFixture(item)).filter(Boolean);
-  setCache(cacheKey, formatted);
+  setCache(cacheKey, formatted, TTL.LIVE);
   logger.info(`✅ KickOff API: ${formatted.length} live matches loaded`);
   return formatted;
 };
@@ -281,10 +316,11 @@ exports.getMatchesByDate = async (dateStr) => {
   if (cached) return cached;
 
   const data = await safeFetch('/api/v1/fixtures', { date: targetDate });
-  const rawList = data?.response || [];
+  const rawList = providerList(data);
+  if (!rawList) return unavailableRows();
 
   const formatted = rawList.map(item => normalizeKickoffFixture(item)).filter(Boolean);
-  setCache(cacheKey, formatted);
+  setCache(cacheKey, formatted, TTL.FIXTURES_DAY);
   logger.info(`✅ KickOff API: ${formatted.length} matches for ${targetDate}`);
   return formatted;
 };
@@ -303,10 +339,11 @@ exports.getLeagueFixtures = async (leagueCode, count = 15) => {
   if (cached) return cached;
 
   const data = await safeFetch('/api/v1/fixtures', { league: leagueId, next: count });
-  const rawList = data?.response || [];
+  const rawList = providerList(data);
+  if (!rawList) return unavailableRows();
 
   const formatted = rawList.map(item => normalizeKickoffFixture(item)).filter(Boolean);
-  setCache(cacheKey, formatted);
+  setCache(cacheKey, formatted, TTL.FIXTURES_DAY);
   logger.info(`✅ KickOff API: ${formatted.length} upcoming fixtures for league ${leagueCode} (${leagueId})`);
   return formatted;
 };
@@ -325,9 +362,25 @@ exports.getStandings = async (leagueCode = 'PL', season = currentFootballSeason(
   if (cached) return cached;
 
   const data = await safeFetch('/api/v1/standings', { league: leagueId, season });
-
+  const rawList = providerList(data);
+  if (!rawList) return unavailableRows();
+  if (declaredFilterMismatch(data, { league: leagueId, season })) {
+    return unavailableRows('provider_statistics_scope_mismatch');
+  }
   const rawLeague = data?.response?.[0]?.league;
-  const table = rawLeague?.standings?.[0] || data?.response || [];
+  let table = rawList;
+  if (rawLeague) {
+    if (rawList.some(item => !item?.league ||
+        (item.league.id !== undefined && Number(item.league.id) !== leagueId) ||
+        (item.league.season !== undefined && String(item.league.season) !== String(season)))) {
+      return unavailableRows('provider_statistics_scope_mismatch');
+    }
+    if (rawList.some(item => !Array.isArray(item.league.standings) ||
+        item.league.standings.some(group => !Array.isArray(group)))) return unavailableRows();
+    // Cup/group stages supply several tables, not just standings[0].
+    table = rawList.flatMap(item => item.league.standings.flat());
+  }
+  if (!Array.isArray(table) || table.some(item => !item || typeof item !== 'object' || Array.isArray(item))) return unavailableRows();
 
   const formatted = table.map((item, idx) => ({
     position: item.rank ?? item.position ?? null,
@@ -351,9 +404,10 @@ exports.getStandings = async (leagueCode = 'PL', season = currentFootballSeason(
     goalDifference: item.goalsDiff ?? item.goalDifference ?? null,
     form: item.form || '',
     description: item.description || '',
+    group: typeof item.group === 'string' ? item.group : '',
   })).filter(row => row.team.name);
 
-  setCache(cacheKey, formatted);
+  setCache(cacheKey, formatted, TTL.STANDINGS);
   logger.info(`✅ KickOff API: ${formatted.length} standings entries for league ${leagueId}`);
   return formatted;
 };
@@ -372,9 +426,28 @@ exports.getTopScorers = async (leagueCode = 'PL', limit = 20, season = currentFo
   if (cached) return cached;
 
   const data = await safeFetch('/api/v1/players/topscorers', { league: leagueId, season });
-  const rawList = data?.response || [];
-
-  const formatted = rawList.slice(0, limit).map((item, idx) => ({
+  const rawList = providerList(data);
+  if (!rawList) return unavailableRows();
+  if (declaredFilterMismatch(data, { league: leagueId, season })) {
+    return unavailableRows('provider_statistics_scope_mismatch');
+  }
+  let rejectedRows = 0;
+  const formatted = rawList.slice(0, limit).map((item, idx) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) { rejectedRows++; return null; }
+    const blocks = Array.isArray(item.statistics) ? item.statistics.filter(block =>
+      block && typeof block === 'object' && !Array.isArray(block)) : [];
+    const declared = blocks.filter(block => block.league?.id !== undefined || block.league?.season !== undefined);
+    const eligible = blocks.filter(block =>
+      (block.league?.id === undefined || Number(block.league.id) === leagueId) &&
+      (block.league?.season === undefined || String(block.league.season) === String(season)));
+    if ((item.league?.id !== undefined && Number(item.league.id) !== leagueId) ||
+        (item.season !== undefined && String(item.season) !== String(season)) ||
+        (declared.length > 0 && eligible.length === 0)) { rejectedRows++; return null; }
+    const stats = eligible.length === 1 ? eligible[0] : null;
+    if (item.team?.id !== undefined && stats?.team?.id !== undefined &&
+        Number(item.team.id) !== Number(stats.team.id)) { rejectedRows++; return null; }
+    const team = item.team || stats?.team || {};
+    return {
     rank: idx + 1,
     season,
     competition: leagueCode,
@@ -388,18 +461,22 @@ exports.getTopScorers = async (leagueCode = 'PL', limit = 20, season = currentFo
       age: ageFromBirthDate(item.player?.birth?.date) ?? item.player?.age ?? null,
     },
     team: {
-      id: item.team?.id || item.teamId ? 'ko_t_' + String(item.team?.id || item.teamId) : '',
+      id: team.id || item.teamId ? 'ko_t_' + String(team.id || item.teamId) : '',
       provider: 'kickoffapi',
-      providerId: item.team?.id?.toString() || item.teamId?.toString() || '',
-      name: item.team?.name || '',
-      crest: item.team?.logo || '',
+      providerId: team.id?.toString() || item.teamId?.toString() || '',
+      name: team.name || '',
+      crest: team.logo || '',
     },
-    goals: item.goals ?? item.statistics?.[0]?.goals?.total ?? null,
-    assists: item.assists ?? item.statistics?.[0]?.goals?.assists ?? null,
-    playedMatches: item.statistics?.[0]?.games?.appearences ?? null,
-  }));
+    goals: sourceNumber(item.goals) ?? sourceNumber(stats?.goals?.total),
+    assists: sourceNumber(item.assists) ?? sourceNumber(stats?.goals?.assists),
+    playedMatches: sourceNumber(stats?.games?.appearences ?? stats?.games?.appearances),
+  };
+  }).filter(Boolean);
+  if (rawList.length > 0 && formatted.length === 0) return unavailableRows('provider_statistics_scope_mismatch');
+  squadRows(formatted, { available: true, complete: false, partial: true,
+    rejectedRows, reason: rejectedRows ? 'provider_statistics_scope_mismatch' : 'provider_statistics_scope_not_guaranteed' });
 
-  setCache(cacheKey, formatted);
+  if (rejectedRows === 0) setCache(cacheKey, formatted, TTL.SCORERS);
   logger.info(`✅ KickOff API: ${formatted.length} top scorers for league ${leagueId}`);
   return formatted;
 };
@@ -463,7 +540,7 @@ exports.getTeamSquad = async (teamIdOrName) => {
     Number(data.results) === rawList.length && validPlayers.length === players.length;
   squadRows(formatted, { available: true, complete, partial: !complete, rosterAvailable: true,
     scope: 'team_roster', teamId: 'ko_t_' + numericId, invalidRows: players.length - validPlayers.length });
-  setCache(cacheKey, formatted);
+  setCache(cacheKey, formatted, TTL.SQUAD);
   logger.info(`✅ KickOff API: ${formatted.length} squad players for team ${numericId}`);
   return formatted;
 };
@@ -492,7 +569,8 @@ exports.getTeamDetails = async (teamIdOrName) => {
   }
 
   const data = await safeFetch(endpoint, params);
-  const rawList = data?.response || [];
+  const rawList = providerList(data);
+  if (!rawList) return null;
   if (rawList.length === 0) return null;
 
   // 1. Prefer exact name match
@@ -529,7 +607,7 @@ exports.getTeamDetails = async (teamIdOrName) => {
     venueCapacity: venue?.capacity || null,
   };
 
-  setCache(cacheKey, formatted);
+  setCache(cacheKey, formatted, TTL.TEAM);
   return formatted;
 };
 
@@ -538,7 +616,7 @@ exports.getTeamDetails = async (teamIdOrName) => {
  * 8. Fetch Team Recent & Upcoming Fixtures
  */
 exports.getTeamFixtures = async (teamIdOrName) => {
-  if (!isConfigured()) return { recent: [], upcoming: [] };
+  if (!isConfigured()) return null;
 
   const rawTeamId = String(teamIdOrName || '').replace(/^ko_t_/, '');
   let numericId = /^\d+$/.test(rawTeamId) ? Number(rawTeamId) : null;
@@ -546,7 +624,7 @@ exports.getTeamFixtures = async (teamIdOrName) => {
     const team = await exports.getTeamDetails(teamIdOrName);
     numericId = Number(team?.providerId || String(team?.id || "").replace(/^ko_t_/, ""));
   }
-  if (!numericId) return { recent: [], upcoming: [] };
+  if (!numericId) return null;
 
   const cacheKey = `kickoff:team_fixtures:${numericId}`;
   const cached = getCached(cacheKey, TTL.FIXTURES_DAY);
@@ -557,11 +635,32 @@ exports.getTeamFixtures = async (teamIdOrName) => {
     safeFetch('/api/v1/fixtures', { team: numericId, next: 5 }),
   ]);
 
-  const recent = (lastData?.response || []).map(normalizeKickoffFixture).filter(Boolean);
-  const upcoming = (nextData?.response || []).map(normalizeKickoffFixture).filter(Boolean);
-
-  const result = { recent, upcoming };
-  setCache(cacheKey, result);
+  const scopedBatch = (data, window) => {
+    const rawRows = providerList(data);
+    if (!rawRows || declaredFilterMismatch(data, { team: numericId, [window]: 5 })) return {
+      rows: null, invalidRows: 0, reason: rawRows ? 'provider_fixture_scope_mismatch' : 'provider_unavailable',
+    };
+    const rows = rawRows.filter(row => row && typeof row === 'object' && !Array.isArray(row))
+      .map(normalizeKickoffFixture).filter(row => row &&
+        [row.homeTeam.id, row.awayTeam.id].includes('ko_t_' + numericId));
+    const invalidRows = rawRows.length - rows.length;
+    if (rawRows.length > 0 && rows.length === 0) return { rows: null, invalidRows, reason: 'provider_fixture_scope_mismatch' };
+    return { rows, invalidRows, rawRows, reason: invalidRows ? 'provider_fixture_scope_mismatch' : null };
+  };
+  const last = scopedBatch(lastData, 'last'), next = scopedBatch(nextData, 'next');
+  if (!last.rows && !next.rows) return null;
+  const recent = last.rows || [], upcoming = next.rows || [];
+  const usable = Boolean(last.rows && next.rows) && last.invalidRows === 0 && next.invalidRows === 0;
+  const fullPage = (data, rows) => Number(data?.paging?.current) === 1 &&
+    Number(data?.paging?.total) === 1 && Number(data?.results) === rows?.length;
+  const complete = usable && fullPage(lastData, last.rawRows) && fullPage(nextData, next.rawRows);
+  const result = { recent, upcoming, coverage: { source: 'kickoffapi', available: true,
+    complete, partial: !complete, scope: 'team_fixture_window',
+    recentAvailable: Boolean(last.rows), upcomingAvailable: Boolean(next.rows),
+    rejectedRows: last.invalidRows + next.invalidRows,
+    ...(last.reason || next.reason ? { reason: last.reason || next.reason } : {}) } };
+  // Keep a valid half for this request, but retry the missing half next time.
+  if (usable) setCache(cacheKey, result, TTL.FIXTURES_DAY);
   return result;
 };
 
@@ -570,10 +669,10 @@ const pendingPlayerHonours = new Map();
 exports.getPlayerHonours = async (playerId) => {
   const rawId = String(playerId || '').replace(/^ko_p_/, '');
   const scoped = 'ko_p_' + rawId;
-  const unavailable = () => normalizePlayerHonours(undefined, { playerId: scoped, rawPlayerId: rawId, provider: 'kickoffapi' });
+  const unavailable = () => normalizeKickoffHonoursHistory(undefined, { playerId: scoped, rawPlayerId: rawId });
   if (!/^[1-9]\d*$/.test(rawId) || !Number.isSafeInteger(Number(rawId))) return unavailable();
   const key = `kickoff:player-honours:${rawId}`;
-  const cached = getCached(key, TTL.HONOURS);
+  const cached = getCached(key);
   if (cached) return cached;
   if (pendingPlayerHonours.has(key)) return pendingPlayerHonours.get(key);
   const pending = (async () => {
@@ -582,11 +681,15 @@ exports.getPlayerHonours = async (playerId) => {
     const errors = data?.errors;
     const valid = Array.isArray(data?.response) && (!errors || Object.keys(errors).length === 0) &&
       (data.parameters?.player === undefined || String(data.parameters.player) === rawId);
-    if (!valid) return unavailable();
+    if (!valid) {
+      const result = unavailable();
+      setCache(key, result, TTL.HONOURS_FAILURE);
+      return result;
+    }
     const total = Number(data.paging?.total), current = Number(data.paging?.current);
-    const complete = total === 1 && current === 1 && Number(data.results) === data.response.length;
-    const result = normalizePlayerHonours(data.response, { playerId: scoped, rawPlayerId: rawId, provider: 'kickoffapi', complete });
-    setCache(key, result);
+    const responseComplete = total === 1 && current === 1 && Number(data.results) === data.response.length;
+    const result = normalizeKickoffHonoursHistory(data.response, { playerId: scoped, rawPlayerId: rawId, responseComplete });
+    setCache(key, result, result.honoursCoverage.rejected > 0 ? TTL.HONOURS_FAILURE : TTL.HONOURS);
     return result;
   })();
   pendingPlayerHonours.set(key, pending);
@@ -600,7 +703,15 @@ exports.getPlayerDetails = async (playerIdOrName, options = {}) => {
   const scopeKey = [options.season ?? '', options.competition ?? '', options.teamId ?? ''].join(':');
   const cacheKey = `kickoff:player:${playerIdOrName}:${scopeKey}`;
   const cached = getCached(cacheKey, TTL.SQUAD);
-  if (cached) return cached;
+  if (cached) {
+    if (cached.honoursCoverage?.available === false || cached.honoursCoverage?.rejected > 0) {
+      // Honour failures retry after their own TTL, without reloading biography
+      // or resetting the full profile's two-hour cache lifetime.
+      const honours = await exports.getPlayerHonours(cached.id);
+      return { ...cached, ...honours };
+    }
+    return cached;
+  }
 
   const suppliedSeason = options.season === undefined ? currentFootballSeason() : positiveProviderId(options.season);
   const season = suppliedSeason >= 1900 && suppliedSeason <= 2099 ? suppliedSeason : null;
@@ -614,7 +725,8 @@ exports.getPlayerDetails = async (playerIdOrName, options = {}) => {
   }
 
   const data = await safeFetch('/api/v1/players', params);
-  const rawList = Array.isArray(data?.response) ? data.response : [];
+  const rawList = providerList(data);
+  if (!rawList) return null;
   if (params.id && data?.parameters?.id !== undefined && positiveProviderId(data.parameters.id) !== params.id) return null;
   if (rawList.length === 0) return null;
 
@@ -641,8 +753,8 @@ exports.getPlayerDetails = async (playerIdOrName, options = {}) => {
   const player = raw.player || raw;
   const embeddedHonours = playerHonourInput(player.honours, player.trophies, raw.honours, raw.trophies);
   const honours = Array.isArray(embeddedHonours) && embeddedHonours.length > 0
-    ? normalizePlayerHonours(embeddedHonours, { playerId: 'ko_p_' + String(player.id), rawPlayerId: player.id,
-      provider: 'kickoffapi', complete: player.honours_complete === true || raw.honours_complete === true })
+    ? normalizeKickoffHonoursHistory(embeddedHonours, { playerId: 'ko_p_' + String(player.id), rawPlayerId: player.id,
+      responseComplete: player.honours_complete === true || raw.honours_complete === true })
     : await exports.getPlayerHonours('ko_p_' + String(player.id));
   const rawStatistics = Array.isArray(raw.statistics) ? raw.statistics : [];
   const careerBySeason = rawStatistics.filter(block => block && typeof block === 'object' && !Array.isArray(block))
@@ -703,7 +815,7 @@ exports.getPlayerDetails = async (playerIdOrName, options = {}) => {
     milestones: [],
   };
 
-  setCache(cacheKey, formatted);
+  setCache(cacheKey, formatted, TTL.SQUAD);
   return formatted;
 };
 
@@ -819,11 +931,11 @@ exports.getMatchDetails = async (fixtureId) => {
   if (cached) return cached;
 
   const data = await safeFetch('/api/v1/fixtures', { id: numId });
-  const raw = data?.response?.[0];
+  const raw = providerList(data)?.find(item => Number(item?.fixture?.id ?? item?.id) === numId);
   if (!raw) return null;
 
   const formatted = normalizeKickoffFixture(raw);
-  setCache(cacheKey, formatted);
+  if (formatted) setCache(cacheKey, formatted, TTL.FIXTURES_DAY);
   return formatted;
 };
 

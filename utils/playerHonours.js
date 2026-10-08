@@ -1,6 +1,15 @@
 'use strict';
 
 const text = value => typeof value === 'string' ? value.trim() : '';
+const placeText = value => text(value) || (typeof value === 'number' && Number.isFinite(value) ? String(value) : '');
+
+function winnerForPlace(place) {
+  if (/^(winner|champion|champions|1st place|first place)$/i.test(place)) return true;
+  // KickOff v1 reports finishing positions as decimal strings (or numbers).
+  if (/^[1-9]\d*$/.test(place)) return place === '1';
+  if (/^(runner-up|runner up|2nd place|second place|3rd place|third place)$/i.test(place)) return false;
+  return null;
+}
 
 function firstPlayerImage(...values) {
   for (const value of values) {
@@ -37,9 +46,12 @@ function normalizePlayerHonours(input, { playerId, provider, rawPlayerId, comple
       (Number.isInteger(raw.season) ? String(raw.season) : Number.isInteger(raw.year) ? String(raw.year) : '');
     const team = text(raw.team?.name) || text(raw.team) || text(raw.club?.name) || text(raw.club);
     const country = text(raw.country?.name) || text(raw.country);
-    const place = text(raw.place) || text(raw.position) || text(raw.result);
-    const winner = place ? /^(winner|champion|champions|1st place|first place)$/i.test(place) :
-      typeof raw.isWinner === 'boolean' ? raw.isWinner : typeof raw.is_winner === 'boolean' ? raw.is_winner : null;
+    const place = placeText(raw.place) || placeText(raw.position) || placeText(raw.result);
+    const explicitWinner = typeof raw.isWinner === 'boolean' ? raw.isWinner :
+      typeof raw.is_winner === 'boolean' ? raw.is_winner : null;
+    // A recognized finishing position takes precedence over a conflicting flag.
+    // Unrecognized labels alone cannot establish whether an honour was won.
+    const winner = winnerForPlace(place) ?? explicitWinner;
     const count = raw.count !== undefined && raw.count !== null && raw.count !== '' &&
       Number.isSafeInteger(Number(raw.count)) && Number(raw.count) > 0 ? Number(raw.count) : season ? 1 : null;
     const key = JSON.stringify([name, season, team, country, place, winner, count]);

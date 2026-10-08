@@ -61,8 +61,20 @@ test('Arabic diacritics, tatweel, alef and ya variants share canonical English q
     ['الدَّوْرِي الإِنْجِلِيزِي', 'Premier League'], ['الدوري الانجليزي', 'Premier League'],
     ['الأرجنتين', 'Argentina'], ['الارجنتين', 'Argentina'], ['مبابى', 'Mbappé'],
     ['كِيلِيَان مَبَابِي', 'Kylian Mbappe'], ['إيثان مبابي', 'Ethan Mbappe'],
+    ['اليمن', 'Yemen'], ['اليَمَن', 'Yemen'], ['منتخب اليمن', 'Yemen'],
   ]) assert.equal(searchQuery(arabic).key, searchQuery(english).key, arabic);
   assert.equal(normalizeTerm('أ إ آ ٱ ى ی'), 'ا ا ا ا ي ي');
+});
+
+test('Arabic Yemen discovery ranks the senior team without merging provider or youth identities', () => {
+  const rows = [
+    { id: 'sc_t_yemen-u17', provider: 'sportscore', name: 'Yemen U17' },
+    { id: 'bsd_t_55', provider: 'bsd', name: 'Yemen' },
+    { id: 'sc_t_yemen', provider: 'sportscore', name: 'Yemen' },
+  ];
+  assert.deepEqual(sortByRelevance(rows, 'منتخب اليمن', 'teams').map(row => row.id),
+    ['bsd_t_55', 'sc_t_yemen', 'sc_t_yemen-u17']);
+  assert.equal(searchQuery('اليمن').term, 'Yemen');
 });
 
 test('name relevance orders exact, whole word, prefix, then substring and preserves ties', () => {

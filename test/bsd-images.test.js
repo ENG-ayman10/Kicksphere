@@ -45,6 +45,45 @@ test('BSD image proxy refuses non-image payloads and preserves missing-image sta
   assert.equal((await fetch(missing.base+'/bsd/player/852')).status,404);
 });
 
+test('missing portraits coalesce and retry after one minute; a repaired image is not hidden for an hour', async t => {
+  let repaired = false;
+  const { base, calls } = await setup(t, async () => {
+    if (!repaired) throw { response: { status: 404 } };
+    return { status: 200, data: Buffer.from([255, 216, 255, 0]) };
+  });
+  const responses = await Promise.all(Array.from({ length: 6 }, () => fetch(base + '/bsd/player/852')));
+  assert.ok(responses.every(response => response.status === 404));
+  assert.equal(calls.length, 1);
+  assert.equal(responses[0].headers.get('cache-control'), 'public, max-age=60');
+  assert.equal((await fetch(base + '/bsd/player/852')).status, 404);
+  assert.equal(calls.length, 1);
+  const originalNow = Date.now, now = originalNow();
+  repaired = true;
+  Date.now = () => now + 61000;
+  try {
+    const response = await fetch(base + '/bsd/player/852');
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'public, max-age=3600');
+    assert.equal(calls.length, 2);
+  } finally { Date.now = originalNow; }
+});
+
+test('transient failures and malformed image bodies remain retryable instead of caching a missing portrait', async t => {
+  for (const first of [{ status: 502, data: Buffer.from('<html>temporarily unavailable</html>') },
+    { status: 200, data: Buffer.from('<html>not an image</html>') },
+    { status: 202, data: Buffer.alloc(0) }]) {
+    let unavailable = true;
+    const { base, calls } = await setup(t, () => unavailable ? first :
+      { status: 200, data: Buffer.from([255, 216, 255, 0]) });
+    const failed = await fetch(base + '/bsd/player/852');
+    assert.equal(failed.status, 502);
+    assert.equal(failed.headers.get('cache-control'), 'no-store');
+    unavailable = false;
+    assert.equal((await fetch(base + '/bsd/player/852')).status, 200);
+    assert.equal(calls.length, 2);
+  }
+});
+
 test('a complete 22-player lineup queues public portraits without exceeding eight upstream requests', async t => {
   const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
   let active = 0, maxActive = 0;

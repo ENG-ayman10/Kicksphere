@@ -187,6 +187,9 @@ test('BSD deep route forwards exact on-demand scope and preserves section availa
   assert.deepEqual(options, { seasonId: '294', competition: 'PD', teamId: 'bsd_t_57' });
   assert.deepEqual(res.body.data.seasonStats, player.seasonStats); assert.deepEqual(res.body.data.coverage, player.coverage);
   assert.equal(res.body.data.transfersCoverage.complete, true);
+  for (const key of ['seasonStats', 'statsContext', 'coverage', 'career', 'transfers']) {
+    assert.equal(Object.hasOwn(res.body.data.info, key), false, `Duplicated ${key} must not inflate the route payload`);
+  }
 });
 
 test('the non-BSD deep projection retains actual nationality, foot, team identity, biography, transfers and career fields', async () => {
@@ -200,4 +203,21 @@ test('the non-BSD deep projection retains actual nationality, foot, team identit
   assert.equal(res.body.data.info.dateBorn, player.dateOfBirth);
   assert.deepEqual(res.body.data.attributes, player.attributes); assert.deepEqual(res.body.data.transfers, player.transfers);
   assert.deepEqual(res.body.data.careerBySeason, player.careerBySeason);
+  for (const key of ['attributes', 'transfers', 'careerBySeason', 'seasonStats', 'statsCoverage']) {
+    assert.equal(Object.hasOwn(res.body.data.info, key), false);
+  }
+});
+
+test('BSD club route preserves its entire squad while serializing the roster once', async () => {
+  const squad = [{ id: 'bsd_p_20', name: 'Verified Player', image: 'https://media.example/player.png' }];
+  const profile = { info: { id: 'bsd_t_44', name: 'Verified Club' }, squad, players: squad,
+    statsContext: { teamId: 'bsd_t_44', seasonId: 1307 }, stats: { won: 0 },
+    matches: { recent: [], upcoming: [], live: [] }, coverage: { available: true, partial: true } };
+  const api = controller({ '../services/bsdSportsService': { getTeamDetails: async () => profile } });
+  const res = response(); await api.getDeepTeamDetails({ params: { id: 'bsd_t_44' } }, res);
+  assert.deepEqual(res.body.data.squad, squad);
+  assert.deepEqual(res.body.data.statsContext, profile.statsContext);
+  assert.equal(res.body.data.stats.won, 0);
+  assert.equal(Object.hasOwn(res.body.data, 'players'), false);
+  assert.strictEqual(profile.players, squad);
 });

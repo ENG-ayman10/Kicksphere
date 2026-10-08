@@ -9,19 +9,24 @@ const normalized = value => String(value || '').normalize('NFKD').replace(/[\u03
   .toLowerCase().replace(/[-\s]+/g, ' ').trim();
 const country = value => {
   const name = normalized(value);
-  return ['us', 'usa', 'united states', 'united states of america'].includes(name) ? 'usa' : name;
+  return ['us', 'usa', 'united states', 'united states of america'].includes(name) ? 'usa' :
+    ['es', 'esp', 'spain'].includes(name) ? 'spain' : name;
 };
 const sameCountry = (a, b) => !country(a) || !country(b) || country(a) === country(b);
 
 // Explicit, source-scoped senior-club identities verified independently against
-// BSD's MLS team catalog and SportScore's MLS standings on 2026-10-02. This is
+// both provider catalogs. MLS was checked on 2026-10-02; the PD pair on 2026-10-08. This is
 // intentionally not a global name alias or a rule that removes FC/age suffixes.
 // Evidence and both unmodified kickoff values are captured in the regression fixture.
-const VERIFIED_MLS_TEAMS = Object.freeze({
-  bsd_t_302: { club: 'seattle-sounders', provider: 'bsd', name: 'Seattle Sounders FC' },
-  'sc_t_seattle-sounders': { club: 'seattle-sounders', provider: 'sportscore', name: 'Seattle Sounders' },
-  bsd_t_299: { club: 'sporting-kansas-city', provider: 'bsd', name: 'Sporting Kansas City' },
-  'sc_t_sporting-kansas-city': { club: 'sporting-kansas-city', provider: 'sportscore', name: 'Sporting Kansas City' },
+const VERIFIED_CLUB_TEAMS = Object.freeze({
+  bsd_t_302: { club: 'seattle-sounders', provider: 'bsd', name: 'Seattle Sounders FC', competition: 'MLS', country: 'USA' },
+  'sc_t_seattle-sounders': { club: 'seattle-sounders', provider: 'sportscore', name: 'Seattle Sounders', competition: 'MLS', country: 'USA' },
+  bsd_t_299: { club: 'sporting-kansas-city', provider: 'bsd', name: 'Sporting Kansas City', competition: 'MLS', country: 'USA' },
+  'sc_t_sporting-kansas-city': { club: 'sporting-kansas-city', provider: 'sportscore', name: 'Sporting Kansas City', competition: 'MLS', country: 'USA' },
+  bsd_t_1259: { club: 'malaga', provider: 'bsd', name: 'Málaga CF', competition: 'PD', country: 'Spain' },
+  sc_t_malaga: { club: 'malaga', provider: 'sportscore', name: 'Malaga', competition: 'PD', country: 'Spain' },
+  bsd_t_53: { club: 'espanyol', provider: 'bsd', name: 'Espanyol', competition: 'PD', country: 'Spain' },
+  'sc_t_rcd-espanyol-de-barcelona': { club: 'espanyol', provider: 'sportscore', name: 'RCD Espanyol de Barcelona', competition: 'PD', country: 'Spain' },
 });
 // The audited providers disagree by exactly ten minutes for the verified pair.
 // No other clubs or name-based fixture joins get a kickoff tolerance.
@@ -67,24 +72,26 @@ function compatibleScopes(first, second) {
     ['homeTeam', 'awayTeam'].every(side => sameCountry(first[side]?.countryCode || first[side]?.country, second[side]?.countryCode || second[side]?.country));
 }
 
-function verifiedClub(team, provider) {
+function verifiedClub(team, provider, competitionCode) {
   const id = matchTeamId(team, provider);
-  const verified = VERIFIED_MLS_TEAMS[id];
-  if (!verified || verified.provider !== provider || normalized(team?.name) !== normalized(verified.name) ||
-      !sameCountry(team.countryCode || team.country, 'USA') ||
-      (team.identityCompetitionCode && normalizeCompetitionCode(team.identityCompetitionCode) !== 'MLS')) return null;
-  return verified.club;
+  const verified = VERIFIED_CLUB_TEAMS[id];
+  if (!verified || verified.provider !== provider || verified.competition !== competitionCode ||
+      normalized(team?.name) !== normalized(verified.name) ||
+      !sameCountry(team.countryCode || team.country, verified.country) ||
+      (team.identityCompetitionCode && normalizeCompetitionCode(team.identityCompetitionCode) !== competitionCode)) return null;
+  return verified;
 }
-function seniorMlsContext(match, identity) {
-  if (identity.competitionCode !== 'MLS' || !sameCountry(match.competition?.countryCode || match.competition?.country, 'USA')) return null;
+function seniorClubContext(match, identity) {
+  const home = verifiedClub(match.homeTeam, identity.provider, identity.competitionCode);
+  const away = verifiedClub(match.awayTeam, identity.provider, identity.competitionCode);
+  if (!home || !away || home.country !== away.country ||
+      !sameCountry(match.competition?.countryCode || match.competition?.country, home.country)) return null;
   for (const object of [match, match.competition, match.homeTeam, match.awayTeam]) {
     if (!['male', 'men', 'm'].includes(gender(object)) || !['senior', 'adult', 'open'].includes(ageGroup(object)) ||
         !['first', 'first team', 'senior'].includes(reserves(object))) return null;
   }
   if (!['team', 'club'].includes(teamType(match.homeTeam)) || !['team', 'club'].includes(teamType(match.awayTeam))) return null;
-  const home = verifiedClub(match.homeTeam, identity.provider);
-  const away = verifiedClub(match.awayTeam, identity.provider);
-  return home && away ? `MLS|${home}|${away}` : null;
+  return `${identity.competitionCode}|${home.club}|${away.club}`;
 }
 function context(match) {
   const identity = fixtureProviderIdentity(match);
@@ -92,7 +99,9 @@ function context(match) {
   const home = normalized(match.homeTeam?.name), away = normalized(match.awayTeam?.name);
   return { identity, time: kickoffTime(match.utcDate),
     exact: home && away ? `${identity.competitionCode}|${kickoffTime(match.utcDate)}|${home}|${away}` : null,
-    verified: seniorMlsContext(match, identity) };
+    verified: seniorClubContext(match, identity),
+    // The observed MLS disagreement must never widen another competition's match.
+    verifiedKickoffDriftMs: identity.competitionCode === 'MLS' ? MAX_VERIFIED_KICKOFF_DRIFT_MS : 0 };
 }
 
 function aliasEntries(match, identity) {
@@ -129,7 +138,7 @@ function mergeProviderFixtures(preferred = [], supplement = []) {
       if (other.context.identity.provider === row.context.identity.provider || !compatibleScopes(other.match, row.match)) continue;
       const exact = row.context.exact && row.context.exact === other.context.exact;
       const verified = row.context.verified && row.context.verified === other.context.verified &&
-        Math.abs(row.context.time - other.context.time) <= MAX_VERIFIED_KICKOFF_DRIFT_MS;
+        Math.abs(row.context.time - other.context.time) <= Math.min(row.context.verifiedKickoffDriftMs, other.context.verifiedKickoffDriftMs);
       if (exact || verified) { addEdge(i, j); addEdge(j, i); }
     }
   });

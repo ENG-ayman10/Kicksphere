@@ -1,0 +1,186 @@
+{
+  "verifiedAt": "2026-10-08",
+  "evidence": {
+    "fixtures": "/api/matches/date?date=2026-10-09",
+    "bsdTeams": "/api/v2/teams/?league_id=3&name=Malaga and name=Espanyol",
+    "sportscoreTeams": "/api/v1/football/standings/?competition=spanish-la-liga",
+    "bsdTeamCountries": {
+      "bsd_t_1259": "Spain",
+      "bsd_t_53": "Spain"
+    },
+    "sportscoreTeamSlugs": [
+      "malaga",
+      "rcd-espanyol-de-barcelona"
+    ],
+    "note": "Both catalogs identify the senior PD clubs. Only equal kickoff instants qualify; score, match status and a guessed FC suffix are not identity evidence."
+  },
+  "preferred": {
+    "id": "bsd_213594",
+    "rawId": 213594,
+    "slug": "bsd_213594",
+    "provider": "bsd",
+    "source": "bsd",
+    "utcDate": "2026-10-09T19:00:00Z",
+    "status": "TIMED",
+    "statusText": "Upcoming",
+    "minute": null,
+    "period": "",
+    "matchPhase": "NOT_STARTED",
+    "halfTimeConfirmed": false,
+    "homeTeam": {
+      "id": "bsd_t_1259",
+      "rawId": 1259,
+      "providerId": "1259",
+      "provider": "bsd",
+      "source": "bsd",
+      "name": "Málaga CF",
+      "shortName": "Málaga CF",
+      "country": "",
+      "countryCode": "",
+      "crest": "https://sports.bzzoiro.com/img/team/1259/",
+      "logo": "https://sports.bzzoiro.com/img/team/1259/",
+      "slug": "bsd_t_1259",
+      "type": "team",
+      "venueId": null,
+      "coach": "",
+      "founded": null
+    },
+    "awayTeam": {
+      "id": "bsd_t_53",
+      "rawId": 53,
+      "providerId": "53",
+      "provider": "bsd",
+      "source": "bsd",
+      "name": "Espanyol",
+      "shortName": "Espanyol",
+      "country": "",
+      "countryCode": "",
+      "crest": "https://sports.bzzoiro.com/img/team/53/",
+      "logo": "https://sports.bzzoiro.com/img/team/53/",
+      "slug": "bsd_t_53",
+      "type": "team",
+      "venueId": null,
+      "coach": "",
+      "founded": null
+    },
+    "score": {
+      "fullTime": {
+        "home": null,
+        "away": null
+      },
+      "halfTime": null
+    },
+    "competition": {
+      "id": "PD",
+      "code": "PD",
+      "rawId": 3,
+      "providerId": "3",
+      "provider": "bsd",
+      "name": "La Liga",
+      "country": "Spain",
+      "emblem": "https://sports.bzzoiro.com/img/league/3/",
+      "logo": "https://sports.bzzoiro.com/img/league/3/",
+      "season": {
+        "id": 1307,
+        "name": "LaLiga 26/27",
+        "year": 2026,
+        "start_date": "2026-07-01",
+        "end_date": "2027-06-30",
+        "is_current": true,
+        "stages": [
+          {
+            "stage": "regular-season",
+            "stage_name": "Regular season",
+            "matches": 382,
+            "rounds": 38,
+            "start_date": "2026-08-15",
+            "end_date": "2027-05-30"
+          }
+        ]
+      }
+    },
+    "seasonId": 1307,
+    "round": 8,
+    "roundLabel": "Regular season · Matchday 8",
+    "group": "",
+    "stage": "regular-season",
+    "stageName": "Regular season",
+    "venueId": 726,
+    "venue": null,
+    "refereeId": null,
+    "homeCoachId": 820,
+    "awayCoachId": 288,
+    "penaltyShootout": null,
+    "extraTimeScore": null,
+    "xg": {
+      "liveHome": null,
+      "liveAway": null,
+      "actualHome": null,
+      "actualAway": null,
+      "homeEstimated": null,
+      "awayEstimated": null,
+      "estimated": null,
+      "source": "bsd"
+    },
+    "lastUpdated": null,
+    "hasXg": false,
+    "aiPreview": null
+  },
+  "supplement": {
+    "id": "malaga-vs-rcd-espanyol-de-barcelonak82rekhg419erep",
+    "slug": "malaga-vs-rcd-espanyol-de-barcelonak82rekhg419erep",
+    "matchLocator": {
+      "id": "malaga-vs-rcd-espanyol-de-barcelonak82rekhg419erep",
+      "slug": "malaga-vs-rcd-espanyol-de-barcelona",
+      "token": "k82rekhg419erep",
+      "url": "/football/match/malaga-vs-rcd-espanyol-de-barcelona/k82rekhg419erep/"
+    },
+    "utcDate": "2026-10-09T22:00:00+03:00",
+    "status": "TIMED",
+    "statusText": "Not started",
+    "sourceStatus": "upcoming",
+    "minute": null,
+    "period": "",
+    "matchPhase": "NOT_STARTED",
+    "halfTimeConfirmed": false,
+    "homeTeam": {
+      "id": "sc_t_malaga",
+      "identityBasis": "competition_standings",
+      "provider": "sportscore",
+      "name": "Malaga",
+      "shortName": "Malaga",
+      "crest": "https://img.thesports.com/football/team/9c7c68ee0cad47be69a9d57e43261484.png",
+      "logo": "https://img.thesports.com/football/team/9c7c68ee0cad47be69a9d57e43261484.png",
+      "identityCompetitionCode": "PD",
+      "identityCompetitionSlug": "spanish-la-liga"
+    },
+    "awayTeam": {
+      "id": "sc_t_rcd-espanyol-de-barcelona",
+      "identityBasis": "competition_standings",
+      "provider": "sportscore",
+      "name": "RCD Espanyol de Barcelona",
+      "shortName": "RCD Espanyol de Barcelona",
+      "crest": "https://img.thesports.com/football/team/214049d4df11756a2eb21bbd8266e2a1.png",
+      "logo": "https://img.thesports.com/football/team/214049d4df11756a2eb21bbd8266e2a1.png",
+      "identityCompetitionCode": "PD",
+      "identityCompetitionSlug": "spanish-la-liga"
+    },
+    "score": {
+      "fullTime": {
+        "home": null,
+        "away": null
+      },
+      "halfTime": null
+    },
+    "competition": {
+      "id": "PD",
+      "name": "La Liga",
+      "code": "PD",
+      "country": "Spain",
+      "emblem": "https://img.thesports.com/football/competition/1fbbb4be3b47d9465c5badecc3122e07.png",
+      "logo": "https://img.thesports.com/football/competition/1fbbb4be3b47d9465c5badecc3122e07.png"
+    },
+    "source": "sportscore",
+    "provider": "sportscore"
+  }
+}

@@ -119,9 +119,30 @@ const resolveCompetitionSlug = (codeOrSlug) => {
 };
 
 function numericOrNull(value) {
-  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && (!value.trim() || !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim()))) return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function countOrNull(value) {
+  const number = numericOrNull(value);
+  return number !== null && Number.isSafeInteger(number) && number >= 0 ? number : null;
+}
+
+function playerStatsSeason(value) {
+  if (typeof value === 'number') return Number.isInteger(value) && value >= 1900 && value <= 2099 ? value : null;
+  // Keep an explicitly supplied edition; a team or competition name is never an edition.
+  if (typeof value !== 'string') return null;
+  const label = value.trim(), match = /^((?:19|20)\d{2})(?:[/-](\d{2}|(?:19|20)\d{2}))?$/.exec(label);
+  if (!match) return null;
+  if (match[2]) {
+    const start = Number(match[1]);
+    const end = match[2].length === 2 ? Math.floor(start / 100) * 100 + Number(match[2]) +
+      (Number(match[2]) < start % 100 ? 100 : 0) : Number(match[2]);
+    if (end !== start + 1) return null;
+  }
+  return label;
 }
 
 function normalizedRating(value) {
@@ -527,7 +548,7 @@ exports.getStandings = async (competitionCode) => {
 
     return raw.tables.flatMap(table => (table.rows || []).map(r => ({
       group: table.group || '',
-      position: numericOrNull(r.pos),
+      position: countOrNull(r.pos),
       team: {
         ...standingsTeamIdentity(r),
         provider: 'sportscore',
@@ -536,13 +557,13 @@ exports.getStandings = async (competitionCode) => {
         crest: r.team_logo || '',
         slug: r.team_slug || ''
       },
-      playedGames: numericOrNull(r.p),
-      won: numericOrNull(r.w),
-      draw: numericOrNull(r.d),
-      lost: numericOrNull(r.l),
+      playedGames: countOrNull(r.p),
+      won: countOrNull(r.w),
+      draw: countOrNull(r.d),
+      lost: countOrNull(r.l),
       points: numericOrNull(r.pts),
-      goalsFor: numericOrNull(r.gf),
-      goalsAgainst: numericOrNull(r.ga),
+      goalsFor: countOrNull(r.gf),
+      goalsAgainst: countOrNull(r.ga),
       goalDifference: numericOrNull(r.gd),
       promotion: r.promo_name || '',
       promoColor: r.promo_color || '',
@@ -569,7 +590,7 @@ exports.getTopScorers = async (competitionCode, limit = 20, stat = 'goals') => {
     if (!raw?.scorers) return [];
 
     return raw.scorers.map(s => ({
-      rank: numericOrNull(s.rank),
+      rank: countOrNull(s.rank),
       player: {
         id: s.player_slug || s.player || '',
         provider: 'sportscore',
@@ -583,10 +604,10 @@ exports.getTopScorers = async (competitionCode, limit = 20, stat = 'goals') => {
         crest: s.team_logo || '',
         slug: s.team_slug || ''
       },
-      goals: numericOrNull(s.goals),
-      assists: numericOrNull(s.assists),
-      playedMatches: numericOrNull(s.matches),
-      minutesPlayed: numericOrNull(s.minutes),
+      goals: countOrNull(s.goals),
+      assists: countOrNull(s.assists),
+      playedMatches: countOrNull(s.matches),
+      minutesPlayed: countOrNull(s.minutes),
       rating: normalizedRating(s.rating),
       ratingRaw: numericOrNull(s.rating)
     }));
@@ -621,38 +642,55 @@ exports.getPlayerDetails = async (playerSlugOrName) => {
     }
 
     const p = raw.player;
-    const st = raw.stats || {};
+    const st = raw.stats && typeof raw.stats === 'object' && !Array.isArray(raw.stats) ? raw.stats : {};
     const identity = p.slug || slug;
     const honours = normalizePlayerHonours(playerHonourInput(p.honours, p.trophies, raw.honours, raw.trophies),
       { playerId: identity, rawPlayerId: identity, provider: 'sportscore',
         complete: p.honours_complete === true || raw.honours_complete === true });
+    const countFields = { matches: 'matches', goals: 'goals', assists: 'assists', minutes: 'minutes',
+      yellowCards: 'yellow_cards', redCards: 'red_cards', shots: 'shots', shotsOnTarget: 'shots_on_target',
+      passes: 'passes', tackles: 'tackles', interceptions: 'interceptions', dribbles: 'dribbles', keyPasses: 'key_passes' };
+    const counts = Object.fromEntries(Object.entries(countFields).map(([key, field]) => [key, countOrNull(st[field])]));
+    const image = firstPlayerImage(p.logo, p.image, p.photo, p.player_logo, raw.player_logo);
+    const text = value => typeof value === 'string' ? value.trim() : '';
+    const statsContext = { team: text(st.team), competition: text(st.competition),
+      season: playerStatsSeason(st.season) ?? playerStatsSeason(raw.season) };
+    const metricFields = { ...Object.fromEntries(Object.entries(counts).map(([key, value]) => [key, value !== null])),
+      rating: normalizedRating(st.rating) !== null, ratingRaw: numericOrNull(st.rating) !== null,
+      passesAccuracy: false, passesAccuracyRaw: numericOrNull(st.passes_accuracy) !== null };
+    const statsAvailable = Object.values(metricFields).some(Boolean);
+    const statsComplete = statsAvailable && statsContext.season !== null && !!statsContext.team &&
+      !!statsContext.competition && Object.values(counts).every(value => value !== null) && metricFields.rating;
+    const statsCoverage = { source: 'sportscore', available: statsAvailable, complete: statsComplete, partial: !statsComplete,
+      fields: metricFields, seasonKnown: statsContext.season !== null,
+      ...(!statsAvailable ? { reason: 'provider_statistics_unavailable' } : statsContext.season === null
+        ? { reason: 'provider_statistics_season_unknown' } : !statsComplete ? { reason: 'provider_statistics_partial' } : {}) };
+    const unavailableSection = () => ({ source: 'sportscore', available: false, complete: false, partial: true,
+      reason: 'provider_section_unavailable' });
+    const careerCoverage = unavailableSection(), transfersCoverage = unavailableSection();
+    const profileCoverage = { source: 'sportscore', available: !!text(p.name), complete: false, partial: true,
+      fields: { name: !!text(p.name), image: !!image, dateOfBirth: false, nationality: false, position: false,
+        height: false, weight: false, preferredFoot: false }, reason: 'provider_profile_fields_unavailable' };
 
     return {
       id: identity,
-      name: p.name || '',
-      fullName: p.name || '',
-      image: firstPlayerImage(p.logo, p.image, p.photo, p.player_logo, raw.player_logo),
+      name: text(p.name),
+      fullName: text(p.name),
+      image,
       ...honours,
-      team: st.team || '',
-      teamBadge: st.team_logo || '',
-      competition: st.competition || '',
-      matches: numericOrNull(st.matches),
-      goals: numericOrNull(st.goals),
-      assists: numericOrNull(st.assists),
-      minutes: numericOrNull(st.minutes),
+      team: statsContext.team,
+      teamBadge: text(st.team_logo),
+      competition: statsContext.competition,
+      ...counts,
       rating: normalizedRating(st.rating),
       ratingRaw: numericOrNull(st.rating),
-      yellowCards: numericOrNull(st.yellow_cards),
-      redCards: numericOrNull(st.red_cards),
-      shots: numericOrNull(st.shots),
-      shotsOnTarget: numericOrNull(st.shots_on_target),
-      passes: numericOrNull(st.passes),
-      passesAccuracy: numericOrNull(st.passes_accuracy),
-      tackles: numericOrNull(st.tackles),
-      interceptions: numericOrNull(st.interceptions),
-      dribbles: numericOrNull(st.dribbles),
-      keyPasses: numericOrNull(st.key_passes),
-      statsContext: { team: st.team || '', competition: st.competition || '', season: st.season || raw.season || null },
+      // Keep the source metric without asserting undocumented percentage units.
+      passesAccuracy: null,
+      passesAccuracyRaw: numericOrNull(st.passes_accuracy),
+      statsContext, statsCoverage, careerCoverage, transfersCoverage,
+      coverage: { source: 'sportscore', available: profileCoverage.available, complete: false, partial: true,
+        profile: profileCoverage, stats: statsCoverage, career: careerCoverage, transfers: transfersCoverage,
+        honours: honours.honoursCoverage },
       source: 'sportscore'
     };
   } catch (e) {

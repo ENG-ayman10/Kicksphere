@@ -255,10 +255,9 @@ const testKickoffApiContracts = async () => {
   if (!process.env.KICKOFF_API_KEY) {
     assert.strictEqual(kickoffApiService.isConfigured(), false);
     assert.deepStrictEqual(await kickoffApiService.getMatchesByDate('TODAY'), []);
-    assert.deepStrictEqual(await kickoffApiService.getTeamFixtures('Arsenal'), {
-      recent: [],
-      upcoming: []
-    });
+    // A provider with no credentials is unavailable, not evidence that this
+    // club has no recent or upcoming fixtures.
+    assert.strictEqual(await kickoffApiService.getTeamFixtures('Arsenal'), null);
   }
 };
 

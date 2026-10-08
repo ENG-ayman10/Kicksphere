@@ -7,6 +7,7 @@ const sportscoreService = require('../services/sportscoreService');
 const sportsDataService = require('../services/sportsDataService');
 const kickoffApiService = require('../services/kickoffApiService');
 const bsdSportsService = require('../services/bsdSportsService');
+const { enrichMissingPlayerHonours } = require('../services/playerHonoursEnrichment');
 const { resolveLocalTeam, resolveProviderTeamLookup, getTeamMatchesService } = require('../services/teamService');
 const { getCached, setCache } = require('../services/cacheService');
 const logger = require('../utils/logger');
@@ -14,6 +15,12 @@ const { scopedTeamId } = require('../utils/teamIdentity');
 const { validatedProviderIdentities } = require('../utils/matchProviderIdentities');
 const { filterPresentedTimeline } = require('../utils/matchTimelineTiming');
 const { validateLineupIntegrity } = require('../utils/lineupIntegrity');
+const { canonicalMatchStatus } = require('../utils/matchStatus');
+const { compactPlayerInfo, compactTeamProfile } = require('../utils/profilePayload');
+
+// Predictions are optional previews. A completed/cancelled fixture must not
+// fetch a preview or present its guessed score as another match result.
+const canPreviewMatch = match => ['TIMED', 'IN_PLAY', 'PAUSED'].includes(canonicalMatchStatus(match?.status));
 
 const serverError = (res) => res.status(500).json({ success: false, message: 'Server Error' });
 
@@ -474,7 +481,7 @@ exports.getDeepTeamDetails = async (req, res) => {
         coverage: { available: false, complete: false, partial: true, reason: 'provider_entity_unavailable' },
         data: null, message: 'Team details not found' });
       return res.json({ success: true, source: 'bsd', coverage: team.coverage,
-        data: { ...team, info: normalizeTeamInfo(null, team.info), squad: team.squad || team.players || [],
+        data: { ...compactTeamProfile(team), info: normalizeTeamInfo(null, team.info), squad: team.squad || team.players || [],
           matches: team.matches || { recent: [], upcoming: [], live: [] },
           trophies: team.info.trophies || [], honours: team.info.honours || '' } });
     }
@@ -590,12 +597,13 @@ exports.getDeepPlayerDetails = async (req, res) => {
     if (/^bsd_p_[1-9]\d*$/.test(playerId)) {
       const scope = Object.fromEntries(['seasonId', 'season', 'competition', 'teamId']
         .filter(key => req.query?.[key] !== undefined).map(key => [key, req.query[key]]));
-      const player = await callProvider('BSD player details', () => bsdSportsService.getPlayerDetails(playerId, scope));
+      let player = await callProvider('BSD player details', () => bsdSportsService.getPlayerDetails(playerId, scope));
       if (!player?.name || String(player.id || '') !== playerId) {
         return res.status(404).json({ success: false, source: 'unavailable', data: null,
           message: 'Player details not found', coverage: { available: false, complete: false,
             partial: true, reason: player ? 'provider_identity_mismatch' : 'provider_entity_unavailable' } });
       }
+      player = await enrichMissingPlayerHonours(player);
       const context = player.statsContext || {};
       const info = { ...player, id: playerId, targetId: playerId, provider: 'bsd',
         providerId: player.providerId || playerId.slice(6), fullName: player.fullName || player.name };
@@ -609,13 +617,14 @@ exports.getDeepPlayerDetails = async (req, res) => {
         keyPasses: player.keyPasses ?? null, saves: player.saves ?? null,
         yellowCards: player.yellowCards ?? null, redCards: player.redCards ?? null,
       };
-      return res.json({ success: true, source: 'bsd', coverage: player.coverage,
-        data: { info, seasonStats, statsContext: context, statsCoverage: player.statsCoverage,
+      const data = { info, seasonStats, statsContext: context, statsCoverage: player.statsCoverage,
           coverage: player.coverage, careerCoverage: player.careerCoverage, transfersCoverage: player.transfersCoverage,
           attributes: player.attributes || {}, careerTotals: player.careerTotals || {},
           careerBySeason: player.careerBySeason || player.career || [], formerTeams: player.formerTeams || [],
           transfers: player.transfers || [], honours: player.honours || [], honoursCoverage: player.honoursCoverage,
-          contracts: [], milestones: [] } });
+          contracts: [], milestones: [] };
+      data.info = compactPlayerInfo(info, data);
+      return res.json({ success: true, source: 'bsd', coverage: player.coverage, data });
     }
     if (playerId.startsWith('bsd_')) return res.status(404).json({ success: false, message: 'Player details not found' });
     const scopedKickoff = /^ko_p_[1-9]\d*$/.test(playerId);
@@ -663,20 +672,22 @@ exports.getDeepPlayerDetails = async (req, res) => {
       ...context, matches: scPlayer.matches, goals: scPlayer.goals,
       assists: scPlayer.assists, minutes: scPlayer.minutes, rating: scPlayer.rating,
       ratingRaw: scPlayer.ratingRaw, shots: scPlayer.shots, shotsOnTarget: scPlayer.shotsOnTarget,
-      passes: scPlayer.passes, passesAccuracyRaw: scPlayer.passesAccuracy,
+      passes: scPlayer.passes, passesAccuracyRaw: scPlayer.passesAccuracyRaw ?? scPlayer.passesAccuracy,
       // SportScore does not document this raw metric as a pass percentage.
       passesAccuracy: null, tackles: scPlayer.tackles, interceptions: scPlayer.interceptions,
       dribbles: scPlayer.dribbles, keyPasses: scPlayer.keyPasses,
       yellowCards: scPlayer.yellowCards, redCards: scPlayer.redCards
     } : {};
-    return res.json({
-      success: true, source: ko ? 'kickoffapi' : scPlayer ? 'sportscore' : 'unavailable', coverage: player.coverage,
-      data: { info, seasonStats, statsContext: context, statsCoverage: player.statsCoverage,
+    const data = { info, seasonStats, statsContext: context, statsCoverage: player.statsCoverage,
         coverage: player.coverage, careerCoverage: player.careerCoverage, transfersCoverage: player.transfersCoverage,
         attributes: player.attributes || {}, careerTotals: player.careerTotals || {},
         careerBySeason: player.careerBySeason || player.career || [], formerTeams: player.formerTeams || [],
         transfers: player.transfers || [], honours: player.honours || [],
-        honoursCoverage: player.honoursCoverage, contracts: player.contracts || [], milestones: player.milestones || [] }
+        honoursCoverage: player.honoursCoverage, contracts: player.contracts || [], milestones: player.milestones || [] };
+    data.info = compactPlayerInfo(info, data);
+    return res.json({
+      success: true, source: ko ? 'kickoffapi' : scPlayer ? 'sportscore' : 'unavailable', coverage: player.coverage,
+      data
     });
   } catch (error) {
     logger.error('getDeepPlayerDetails Error: ' + error.message);
@@ -709,7 +720,8 @@ exports.getMatchDeepStats = async (req, res) => {
     if (/^bsd_[1-9]\d*$/.test(String(matchId))) {
       const details = await callProvider('BSD deep match', () => bsdSportsService.getMatchDetails(matchId));
       if (!details?.matchInfo) return res.status(404).json({ success: false, message: 'Match details not found' });
-      const prediction = await callProvider('BSD match prediction', () => bsdSportsService.getPredictionForMatch(matchId));
+      const prediction = canPreviewMatch(details.matchInfo)
+        ? await callProvider('BSD match prediction', () => bsdSportsService.getPredictionForMatch(matchId)) : null;
       return res.json({ success: true, source: 'bsd', coverage: details.coverage,
         data: buildBsdDeepMatch(details, prediction) });
     }
@@ -752,12 +764,14 @@ exports.getMatchDeepStats = async (req, res) => {
         // Fetch ML prediction from BSD if available
         let prediction = null;
         try {
-          prediction = await bsdSportsService.getPredictionForMatch(
-            matchId,
-            scMatch.homeTeam?.name,
-            scMatch.awayTeam?.name,
-            scMatch.utcDate
-          );
+          if (canPreviewMatch(scMatch)) {
+            prediction = await bsdSportsService.getPredictionForMatch(
+              matchId,
+              scMatch.homeTeam?.name,
+              scMatch.awayTeam?.name,
+              scMatch.utcDate
+            );
+          }
         } catch (_) {}
 
         return res.json({
@@ -786,12 +800,14 @@ exports.getMatchDeepStats = async (req, res) => {
       if (koMatch) {
         let prediction = null;
         try {
-          prediction = await bsdSportsService.getPredictionForMatch(
-            matchId,
-            koMatch.homeTeam?.name,
-            koMatch.awayTeam?.name,
-            koMatch.utcDate
-          );
+          if (canPreviewMatch(koMatch)) {
+            prediction = await bsdSportsService.getPredictionForMatch(
+              matchId,
+              koMatch.homeTeam?.name,
+              koMatch.awayTeam?.name,
+              koMatch.utcDate
+            );
+          }
         } catch (_) {}
 
         return res.json({

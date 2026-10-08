@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Module = require('node:module');
 const captured = require('./fixtures/provider-fixture-seattle-2026-10-02.json');
+const malaga = require('./fixtures/provider-fixture-malaga-2026-10-09.json');
 
 function merge() {
   delete require.cache[require.resolve('../services/sportsDataService')];
@@ -127,4 +128,75 @@ test('provider identities are complete, validated, immutable and idempotent acro
   assert.deepEqual(second[0].providerIdentities, first[0].providerIdentities);
   const invalid = { ...sc, homeTeam: { ...sc.homeTeam, id: null } };
   assert.equal(join([bsd], [invalid]).length, 2);
+});
+
+const malagaRows = () => [clone(malaga.preferred), clone(malaga.supplement)];
+
+test('captured Málaga–Espanyol aliases keep one complete BSD fixture and both exact subscription identities', () => {
+  const [bsd, sc] = malagaRows();
+  assert.notEqual(bsd.homeTeam.name, sc.homeTeam.name);
+  assert.notEqual(bsd.awayTeam.name, sc.awayTeam.name);
+  assert.equal(Date.parse(bsd.utcDate), Date.parse(sc.utcDate));
+  const join = merge(), [retained] = join([bsd], [sc]);
+  assert.equal(join([bsd], [sc]).length, 1);
+  assert.equal(retained.id, 'bsd_213594');
+  assert.strictEqual(retained.homeTeam, bsd.homeTeam);
+  assert.strictEqual(retained.awayTeam, bsd.awayTeam);
+  assert.strictEqual(retained.competition, bsd.competition);
+  assert.strictEqual(retained.score, bsd.score);
+  assert.equal(retained.utcDate, bsd.utcDate);
+  assert.deepEqual(retained.providerIdentities.map(row => row.id), [bsd.id, sc.id]);
+  assert.equal(retained.providerIdentities[1].homeTeamId, 'sc_t_malaga');
+  assert.equal(retained.providerIdentities[1].awayTeamId, 'sc_t_rcd-espanyol-de-barcelona');
+  assert.equal(sc.providerIdentities, undefined);
+  assert.deepEqual(join([retained], [sc])[0], retained);
+});
+
+test('PD club mapping uses an exact kickoff instant and never inherits the MLS time tolerance', () => {
+  for (const utcDate of ['2026-10-09T19:00:00.001Z', '2026-10-09T19:00:01Z',
+    '2026-10-09T19:10:00Z', '2026-10-10T19:00:00Z', '2026-10-09']) {
+    const [bsd, sc] = malagaRows(); sc.utcDate = utcDate;
+    assert.equal(merge()([bsd], [sc]).length, 2, utcDate);
+  }
+  const [bsd, sc] = malagaRows(); sc.utcDate = '2026-10-09T19:00:00.000Z';
+  assert.equal(merge()([bsd], [sc]).length, 1);
+});
+
+test('PD aliases require both verified provider IDs, names, senior class, country and competition scope', () => {
+  const changes = [row => { row.homeTeam.id = 'sc_t_malaga-other'; },
+    row => { row.awayTeam.id = 'sc_t_espanyol'; },
+    row => { row.homeTeam.name = 'Malaga CF'; },
+    row => { row.awayTeam.name = 'RCD Espanyol de Barcelona U21'; },
+    row => { row.homeTeam.provider = 'bsd'; },
+    row => { row.competition.code = 'CDR'; },
+    row => { row.competition.country = 'Argentina'; },
+    row => { row.homeTeam.country = 'Mexico'; },
+    row => { row.awayTeam.countryCode = 'FR'; },
+    row => { row.homeTeam.identityCompetitionCode = 'SC:spanish-la-liga-2'; },
+    row => { row.competition.isWomen = true; },
+    row => { row.homeTeam.ageGroup = 'U21'; },
+    row => { row.awayTeam.isReserve = true; },
+    row => { row.homeTeam.type = 'national'; },
+    row => { [row.homeTeam, row.awayTeam] = [row.awayTeam, row.homeTeam]; }];
+  for (const change of changes) {
+    const [bsd, sc] = malagaRows(); change(sc);
+    assert.equal(merge()([bsd], [sc]).length, 2, change.toString());
+  }
+});
+
+test('verified PD catalogs accept equivalent Spain country names and codes without changing provider entities', () => {
+  const [bsd, sc] = malagaRows();
+  bsd.homeTeam.country = 'Spain'; bsd.homeTeam.countryCode = 'ES';
+  bsd.awayTeam.country = 'Spain'; bsd.awayTeam.countryCode = 'ES';
+  sc.homeTeam.country = 'Spain'; sc.awayTeam.country = 'ESP';
+  sc.competition.countryCode = 'ES';
+  assert.equal(merge()([bsd], [sc]).length, 1);
+});
+
+test('ambiguous PD provider fixtures remain separate regardless of matching aliases', () => {
+  const [bsd, sc] = malagaRows();
+  assert.equal(merge()([bsd], [sc, { ...sc, id: 'other-malaga-espanyol' }]).length, 3);
+  assert.equal(merge()([bsd, { ...bsd, id: 'bsd_213595' }], [sc]).length, 3);
+  assert.equal(merge()([bsd], [{ ...bsd, id: 'bsd_213595' }]).length, 2);
+  assert.equal(merge()([sc], [bsd])[0].id, sc.id);
 });

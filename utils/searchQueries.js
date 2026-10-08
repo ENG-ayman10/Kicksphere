@@ -25,6 +25,7 @@ const aliasGroups = [
   ['Spain', 'إسبانيا', 'اسبانيا'], ['France', 'فرنسا'], ['Germany', 'ألمانيا', 'المانيا'],
   ['Italy', 'إيطاليا', 'ايطاليا'], ['Brazil', 'البرازيل'], ['Portugal', 'البرتغال'],
   ['Saudi Arabia', 'السعودية'],
+  ['Yemen', 'اليمن', 'منتخب اليمن'],
 ];
 const aliases = new Map(aliasGroups.flatMap(([term, ...names]) =>
   [term, ...names].map(name => [normalizeTerm(name), term])));

@@ -1,0 +1,1074 @@
+{
+  "checkedAt": "2026-10-08",
+  "provenance": "Public trophy rows captured from KickOff; no profile data or credentials",
+  "players": [
+    {
+      "name": "Lionel Messi",
+      "playerId": 154,
+      "rows": [
+        {
+          "id": 337,
+          "playerId": 154,
+          "league": "Leagues Cup",
+          "country": "N/C America",
+          "season": "2025",
+          "place": "2nd Place"
+        },
+        {
+          "id": 338,
+          "playerId": 154,
+          "league": "CONMEBOL Copa America",
+          "country": "South America",
+          "season": "2024",
+          "place": "Winner"
+        },
+        {
+          "id": 339,
+          "playerId": 154,
+          "league": "Leagues Cup",
+          "country": "N/C America",
+          "season": "2023",
+          "place": "Winner"
+        },
+        {
+          "id": 340,
+          "playerId": 154,
+          "league": "US Open Cup",
+          "country": "USA",
+          "season": "2023",
+          "place": "2nd Place"
+        },
+        {
+          "id": 341,
+          "playerId": 154,
+          "league": "Ligue 1",
+          "country": "France",
+          "season": "2022/2023",
+          "place": "Winner"
+        },
+        {
+          "id": 342,
+          "playerId": 154,
+          "league": "CONMEBOL/UEFA Finalissima",
+          "country": "World",
+          "season": "2022",
+          "place": "Winner"
+        },
+        {
+          "id": 343,
+          "playerId": 154,
+          "league": "FIFA World Cup",
+          "country": "World",
+          "season": "2022",
+          "place": "Winner"
+        },
+        {
+          "id": 344,
+          "playerId": 154,
+          "league": "Trophée des Champions",
+          "country": "France",
+          "season": "2022",
+          "place": "Winner"
+        },
+        {
+          "id": 345,
+          "playerId": 154,
+          "league": "Ligue 1",
+          "country": "France",
+          "season": "2021/2022",
+          "place": "Winner"
+        },
+        {
+          "id": 346,
+          "playerId": 154,
+          "league": "CONMEBOL Copa America",
+          "country": "South America",
+          "season": "2021",
+          "place": "Winner"
+        },
+        {
+          "id": 347,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": "2021",
+          "place": "2nd Place"
+        },
+        {
+          "id": 348,
+          "playerId": 154,
+          "league": "Copa del Rey",
+          "country": "Spain",
+          "season": "2020/2021",
+          "place": "Winner"
+        },
+        {
+          "id": 349,
+          "playerId": 154,
+          "league": "Trofeo Joan Gamper",
+          "country": "World",
+          "season": "2020",
+          "place": "Winner"
+        },
+        {
+          "id": 350,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2019/2020",
+          "place": "2nd Place"
+        },
+        {
+          "id": 351,
+          "playerId": 154,
+          "league": "Trofeo Joan Gamper",
+          "country": "World",
+          "season": "2019",
+          "place": "Winner"
+        },
+        {
+          "id": 352,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2018/2019",
+          "place": "Winner"
+        },
+        {
+          "id": 353,
+          "playerId": 154,
+          "league": "Copa del Rey",
+          "country": "Spain",
+          "season": "2018/2019",
+          "place": "2nd Place"
+        },
+        {
+          "id": 354,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": "2018",
+          "place": "Winner"
+        },
+        {
+          "id": 355,
+          "playerId": 154,
+          "league": "Trofeo Joan Gamper",
+          "country": "World",
+          "season": "2018",
+          "place": "Winner"
+        },
+        {
+          "id": 356,
+          "playerId": 154,
+          "league": "Copa del Rey",
+          "country": "Spain",
+          "season": "2017/2018",
+          "place": "Winner"
+        },
+        {
+          "id": 357,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2017/2018",
+          "place": "Winner"
+        },
+        {
+          "id": 358,
+          "playerId": 154,
+          "league": "Trofeo Joan Gamper",
+          "country": "World",
+          "season": "2017",
+          "place": "Winner"
+        },
+        {
+          "id": 359,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": "2017",
+          "place": "2nd Place"
+        },
+        {
+          "id": 360,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2016/2017",
+          "place": "2nd Place"
+        },
+        {
+          "id": 361,
+          "playerId": 154,
+          "league": "Copa del Rey",
+          "country": "Spain",
+          "season": "2016/2017",
+          "place": "Winner"
+        },
+        {
+          "id": 362,
+          "playerId": 154,
+          "league": "CONMEBOL Copa America",
+          "country": "South America",
+          "season": "2016",
+          "place": "2nd Place"
+        },
+        {
+          "id": 363,
+          "playerId": 154,
+          "league": "Trofeo Joan Gamper",
+          "country": "World",
+          "season": "2016",
+          "place": "Winner"
+        },
+        {
+          "id": 364,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": "2016",
+          "place": "Winner"
+        },
+        {
+          "id": 365,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2015/2016",
+          "place": "Winner"
+        },
+        {
+          "id": 366,
+          "playerId": 154,
+          "league": "Copa del Rey",
+          "country": "Spain",
+          "season": "2015/2016",
+          "place": "Winner"
+        },
+        {
+          "id": 367,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": "2015",
+          "place": "2nd Place"
+        },
+        {
+          "id": 368,
+          "playerId": 154,
+          "league": "UEFA Super Cup",
+          "country": "Europe",
+          "season": "2015",
+          "place": "Winner"
+        },
+        {
+          "id": 369,
+          "playerId": 154,
+          "league": "FIFA Intercontinental Cup",
+          "country": "World",
+          "season": "2015",
+          "place": "Winner"
+        },
+        {
+          "id": 370,
+          "playerId": 154,
+          "league": "CONMEBOL Copa America",
+          "country": "South America",
+          "season": "2015",
+          "place": "2nd Place"
+        },
+        {
+          "id": 371,
+          "playerId": 154,
+          "league": "UEFA Champions League",
+          "country": "Europe",
+          "season": "2014/2015",
+          "place": "Winner"
+        },
+        {
+          "id": 372,
+          "playerId": 154,
+          "league": "Copa del Rey",
+          "country": "Spain",
+          "season": "2014/2015",
+          "place": "Winner"
+        },
+        {
+          "id": 373,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2014/2015",
+          "place": "Winner"
+        },
+        {
+          "id": 374,
+          "playerId": 154,
+          "league": "FIFA World Cup",
+          "country": "World",
+          "season": "2014",
+          "place": "2nd Place"
+        },
+        {
+          "id": 375,
+          "playerId": 154,
+          "league": "Copa del Rey",
+          "country": "Spain",
+          "season": "2013/2014",
+          "place": "2nd Place"
+        },
+        {
+          "id": 376,
+          "playerId": 154,
+          "league": "Copa Catalunya",
+          "country": "Spain",
+          "season": "2013/2014",
+          "place": "Winner"
+        },
+        {
+          "id": 377,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2013/2014",
+          "place": "2nd Place"
+        },
+        {
+          "id": 378,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": "2013",
+          "place": "Winner"
+        },
+        {
+          "id": 379,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2012/2013",
+          "place": "Winner"
+        },
+        {
+          "id": 380,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": "2012",
+          "place": "2nd Place"
+        },
+        {
+          "id": 381,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2011/2012",
+          "place": "2nd Place"
+        },
+        {
+          "id": 382,
+          "playerId": 154,
+          "league": "Copa del Rey",
+          "country": "Spain",
+          "season": "2011/2012",
+          "place": "Winner"
+        },
+        {
+          "id": 383,
+          "playerId": 154,
+          "league": "UEFA Super Cup",
+          "country": "Europe",
+          "season": "2011/2012",
+          "place": "Winner"
+        },
+        {
+          "id": 384,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": "2011",
+          "place": "Winner"
+        },
+        {
+          "id": 385,
+          "playerId": 154,
+          "league": "FIFA Intercontinental Cup",
+          "country": "World",
+          "season": "2011",
+          "place": "Winner"
+        },
+        {
+          "id": 386,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2010/2011",
+          "place": "Winner"
+        },
+        {
+          "id": 387,
+          "playerId": 154,
+          "league": "UEFA Champions League",
+          "country": "Europe",
+          "season": "2010/2011",
+          "place": "Winner"
+        },
+        {
+          "id": 388,
+          "playerId": 154,
+          "league": "Copa del Rey",
+          "country": "Spain",
+          "season": "2010/2011",
+          "place": "2nd Place"
+        },
+        {
+          "id": 389,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": "2010",
+          "place": "Winner"
+        },
+        {
+          "id": 390,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2009/2010",
+          "place": "Winner"
+        },
+        {
+          "id": 391,
+          "playerId": 154,
+          "league": "FIFA Intercontinental Cup",
+          "country": "World",
+          "season": "2009",
+          "place": "Winner"
+        },
+        {
+          "id": 392,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": "2009",
+          "place": "Winner"
+        },
+        {
+          "id": 393,
+          "playerId": 154,
+          "league": "UEFA Super Cup",
+          "country": "Europe",
+          "season": "2009",
+          "place": "Winner"
+        },
+        {
+          "id": 394,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2008/2009",
+          "place": "Winner"
+        },
+        {
+          "id": 395,
+          "playerId": 154,
+          "league": "UEFA Champions League",
+          "country": "Europe",
+          "season": "2008/2009",
+          "place": "Winner"
+        },
+        {
+          "id": 396,
+          "playerId": 154,
+          "league": "Copa del Rey",
+          "country": "Spain",
+          "season": "2008/2009",
+          "place": "Winner"
+        },
+        {
+          "id": 397,
+          "playerId": 154,
+          "league": "Olympics Men",
+          "country": "World",
+          "season": "2008",
+          "place": "Winner"
+        },
+        {
+          "id": 398,
+          "playerId": 154,
+          "league": "CONMEBOL Copa America",
+          "country": "South America",
+          "season": "2007",
+          "place": "2nd Place"
+        },
+        {
+          "id": 399,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2006/2007",
+          "place": "2nd Place"
+        },
+        {
+          "id": 400,
+          "playerId": 154,
+          "league": "UEFA Super Cup",
+          "country": "Europe",
+          "season": "2006/2007",
+          "place": "2nd Place"
+        },
+        {
+          "id": 401,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": "2006",
+          "place": "Winner"
+        },
+        {
+          "id": 402,
+          "playerId": 154,
+          "league": "FIFA Intercontinental Cup",
+          "country": "World",
+          "season": "2006",
+          "place": "2nd Place"
+        },
+        {
+          "id": 403,
+          "playerId": 154,
+          "league": "UEFA Champions League",
+          "country": "Europe",
+          "season": "2005/2006",
+          "place": "Winner"
+        },
+        {
+          "id": 404,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2005/2006",
+          "place": "Winner"
+        },
+        {
+          "id": 405,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": "2005",
+          "place": "Winner"
+        },
+        {
+          "id": 406,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": "2004/2005",
+          "place": "Winner"
+        },
+        {
+          "id": 407,
+          "playerId": 154,
+          "league": "Trofeo Joan Gamper",
+          "country": "World",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 408,
+          "playerId": 154,
+          "league": "Copa Catalunya",
+          "country": "Spain",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 409,
+          "playerId": 154,
+          "league": "FIFA Intercontinental Cup",
+          "country": "World",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 410,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 411,
+          "playerId": 154,
+          "league": "FIFA Intercontinental Cup",
+          "country": "World",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 412,
+          "playerId": 154,
+          "league": "Copa del Rey",
+          "country": "Spain",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 413,
+          "playerId": 154,
+          "league": "Copa del Rey",
+          "country": "Spain",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 414,
+          "playerId": 154,
+          "league": "CONMEBOL Copa America",
+          "country": "South America",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 415,
+          "playerId": 154,
+          "league": "UEFA Super Cup",
+          "country": "Europe",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 416,
+          "playerId": 154,
+          "league": "UEFA Super Cup",
+          "country": "Europe",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 417,
+          "playerId": 154,
+          "league": "Ligue 1",
+          "country": "France",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 418,
+          "playerId": 154,
+          "league": "CONMEBOL Copa America",
+          "country": "South America",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 419,
+          "playerId": 154,
+          "league": "UEFA Champions League",
+          "country": "Europe",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 420,
+          "playerId": 154,
+          "league": "Olympics Men",
+          "country": "World",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 421,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 422,
+          "playerId": 154,
+          "league": "FIFA World Cup",
+          "country": "World",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 423,
+          "playerId": 154,
+          "league": "La Liga",
+          "country": "Spain",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 424,
+          "playerId": 154,
+          "league": "FIFA World Cup",
+          "country": "World",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 425,
+          "playerId": 154,
+          "league": "Super Cup",
+          "country": "Spain",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 426,
+          "playerId": 154,
+          "league": "CONMEBOL/UEFA Finalissima",
+          "country": "World",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 427,
+          "playerId": 154,
+          "league": "Trophée des Champions",
+          "country": "France",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 428,
+          "playerId": 154,
+          "league": "Leagues Cup",
+          "country": "N/C America",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 429,
+          "playerId": 154,
+          "league": "US Open Cup",
+          "country": "USA",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 430,
+          "playerId": 154,
+          "league": "Leagues Cup",
+          "country": "N/C America",
+          "season": null,
+          "place": "2nd Place"
+        }
+      ]
+    },
+    {
+      "name": "Erling Haaland",
+      "playerId": 1100,
+      "rows": [
+        {
+          "id": 299,
+          "playerId": 1100,
+          "league": "FA Cup",
+          "country": "England",
+          "season": "2024/2025",
+          "place": "2nd Place"
+        },
+        {
+          "id": 300,
+          "playerId": 1100,
+          "league": "Community Shield",
+          "country": "England",
+          "season": "2024",
+          "place": "Winner"
+        },
+        {
+          "id": 301,
+          "playerId": 1100,
+          "league": "FA Cup",
+          "country": "England",
+          "season": "2023/2024",
+          "place": "2nd Place"
+        },
+        {
+          "id": 302,
+          "playerId": 1100,
+          "league": "Premier League",
+          "country": "England",
+          "season": "2023/2024",
+          "place": "Winner"
+        },
+        {
+          "id": 303,
+          "playerId": 1100,
+          "league": "FIFA Intercontinental Cup",
+          "country": "World",
+          "season": "2023",
+          "place": "Winner"
+        },
+        {
+          "id": 304,
+          "playerId": 1100,
+          "league": "UEFA Super Cup",
+          "country": "Europe",
+          "season": "2023",
+          "place": "Winner"
+        },
+        {
+          "id": 305,
+          "playerId": 1100,
+          "league": "J.League World Challenge",
+          "country": "World",
+          "season": "2023",
+          "place": "Winner"
+        },
+        {
+          "id": 306,
+          "playerId": 1100,
+          "league": "Community Shield",
+          "country": "England",
+          "season": "2023",
+          "place": "2nd Place"
+        },
+        {
+          "id": 307,
+          "playerId": 1100,
+          "league": "UEFA Champions League",
+          "country": "Europe",
+          "season": "2022/2023",
+          "place": "Winner"
+        },
+        {
+          "id": 308,
+          "playerId": 1100,
+          "league": "FA Cup",
+          "country": "England",
+          "season": "2022/2023",
+          "place": "Winner"
+        },
+        {
+          "id": 309,
+          "playerId": 1100,
+          "league": "Premier League",
+          "country": "England",
+          "season": "2022/2023",
+          "place": "Winner"
+        },
+        {
+          "id": 310,
+          "playerId": 1100,
+          "league": "Community Shield",
+          "country": "England",
+          "season": "2022",
+          "place": "2nd Place"
+        },
+        {
+          "id": 311,
+          "playerId": 1100,
+          "league": "Bundesliga",
+          "country": "Germany",
+          "season": "2021/2022",
+          "place": "2nd Place"
+        },
+        {
+          "id": 312,
+          "playerId": 1100,
+          "league": "Super Cup",
+          "country": "Germany",
+          "season": "2021",
+          "place": "2nd Place"
+        },
+        {
+          "id": 313,
+          "playerId": 1100,
+          "league": "DFB Pokal",
+          "country": "Germany",
+          "season": "2020/2021",
+          "place": "Winner"
+        },
+        {
+          "id": 314,
+          "playerId": 1100,
+          "league": "Super Cup",
+          "country": "Germany",
+          "season": "2020",
+          "place": "2nd Place"
+        },
+        {
+          "id": 315,
+          "playerId": 1100,
+          "league": "Bundesliga",
+          "country": "Germany",
+          "season": "2019/2020",
+          "place": "2nd Place"
+        },
+        {
+          "id": 316,
+          "playerId": 1100,
+          "league": "The Atlantic Cup",
+          "country": "World",
+          "season": "2019",
+          "place": "Winner"
+        },
+        {
+          "id": 317,
+          "playerId": 1100,
+          "league": "Cup",
+          "country": "Austria",
+          "season": "2018/2019",
+          "place": "Winner"
+        },
+        {
+          "id": 318,
+          "playerId": 1100,
+          "league": "Bundesliga",
+          "country": "Austria",
+          "season": "2018/2019",
+          "place": "Winner"
+        },
+        {
+          "id": 319,
+          "playerId": 1100,
+          "league": "Eliteserien",
+          "country": "Norway",
+          "season": "2018",
+          "place": "2nd Place"
+        },
+        {
+          "id": 320,
+          "playerId": 1100,
+          "league": "Eliteserien",
+          "country": "Norway",
+          "season": "2017",
+          "place": "2nd Place"
+        },
+        {
+          "id": 321,
+          "playerId": 1100,
+          "league": "Premier League",
+          "country": "England",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 322,
+          "playerId": 1100,
+          "league": "Community Shield",
+          "country": "England",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 323,
+          "playerId": 1100,
+          "league": "FA Cup",
+          "country": "England",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 324,
+          "playerId": 1100,
+          "league": "Community Shield",
+          "country": "England",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 325,
+          "playerId": 1100,
+          "league": "Super Cup",
+          "country": "Germany",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 326,
+          "playerId": 1100,
+          "league": "FA Cup",
+          "country": "England",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 327,
+          "playerId": 1100,
+          "league": "DFB Pokal",
+          "country": "Germany",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 328,
+          "playerId": 1100,
+          "league": "The Atlantic Cup",
+          "country": "World",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 329,
+          "playerId": 1100,
+          "league": "Bundesliga",
+          "country": "Germany",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 330,
+          "playerId": 1100,
+          "league": "UEFA Champions League",
+          "country": "Europe",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 331,
+          "playerId": 1100,
+          "league": "Bundesliga",
+          "country": "Austria",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 332,
+          "playerId": 1100,
+          "league": "J.League World Challenge",
+          "country": "World",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 333,
+          "playerId": 1100,
+          "league": "Cup",
+          "country": "Austria",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 334,
+          "playerId": 1100,
+          "league": "UEFA Super Cup",
+          "country": "Europe",
+          "season": null,
+          "place": "Winner"
+        },
+        {
+          "id": 335,
+          "playerId": 1100,
+          "league": "Eliteserien",
+          "country": "Norway",
+          "season": null,
+          "place": "2nd Place"
+        },
+        {
+          "id": 336,
+          "playerId": 1100,
+          "league": "FIFA Intercontinental Cup",
+          "country": "World",
+          "season": null,
+          "place": "Winner"
+        }
+      ]
+    }
+  ]
+}

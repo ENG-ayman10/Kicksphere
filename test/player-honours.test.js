@@ -46,6 +46,54 @@ test('honour history preserves provider seasons and distinguishes winners from p
   assert.equal(result.honoursCoverage.complete, true);
 });
 
+test('documented numeric finishing positions preserve source labels and winner semantics', () => {
+  for (const [place, winner] of [['1', true], [1, true], ['2', false], [2, false]]) {
+    const result = normalizePlayerHonours([trophy({ place })], scope);
+    assert.equal(result.honours[0].place, String(place));
+    assert.equal(result.honours[0].isWinner, winner);
+    assert.equal(result.honours[0].playerId, scope.playerId);
+  }
+});
+
+test('recognized placements take precedence over conflicting winner flags', () => {
+  for (const [place, flag, winner] of [
+    ['1', false, true], [1, false, true], ['Winner', false, true],
+    ['2', true, false], [2, true, false], ['2nd Place', true, false],
+  ]) {
+    const row = normalizePlayerHonours([trophy({ place, isWinner: flag })], scope).honours[0];
+    assert.equal(row.place, String(place));
+    assert.equal(row.isWinner, winner);
+  }
+});
+
+test('missing seasons and unknown positions do not invent dates, counts or wins', () => {
+  for (const place of ['1', 2, 'Unspecified', 0, 1.5, null]) {
+    const row = normalizePlayerHonours([trophy({ season: null, place })], scope).honours[0];
+    assert.equal(row.season, '');
+    assert.equal(row.count, null);
+    assert.equal(row.team, '');
+    assert.equal(row.isWinner, place === '1' ? true : place === 2 ? false : null);
+  }
+  const explicit = normalizePlayerHonours([trophy({ season: null, place: 'Unspecified', is_winner: true, count: 3 })], scope).honours[0];
+  assert.equal(explicit.isWinner, true);
+  assert.equal(explicit.place, 'Unspecified');
+  assert.equal(explicit.count, 3);
+  for (const count of [0, -1, 1.5, 'unknown']) {
+    assert.equal(normalizePlayerHonours([trophy({ season: null, count })], scope).honours[0].count, null);
+  }
+});
+
+test('numeric placements cannot bypass the exact provider player identity guard', () => {
+  const result = normalizePlayerHonours([
+    trophy({ place: 1 }), trophy({ place: '1', playerId: 279 }),
+    trophy({ place: 2, playerId: 'bsd_p_278' }),
+  ], scope);
+  assert.equal(result.honours.length, 1);
+  assert.equal(result.honours[0].isWinner, true);
+  assert.equal(result.honoursCoverage.rejected, 2);
+  assert.equal(result.honoursCoverage.complete, false);
+});
+
 test('honour normalization rejects a different explicit player and malformed rows', () => {
   const result = normalizePlayerHonours([trophy(), trophy({ playerId: 279 }), { league: {} }, 'Fake title'], scope);
   assert.equal(result.honours.length, 1);
@@ -86,7 +134,8 @@ test('Kickoff obtains documented exact player history and caches/coalesces it', 
   });
   const [first, duplicate] = await Promise.all([api.getPlayerHonours('ko_p_278'), api.getPlayerHonours('ko_p_278')]);
   assert.deepEqual(first, duplicate);
-  assert.equal(first.honoursCoverage.complete, true);
+  assert.equal(first.honoursCoverage.complete, false);
+  assert.equal(first.honoursCoverage.responseComplete, true);
   await api.getPlayerHonours('ko_p_278');
   assert.equal(calls.length, 1);
   await api.getPlayerHonours('bsd_p_278');
