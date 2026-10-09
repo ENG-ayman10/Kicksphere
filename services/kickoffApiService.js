@@ -601,6 +601,11 @@ exports.getTeamDetails = async (teamIdOrName) => {
     shortName: team.name || '',
     logo: team.logo || (team.id ? `https://images.kickoffapi.com/images/logos/${team.id}.png` : ''),
     country: team.countryName || team.country || '',
+    ...Object.fromEntries(['national', 'is_national', 'isNational', 'is_women', 'isWomen']
+      .filter(key => typeof team[key] === 'boolean').map(key => [key, team[key]])),
+    ...Object.fromEntries(['type', 'gender', 'category', 'ageGroup', 'age_group']
+      .filter(key => typeof team[key] === 'string' && team[key].trim().length > 0 && team[key].trim().length <= 100)
+      .map(key => [key, team[key].trim()])),
     founded: team.founded || null,
     venue: venue?.name ? `${venue.name}${venue.city ? ` (${venue.city})` : ''}` : '',
     venueImage: venue?.image || '',

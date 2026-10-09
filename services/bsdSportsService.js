@@ -646,6 +646,28 @@ function enrichCareerTeamLabels(career, currentTeam, nationalTeam, transfers) {
     if (name) row.team = name;
   }
 }
+async function recoverCareerTeamLabels(career) {
+  // Historical clubs may be absent from both the current profile and transfers.
+  // Resolve only exact BSD identities, once per missing team, with a small budget.
+  const ids = [...new Set(career.filter(row => !String(row.team || '').trim())
+    .map(row => scopedId(row.teamId, 'bsd_t_')).filter(Boolean))].slice(0, 12);
+  const deadline = Date.now() + 4000;
+  for (let offset = 0; offset < ids.length; offset += 3) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await Promise.all(ids.slice(offset, offset + 3).map(async id => {
+      const raw = await fetchBsd('/api/v2/teams/' + id + '/', {}, TTL.catalog, Math.min(2000, remaining));
+      if (positiveId(raw?.id) !== id || typeof raw.name !== 'string') return;
+      const name = raw.name.trim();
+      // A matching numeric identity cannot make an explicitly foreign-sport
+      // label valid for a football career (the source has supplied such rows).
+      if (!name || name.length > 180 || /\b(?:cricket|basketball|volleyball|ice hockey|baseball)\b/i.test(name)) return;
+      for (const row of career) {
+        if (scopedId(row.teamId, 'bsd_t_') === id && !String(row.team || '').trim()) row.team = name;
+      }
+    }));
+  }
+}
 const EXTRA_PLAYER_FIELDS = { shots: 'total_shots', shotsOnTarget: 'shots_on_target', passes: 'total_pass', tackles: 'total_tackle', tacklesWon: 'won_tackle', interceptions: 'interception', dribbles: 'won_contest', dribblesAttempted: 'total_contest', keyPasses: 'key_pass', yellowCards: 'yellow_card', redCards: 'red_card', saves: 'saves', goalsConceded: 'goals_conceded', touches: 'touches', duelsWon: 'duel_won', duelsLost: 'duel_lost', aerialDuelsWon: 'aerial_won', clearances: 'total_clearance', ballRecoveries: 'ball_recovery', bigChancesCreated: 'big_chance_created', bigChancesMissed: 'big_chance_missed', foulsCommitted: 'fouls', foulsWon: 'was_fouled', offsides: 'total_offside' };
 exports.getPlayerDetails = async (playerId, options = {}) => {
   const id = scopedId(playerId, 'bsd_p_'); if (!id) return null;
@@ -663,6 +685,7 @@ exports.getPlayerDetails = async (playerId, options = {}) => {
   // edition; historical metadata may independently mark an old season current.
   let selection = selectBsdPlayerScope(career, options, clubId, leagueId, PRIMARY_LEAGUE_IDS);
   const seasonEnrichment = enrichCareerSeasonLabels(career);
+  const teamEnrichment = recoverCareerTeamLabels(career);
   if (options.seasonId !== undefined || options.season !== undefined) {
     await seasonEnrichment;
     selection = selectBsdPlayerScope(career, options, clubId, leagueId, PRIMARY_LEAGUE_IDS);
@@ -679,7 +702,7 @@ exports.getPlayerDetails = async (playerId, options = {}) => {
     extra = aggregated.metrics; statsCoverage = aggregated.coverage;
     Object.assign(selected, extra, { statsCoverage });
   }
-  await seasonEnrichment;
+  await Promise.all([seasonEnrichment, teamEnrichment]);
   for (const row of career) Object.assign(row, normalizeCareerCompetitionLabels(row));
   const honours = normalizePlayerHonours(playerHonourInput(raw.honours, raw.trophies), { playerId: info.id, rawPlayerId: id, provider: 'bsd', complete: raw.honours_complete === true });
   const bioFields = { dateOfBirth: Boolean(info.dateOfBirth), nationality: Boolean(info.nationality), position: Boolean(info.position), height: info.height !== null, weight: info.weight !== null, preferredFoot: Boolean(info.preferredFoot), currentTeam: Boolean(currentTeam) };

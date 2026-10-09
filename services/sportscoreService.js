@@ -744,6 +744,11 @@ exports.getTeamDetails = async (teamSlugOrName) => {
         crest: team.logo || '',
         slug: team.slug || slug,
         country: typeof team.country === 'string' ? team.country : (team.country?.name || ''),
+        ...Object.fromEntries(['national', 'is_national', 'isNational', 'is_women', 'isWomen']
+          .filter(key => typeof team[key] === 'boolean').map(key => [key, team[key]])),
+        ...Object.fromEntries(['type', 'gender', 'category', 'ageGroup', 'age_group']
+          .filter(key => typeof team[key] === 'string' && team[key].trim().length > 0 && team[key].trim().length <= 100)
+          .map(key => [key, team[key].trim()])),
       },
       matches: {
         recent,

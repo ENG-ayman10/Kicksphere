@@ -37,6 +37,7 @@ function adapter(read = path => response(path === '/players/profiles' ? profiles
   let config;
   const original = Module._load;
   delete require.cache[require.resolve('../services/apiFootballHonoursService')];
+  delete require.cache[require.resolve('../services/apiFootballClient')];
   Module._load = function (name, parent, isMain) {
     if (name === 'axios') return { create: options => {
       config = options;
@@ -273,7 +274,7 @@ test('profile envelopes must echo the search and include a complete valid page',
     { ...profiles([player()]), errors: { plan: 'Restricted' } },
     { ...profiles([player()]), results: 0 },
     { ...profiles([player()]), response: {} },
-    { ...profiles([player()]), paging: { current: 1, total: 2 } },
+    { ...profiles([player()]), paging: { current: 1, total: 4 } },
     { ...profiles([player()]), paging: { current: 2, total: 2 } },
     { ...profiles([player()]), paging: undefined },
   ]) {
@@ -474,4 +475,166 @@ test('the shared lookup deadline aborts transport and returns the original sourc
     assert.deepEqual(result.honours, []);
     assert.equal(calls.length, 1);
   } finally { AbortSignal.timeout = originalTimeout; }
+});
+
+function profilePage(rows, page, total, extra = {}) {
+  return { ...profiles(rows), parameters: { search: 'mbappe', page },
+    paging: { current: page, total }, ...extra };
+}
+
+test('a unique profile on the last verified page can supply dated honours', async () => {
+  const { service, calls } = adapter((path, params) => response(path === '/trophies'
+    ? trophies([trophy()])
+    : profilePage([params.page === 3 ? player() : player({ id: params.page, nationality: 'England' })], params.page, 3)));
+  const result = await service.getPlayerHonoursForProfile(profile());
+  assert.equal(result.honoursCoverage.available, true);
+  assert.equal(result.honoursCoverage.sourcePlayerId, '999');
+  assert.deepEqual(calls.map(call => [call.path, call.options.params.page]), [
+    ['/players/profiles', 1], ['/players/profiles', 2], ['/players/profiles', 3], ['/trophies', undefined],
+  ]);
+  assert.equal(result.honours[0].providerPlayerId, '999');
+  assert.ok(calls.every(call => call.options.signal === calls[0].options.signal));
+});
+
+test('a first-page match is not selected before a later matching source ID is seen', async () => {
+  const { service, calls } = adapter((_path, params) => response(
+    profilePage([player({ id: params.page === 1 ? 999 : 1000 })], params.page, 2)));
+  const result = await service.getPlayerHonoursForProfile(profile());
+  assert.equal(result.honoursCoverage.reason, 'ambiguous_player_identity');
+  assert.equal(result.honoursCoverage.identityVerified, false);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every(call => call.path === '/players/profiles'));
+});
+
+test('contradictory identity for the same source ID on a later page prevents enrichment', async () => {
+  const { service, calls } = adapter((_path, params) => response(profilePage([
+    player(params.page === 2 ? { nationality: 'England' } : {}),
+  ], params.page, 2)));
+  const result = await service.getPlayerHonoursForProfile(profile());
+  assert.equal(result.honoursCoverage.reason, 'provider_player_identity_conflict');
+  assert.equal(result.honoursCoverage.identityVerified, false);
+  assert.equal(calls.length, 2);
+});
+
+test('changed query, page totals, repeated page and empty later pages cannot establish uniqueness', async () => {
+  for (const brokenPage of [
+    profilePage([player()], 2, 2, { parameters: { search: 'different', page: 2 } }),
+    profilePage([player()], 2, 3), profilePage([player()], 1, 2),
+    profilePage([player()], 2, 2, { parameters: { search: 'mbappe' } }), profilePage([], 2, 2),
+  ]) {
+    const { service, calls } = adapter((_path, params) => response(params.page === 1
+      ? profilePage([player()], 1, 2) : brokenPage));
+    const result = await service.getPlayerHonoursForProfile(profile());
+    assert.equal(result.honoursCoverage.reason, 'provider_profile_response_unverified');
+    assert.equal(result.honoursCoverage.identityVerified, false);
+    assert.equal(calls.length, 2);
+  }
+});
+
+test('unavailable final profile page cannot attach trophies from an earlier match', async () => {
+  const { service, calls } = adapter((_path, params) => {
+    if (params.page === 2) throw { code: 'ECONNABORTED' };
+    return response(profilePage([player()], 1, 2));
+  });
+  const result = await service.getPlayerHonoursForProfile(profile());
+  assert.equal(result.honoursCoverage.reason, 'provider_timeout');
+  assert.equal(result.honoursCoverage.identityVerified, false);
+  assert.equal(calls.length, 2);
+});
+
+test('profile pagination above the hard cap is refused before further provider reads', async () => {
+  const { service, calls } = adapter(() => response(profilePage([player()], 1, 4)));
+  const result = await service.getPlayerHonoursForProfile(profile());
+  assert.equal(result.honoursCoverage.reason, 'provider_profile_page_limit');
+  assert.equal(result.honoursCoverage.identityVerified, false);
+  assert.equal(calls.length, 1);
+});
+
+test('distinct concurrent lookups return capacity coverage immediately while same identity still coalesces', async () => {
+  const releases = [];
+  let held = true;
+  const { service, calls } = adapter(path => held
+    ? new Promise(resolve => releases.push(() => resolve(response(profiles([player()])))))
+    : response(path === '/players/profiles' ? profiles([player()]) : trophies([trophy()])));
+  const first = service.getPlayerHonoursForProfile(profile());
+  const duplicate = service.getPlayerHonoursForProfile(profile());
+  const second = service.getPlayerHonoursForProfile(profile({ id: 'bsd_p_852' }));
+  const overflow = await service.getPlayerHonoursForProfile(profile({ id: 'bsd_p_594' }));
+  assert.equal(overflow.honoursCoverage.reason, 'provider_lookup_capacity_exceeded');
+  assert.equal(calls.length, 2);
+  held = false;
+  releases.forEach(release => release());
+  const results = await Promise.all([first, duplicate, second]);
+  assert.equal(calls.length, 4);
+  assert.equal(results.every(result => result.honoursCoverage.available), true);
+  const recovered = await service.getPlayerHonoursForProfile(profile({ id: 'bsd_p_594' }));
+  assert.equal(recovered.honoursCoverage.available, true);
+  assert.equal(calls.length, 6);
+});
+
+test('minute budget refusals expire when capacity returns rather than caching five minutes', async () => clock(async advance => {
+  const { service, calls } = adapter();
+  for (const id of [1, 2, 3, 4]) {
+    assert.equal((await service.getPlayerHonoursForProfile(profile({ id: 'bsd_p_' + id }))).honoursCoverage.available, true);
+  }
+  const blocked = await service.getPlayerHonoursForProfile(profile({ id: 'bsd_p_5' }));
+  assert.equal(blocked.honoursCoverage.reason, 'provider_minute_request_budget_exhausted');
+  assert.equal(calls.length, 8);
+  advance(60000);
+  assert.equal((await service.getPlayerHonoursForProfile(profile({ id: 'bsd_p_5' }))).honoursCoverage.available, true);
+  assert.equal(calls.length, 10);
+}));
+
+test('biography supplement binds both player IDs to a verified profile even when trophies time out', async () => {
+  const { service, calls } = adapter(path => {
+    if (path === '/trophies') throw { code: 'ECONNABORTED' };
+    return response(profiles([player({ weight: '88 kg', height: '195 cm', photo: 'https://media.api-sports.io/football/players/999.png' })]));
+  });
+  const result = await service.getPlayerHonoursForProfile(profile());
+  assert.equal(result.honoursCoverage.reason, 'provider_timeout');
+  assert.deepEqual(result.profileSupplement, {
+    targetId: 'bsd_p_9063', sourcePlayerId: '999', provider: 'api-football', identityVerified: true,
+    weight: '88 kg', height: '195 cm', photo: 'https://media.api-sports.io/football/players/999.png',
+  });
+  assert.equal(calls.length, 2);
+});
+
+test('quota preventing trophies still retains an independently verified biography supplement', async () => {
+  const { service, calls } = adapter(() => response(profiles([player({ weight: '88 kg' })]), {
+    'x-ratelimit-requests-remaining': '0',
+  }));
+  const result = await service.getPlayerHonoursForProfile(profile());
+  assert.equal(result.honoursCoverage.reason, 'provider_daily_quota_exhausted');
+  assert.equal(result.profileSupplement.targetId, 'bsd_p_9063');
+  assert.equal(result.profileSupplement.sourcePlayerId, '999');
+  assert.equal(result.profileSupplement.identityVerified, true);
+  assert.equal(result.profileSupplement.weight, '88 kg');
+  assert.equal(calls.length, 1);
+});
+
+test('ambiguous, conflicting and incomplete profile searches never produce a biography supplement', async () => {
+  const readers = [
+    () => response(profiles([player({ weight: '88 kg' }), player({ id: 1000, weight: '90 kg' })])),
+    () => response(profiles([player({ weight: '88 kg' }), player({ nationality: 'England' })])),
+    (_path, params) => {
+      if (params.page === 2) throw { code: 'ECONNABORTED' };
+      return response(profilePage([player({ weight: '88 kg' })], 1, 2));
+    },
+  ];
+  for (const read of readers) {
+    const { service } = adapter(read);
+    assert.equal((await service.getPlayerHonoursForProfile(profile())).profileSupplement, undefined);
+  }
+});
+
+test('conflicting duplicate biography fields are omitted without borrowing from another source ID', async () => {
+  const { service } = adapter(path => response(path === '/players/profiles' ? profiles([
+    player({ weight: '88 kg', height: '195 cm' }), player({ weight: '90 kg', height: '195 cm' }),
+    player({ id: 1000, nationality: 'England', photo: 'https://media.api-sports.io/football/players/1000.png' }),
+  ]) : trophies([trophy()])));
+  const result = await service.getPlayerHonoursForProfile(profile());
+  assert.equal(result.honoursCoverage.available, true);
+  assert.deepEqual(result.profileSupplement, {
+    targetId: 'bsd_p_9063', sourcePlayerId: '999', provider: 'api-football', identityVerified: true, height: '195 cm',
+  });
 });

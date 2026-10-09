@@ -101,6 +101,68 @@ test('a supplementary timeout or auth error does not fail the original player pr
   const original = profile(); assert.strictEqual(await enrich(original), original);
 }));
 
+const biography = (extra = {}) => ({ targetId: 'bsd_p_852', sourcePlayerId: '1100',
+  provider: 'api-football', identityVerified: true, weight: '88 kg', height: '195 cm',
+  photo: 'https://media.api-sports.io/football/players/1100.png', ...extra });
+
+test('verified profile fills missing measurements even when trophies fail, keeping identity and statistics', () => enabled(async () => {
+  const original = { ...profile(), weight: null, height: 195,
+    coverage: { ...profile().coverage, profile: { available: true, complete: false,
+      fields: { weight: false, height: true }, missingFields: ['weight'] } } };
+  const before = structuredClone(original);
+  const enrich = load({ isConfigured: () => true, getPlayerHonoursForProfile: async () => ({
+    profileSupplement: biography(), honours: [], honoursCoverage: { available: false } }) });
+  const result = await enrich(original);
+  assert.equal(result.weight, 88);
+  assert.equal(result.height, 195);
+  assert.deepEqual(result.seasonStats, before.seasonStats);
+  assert.deepEqual(result.statsContext, before.statsContext);
+  assert.deepEqual(result.honours, before.honours);
+  assert.equal(result.id, before.id);
+  assert.equal(result.coverage.profile.fields.weight, true);
+  assert.deepEqual(result.coverage.profile.missingFields, []);
+  assert.equal(result.biographySources.weight.sourcePlayerId, '1100');
+  assert.deepEqual(original, before);
+}));
+
+test('known biography and portrait values are never replaced by a supplement', () => enabled(async () => {
+  const original = { ...profile(), weight: 90, height: 196 };
+  const enrich = load({ isConfigured: () => true, getPlayerHonoursForProfile: async () => ({ profileSupplement: biography() }) });
+  assert.strictEqual(await enrich(original), original);
+}));
+
+test('missing portrait accepts only the exact verified API player image, without credentials or redirects', () => enabled(async () => {
+  const enrichFor = supplied => load({ isConfigured: () => true,
+    getPlayerHonoursForProfile: async () => ({ profileSupplement: biography({ weight: null, height: null, photo: supplied }) }) });
+  const original = { ...profile(), image: '', photo: null };
+  assert.equal((await enrichFor(biography().photo)(original)).image, biography().photo);
+  for (const supplied of ['http://media.api-sports.io/football/players/1100.png',
+    'https://media.api-sports.io/football/players/999.png',
+    'https://media.api-sports.io.evil.test/football/players/1100.png',
+    'https://user:password@media.api-sports.io/football/players/1100.png',
+    'https://media.api-sports.io/football/players/1100.png?key=secret']) {
+    assert.strictEqual(await enrichFor(supplied)(original), original);
+  }
+}));
+
+test('foreign and unverified profile supplements cannot fill biography gaps', () => enabled(async () => {
+  for (const extra of [{ targetId: 'bsd_p_999' }, { sourcePlayerId: '0' },
+    { provider: 'bsd' }, { identityVerified: false }]) {
+    const original = { ...profile(), weight: null, height: null };
+    const enrich = load({ isConfigured: () => true, getPlayerHonoursForProfile: async () => ({ profileSupplement: biography(extra) }) });
+    assert.strictEqual(await enrich(original), original);
+  }
+}));
+
+test('wrong units, impossible measurements and empty values remain missing', () => enabled(async () => {
+  for (const value of ['0 kg', '-88 kg', '88 lb', '88;alert(1)', '999 kg', true, {}, null, '']) {
+    const original = { ...profile(), weight: null };
+    const enrich = load({ isConfigured: () => true,
+      getPlayerHonoursForProfile: async () => ({ profileSupplement: biography({ weight: value, height: null, photo: null }) }) });
+    assert.strictEqual(await enrich(original), original);
+  }
+}));
+
 test('a complete resource is never presented as a complete career honours history', () => enabled(async () => {
   const supplement = history(); supplement.honoursCoverage.complete = true; supplement.honoursCoverage.partial = false;
   const enrich = load({ isConfigured: () => true, getPlayerHonoursForProfile: async () => supplement });

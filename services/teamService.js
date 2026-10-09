@@ -69,6 +69,57 @@ const squadCoverage = (rows, source) => rows?.coverage || {
   ...(Array.isArray(rows) && rows.length === 0 ? { reason: 'empty_squad' } : {}),
 };
 
+const identityText = value => typeof value === 'string' ? value.normalize('NFKD')
+  .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[-\s]+/g, ' ').trim() : '';
+function teamCategory(info) {
+  const national = ['national', 'isNational', 'is_national'].filter(key => typeof info?.[key] === 'boolean')
+    .map(key => info[key]);
+  const type = identityText(info?.type).replace(/_/g, ' ');
+  if (['national', 'national team'].includes(type)) national.push(true);
+  if (['club', 'club team'].includes(type)) national.push(false);
+  const gender = ['gender'].map(key => identityText(info?.[key])).filter(Boolean)
+    .map(value => ['male', 'men', 'boys'].includes(value) ? 'male' : ['female', 'women', 'girls'].includes(value) ? 'female' : value);
+  for (const key of ['isWomen', 'is_women']) if (typeof info?.[key] === 'boolean') gender.push(info[key] ? 'female' : 'male');
+  const category = ['category', 'ageGroup', 'age_group'].map(key => identityText(info?.[key])).filter(Boolean);
+  const distinct = values => [...new Set(values)];
+  return { national: distinct(national), gender: distinct(gender), category: distinct(category) };
+}
+function sameVerifiedTeam(primary, secondary) {
+  const name = identityText(primary?.name), country = identityText(primary?.country);
+  if (!name || !country || name !== identityText(secondary?.name) || country !== identityText(secondary?.country)) return false;
+  const left = teamCategory(primary), right = teamCategory(secondary);
+  // A generic team label cannot establish club/national identity. Any supplied
+  // gender or age category must also be confirmed by the secondary provider.
+  if (left.national.length !== 1 || right.national.length !== 1 || left.national[0] !== right.national[0] ||
+      left.gender.length !== 1 || right.gender.length !== 1 || !['male', 'female'].includes(left.gender[0])) return false;
+  return ['gender', 'category'].every(key => left[key].length <= 1 && right[key].length <= 1 &&
+    left[key].length === right[key].length && left[key][0] === right[key][0]);
+}
+
+async function recoverSportScoreSquad(teamId, info) {
+  const category = teamCategory(info);
+  if (!identityText(info?.name) || !identityText(info?.country) || category.national.length !== 1 ||
+      category.gender.length !== 1 || !['male', 'female'].includes(category.gender[0]) || category.category.length > 1) return null;
+  const candidate = await kickoffApiService.getTeamDetails(info.name);
+  const sourceTeamId = scopedTeamId(candidate?.id, 'kickoffapi');
+  if (!/^ko_t_[1-9]\d*$/.test(String(candidate?.id || '')) || !sourceTeamId?.startsWith('ko_t_') || !sameVerifiedTeam(info, candidate) ||
+      (candidate.provider && candidate.provider !== 'kickoffapi') ||
+      (candidate.providerId && scopedTeamId(candidate.providerId, 'kickoffapi') !== sourceTeamId)) return null;
+  const squad = await kickoffApiService.getTeamSquad(sourceTeamId);
+  const coverage = squad?.coverage;
+  // The roster itself must certify the exact secondary team, not just inherit
+  // a successful name lookup. Player identities retain their source namespace.
+  if (!Array.isArray(squad) || !squad.length || coverage?.available !== true ||
+      coverage.source !== 'kickoffapi' || coverage.teamId !== sourceTeamId ||
+      squad.some(row => !/^ko_p_[1-9]\d*$/.test(String(row?.id || '')) ||
+        row.provider !== 'kickoffapi' || (row.source && row.source !== 'kickoffapi') ||
+        (row.teamId && row.teamId !== sourceTeamId) || (row.player?.id && row.player.id !== row.id))) return null;
+  return { ...serviceResult(squad, 'kickoffapi'), targetTeamId: teamId,
+    coverage: { ...coverage, targetTeamId: teamId, sourceTeamId, identityVerified: true },
+    squadContext: { teamId, sourceTeamId, source: 'kickoffapi', targetProvider: 'sportscore',
+      scope: coverage.scope || 'team_roster', identityVerified: true } };
+}
+
 exports.getTeamsService = async (competitionCode, options = {}) => {
   let teams = localTeams();
   let leagueCode;
@@ -257,9 +308,17 @@ exports.getTeamSquadService = async (idOrName) => {
   if (scopedTeamId(idOrName)?.startsWith('sc_t_')) {
     try {
       const team = await sportscoreService.getTeamDetails(lookup);
-      if (team && [String(idOrName).trim(), lookup].includes(String(team.info?.id)) && Array.isArray(team.squad)) return {
-        ...serviceResult(team.squad, 'sportscore'), coverage: team.coverage?.squad || squadCoverage(team.squad, 'sportscore'),
-      };
+      if (team && [String(idOrName).trim(), lookup].includes(String(team.info?.id))) {
+        if (Array.isArray(team.squad) && team.squad.length && team.coverage?.squad?.available !== false) return {
+          ...serviceResult(team.squad, 'sportscore'), coverage: team.coverage?.squad || squadCoverage(team.squad, 'sportscore'),
+        };
+        let recovered;
+        try { recovered = await recoverSportScoreSquad(scopedTeamId(idOrName), team.info); } catch (_) {}
+        if (recovered) return recovered;
+        if (Array.isArray(team.squad) && team.coverage?.squad?.available !== false) return {
+          ...serviceResult(team.squad, 'sportscore'), coverage: team.coverage?.squad || squadCoverage(team.squad, 'sportscore'),
+        };
+      }
       return { ...serviceResult([], 'unavailable'), coverage: unavailableCoverage('sportscore', 'provider_squad_unavailable') };
     } catch (_) { return { ...serviceResult([], 'unavailable'), coverage: unavailableCoverage('sportscore', 'provider_unavailable') }; }
   }
