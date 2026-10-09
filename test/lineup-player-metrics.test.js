@@ -15,8 +15,11 @@ function bsd(handler) {
   const requests = [], cache = new Map();
   const service = load('../services/bsdSportsService', {
     axios: { create: () => ({ get: async (path, options) => {
-      requests.push({ path, params: options.params }); return { data: await handler(path, options.params) };
-    } }) }, './cacheService': { getCached: key => cache.get(key), setCache: (key, value) => cache.set(key, value) },
+      requests.push({ path, params: options.params, timeout: options.timeout }); return { data: await handler(path, options.params, options) };
+    } }) }, './cacheService': {
+      getCached: key => { const entry = cache.get(key); return entry && Date.now() < entry.expires ? entry.value : null; },
+      setCache: (key, value, ttl) => cache.set(key, { value, expires: Date.now() + ttl }),
+    },
     '../utils/logger': logger,
   });
   if (previous === undefined) delete process.env.BSD_API_TOKEN; else process.env.BSD_API_TOKEN = previous;
@@ -221,4 +224,100 @@ test('public lineup endpoint enriches only its two verified owners and caches th
   assert.equal(b.body.source, 'bsd_cached'); assert.equal(squadCalls.length, 2); assert.equal(detailsCalls, 1);
   await controller.getMatchTimeline({ params: { id: 'bsd_1' } }, response());
   assert.equal(squadCalls.length, 2); assert.equal(detailsCalls, 2);
+});
+
+test('a temporary unavailable or partial roster refreshes after 15 seconds without losing confirmed XI evidence, then retains the normal complete TTL', async () => {
+  for (const initialState of ['unavailable', 'partial']) {
+    let now = 0, detailsCalls = 0, homeCalls = 0, awayCalls = 0;
+    const entries = new Map(), writes = [];
+    const roles = ['G', 'D', 'D', 'D', 'D', 'M', 'M', 'M', 'M', 'F', 'F'];
+    const grids = ['1:1', '2:1', '2:2', '2:3', '2:4', '3:1', '3:2', '3:3', '3:4', '4:1', '4:2'];
+    const players = start => roles.map((position, index) => ({ id: 'bsd_p_' + (start + index),
+      name: 'Player ' + (start + index), position, grid: grids[index], number: index + 1, rating: 7.1 }));
+    const lineups = { confirmed: true, homeFormation: '4-4-2', awayFormation: '4-4-2',
+      home: players(1), away: players(101), homeBench: [{ id: 'bsd_p_12', name: 'Reserve' }],
+      awayBench: [{ id: 'bsd_p_112', name: 'Reserve' }], homeBenchComplete: true, awayBenchComplete: true };
+    const original = structuredClone(lineups);
+    const fullRoster = side => roster([...lineups[side], ...lineups[side + 'Bench']].map(row => ({
+      id: row.id, marketValue: 1000000, marketValueCurrency: 'EUR', nationality: 'Spain', height: 180, heightUnit: 'cm',
+    })), { teamId: side === 'home' ? 'bsd_t_44' : 'bsd_t_57' });
+    const controller = load('../controllers/statsController', {
+      '../services/sportscoreService': {}, '../services/sportsDataService': {}, '../services/kickoffApiService': {},
+      '../services/teamService': {}, '../utils/logger': logger,
+      '../services/bsdSportsService': {
+        getMatchDetails: async () => { detailsCalls++; return { matchInfo: { id: 'bsd_1', status: 'FINISHED',
+          homeTeam: { id: 'bsd_t_44' }, awayTeam: { id: 'bsd_t_57' } }, lineups: structuredClone(lineups) }; },
+        getTeamLineupSquad: async id => {
+          if (id === 'bsd_t_57') { awayCalls++; return fullRoster('away'); }
+          homeCalls++;
+          if (homeCalls === 1) return initialState === 'unavailable' ? null : roster([
+            { id: 'bsd_p_1', marketValue: 1000000, marketValueCurrency: 'EUR' },
+          ], { complete: false });
+          return fullRoster('home');
+        },
+      },
+      '../services/cacheService': {
+        getCached: key => { const entry = entries.get(key); return entry && now < entry.expires ? entry.value : null; },
+        setCache: (key, value, ttl) => { writes.push(ttl); entries.set(key, { value, expires: now + ttl }); },
+      },
+    });
+    const request = async () => {
+      const res = { status() { return this; }, json(body) { this.body = body; return this; } };
+      await controller.getMatchLineups({ params: { id: 'bsd_1' }, query: {} }, res); return res.body;
+    };
+    const first = await request();
+    assert.equal(first.data.confirmed, true); assert.equal(first.data.integrity.complete, true);
+    assert.equal(first.data.squadCoverage.home.complete, false); assert.equal(writes[0], 15000, initialState);
+    assert.equal(first.data.squadCoverage.away.complete, true);
+    now = 14999; await request(); assert.equal(homeCalls, 1); assert.equal(awayCalls, 1); assert.equal(detailsCalls, 1);
+    now = 15000; const recovered = await request();
+    assert.equal(homeCalls, 2); assert.equal(awayCalls, 2); assert.equal(detailsCalls, 2);
+    assert.equal(recovered.data.squadCoverage.home.complete, true); assert.equal(recovered.data.homeSquad.length, 12);
+    assert.equal(recovered.data.squadValuation.home.totalEUR, 12000000); assert.equal(writes[1], 900000);
+    assert.deepEqual(recovered.data.home.map(row => [row.id, row.number, row.position, row.grid, row.rating]),
+      first.data.home.map(row => [row.id, row.number, row.position, row.grid, row.rating]));
+    assert.deepEqual(recovered.data.homeLayout, first.data.homeLayout); assert.deepEqual(lineups, original);
+    now = 15001; const cached = await request(); assert.equal(cached.source, 'bsd_cached'); assert.equal(homeCalls, 2);
+  }
+});
+
+test('roster enrichment permits a 5-second batch while sharing a 6-second total budget across national selectors', async () => {
+  const originalNow = Date.now; let now = 100000;
+  Date.now = () => now;
+  try {
+    const { service, requests } = bsd((path, params, options) => {
+      if (params.team_id) {
+        assert.equal(options.timeout, 5000); now += 4200;
+        return { count: 0, next: null, results: [] };
+      }
+      assert.equal(options.timeout, 1800);
+      return { count: 1, next: null, results: [{ id: 852, name: 'Haaland', national_team_id: 488 }] };
+    });
+    const rows = await service.getTeamLineupSquad('bsd_t_488');
+    assert.equal(rows.length, 1); assert.equal(requests.length, 2); assert.equal(rows.coverage.complete, true);
+    assert.equal(requests[0].timeout + requests[1].timeout, 6800);
+  } finally { Date.now = originalNow; }
+});
+
+test('an incomplete cached BSD profile response retries at 15 seconds and a recovered complete roster keeps its 5-minute provider cache', async () => {
+  const originalNow = Date.now; let now = 100000;
+  Date.now = () => now;
+  try {
+    let calls = 0;
+    const member = id => ({ id, name: 'Member ' + id, current_team_id: 44, market_value_eur: 1000000 });
+    const { service, requests } = bsd(() => {
+      calls++;
+      return calls === 1 ? { count: 2, results: [member(1)], next: null }
+        : { count: 2, results: [member(1), member(2)], next: null };
+    });
+    const partial = await service.getTeamLineupSquad('bsd_t_44');
+    assert.equal(partial.coverage.complete, false); assert.equal(partial.length, 1); assert.equal(calls, 1);
+    now = 114999; await service.getTeamLineupSquad('bsd_t_44'); assert.equal(calls, 1);
+    now = 115000; const recovered = await service.getTeamLineupSquad('bsd_t_44');
+    assert.equal(calls, 2); assert.equal(recovered.coverage.complete, true); assert.equal(recovered.length, 2);
+    assert.equal(recovered[1].marketValue, 1000000);
+    now = 414999; await service.getTeamLineupSquad('bsd_t_44'); assert.equal(calls, 2);
+    now = 415000; await service.getTeamLineupSquad('bsd_t_44'); assert.equal(calls, 3);
+    assert.ok(requests.every(request => request.path === '/api/v2/players/'));
+  } finally { Date.now = originalNow; }
 });

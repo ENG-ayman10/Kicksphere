@@ -89,7 +89,7 @@ function safeRequest(path, expectedPath) {
     return url.pathname + url.search;
   } catch (_) { return null; }
 }
-async function fetchBsd(endpoint, params = {}, ttl = TTL.matches, timeoutMs) {
+async function fetchBsd(endpoint, params = {}, ttl = TTL.matches, timeoutMs, responseTtl) {
   if (!isConfigured()) return null;
   const path = safeRequest(endpoint);
   if (!path) return null;
@@ -106,7 +106,9 @@ async function fetchBsd(endpoint, params = {}, ttl = TTL.matches, timeoutMs) {
       const response = await bsdClient.get(path, { params: cleanParams, maxRedirects: 0,
         ...(requestTimeout === null ? {} : { timeout: requestTimeout, signal: AbortSignal.timeout(requestTimeout) }) });
       if (response.data !== undefined && response.data !== null && typeof response.data === 'object') {
-        setCache(key, response.data, ttl); return response.data;
+        const requestedTtl = typeof responseTtl === 'function' ? integer(responseTtl(response.data)) : null;
+        setCache(key, response.data, requestedTtl !== null && requestedTtl > 0 ? Math.min(ttl, requestedTtl) : ttl);
+        return response.data;
       }
     } catch (error) {
       // Never log Axios errors or their config: they include the authorization header.
@@ -475,13 +477,28 @@ exports.getTeamLineupSquad = async teamId => {
   const id = scopedId(teamId, 'bsd_t_'); if (!id) return null;
   const unavailable = reason => withCoverage([], { available: false, complete: false,
     partial: true, teamId, scope: 'team_roster', temporalScope: 'current', reason });
+  const deadline = Date.now() + 6000;
+  const rosterProfiles = params => {
+    const memberField = params.national_team_id ? 'national_team_id' : 'current_team_id';
+    const cacheTtl = body => {
+      const rows = body?.results;
+      if (!Array.isArray(rows) || body.next || integer(body.count) !== rows.length || rows.length > 200 ||
+          rows.some(row => positiveId(row?.[memberField]) !== id || !normalizePlayer(row)) ||
+          new Set(rows.map(row => positiveId(row.id ?? row.player_id))).size !== rows.length ||
+          (params.national_team_id && rows.length === 0)) return 15000;
+      return TTL.details;
+    };
+    return fetchBsd('/api/v2/players/', params, TTL.details,
+      Math.min(5000, Math.max(1, deadline - Date.now())), cacheTtl);
+  };
   let kind = 'club';
-  let raw = await fetchBsd('/api/v2/players/', { team_id: id, limit: 200 }, TTL.details, 3500);
+  let raw = await rosterProfiles({ team_id: id, limit: 200 });
   // National membership is explicit provider evidence, not the player's club.
   // Only a verified empty club filter may try the national selector.
   if (raw && Array.isArray(raw.results) && raw.results.length === 0 && integer(raw.count) === 0 && !raw.next) {
     kind = 'national';
-    raw = await fetchBsd('/api/v2/players/', { national_team_id: id, limit: 200 }, TTL.details, 3500);
+    if (Date.now() >= deadline) return unavailable('roster_profiles_unavailable');
+    raw = await rosterProfiles({ national_team_id: id, limit: 200 });
   }
   if (!raw || !Array.isArray(raw.results)) return unavailable('roster_profiles_unavailable');
   const memberField = kind === 'national' ? 'national_team_id' : 'current_team_id';

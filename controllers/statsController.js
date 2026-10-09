@@ -433,7 +433,13 @@ exports.getMatchLineups = async (req, res) => {
       result.lineups = enrichLineupMetrics(result.lineups, { home: sides[0], away: sides[1] }, teamIds, result.source);
       // Before and during a game a confirmed list may still be corrected.
       const finished = ['FINISHED', 'FT', 'AET', 'PEN'].includes(String(result.matchStatus || '').toUpperCase());
-      const ttl = finished && result.lineups.confirmed ? 15 * 60 * 1000 : result.lineups.confirmed ? 30000 : 15000;
+      const lineupTtl = finished && result.lineups.confirmed ? 15 * 60 * 1000 : result.lineups.confirmed ? 30000 : 15000;
+      // A short-lived roster outage must not freeze missing biographies/value
+      // facts into a finished match's otherwise valid 15-minute lineup cache.
+      // Unsupported enrichment has no retryable provider call to make.
+      const incompleteRoster = typeof rosterProvider === 'function' && ['home', 'away'].some(side =>
+        result.lineups.squadCoverage?.[side]?.available !== true || result.lineups.squadCoverage?.[side]?.complete !== true);
+      const ttl = incompleteRoster ? Math.min(lineupTtl, 15000) : lineupTtl;
       setCache(cacheKey, result, ttl);
 
       return res.json({
