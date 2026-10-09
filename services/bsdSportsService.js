@@ -8,6 +8,7 @@ const { annotateFixtureSourceStage } = require('../utils/fixtureSourceAnnotation
 const { normalizeCareerCompetitionLabels } = require('../utils/careerCompetitionLabels');
 const { normalizePlayerHonours, playerHonourInput } = require('../utils/playerHonours');
 const { validateLineupIntegrity } = require('../utils/lineupIntegrity');
+const { deduplicateRosterFacts } = require('../utils/lineupPlayerMetrics');
 const { selectBsdPlayerScope, aggregateBsdPlayerStatistics } = require('../utils/playerStatisticsScope');
 const { recoverBsdMatchSquad, buildBsdTeamFixtureNumbers, buildBsdTeamStandingNumbers } = require('./teamTabCoverageService');
 const API_TOKEN = String(process.env.BSD_API_TOKEN || '').trim();
@@ -504,13 +505,14 @@ exports.getTeamLineupSquad = async teamId => {
   const memberField = kind === 'national' ? 'national_team_id' : 'current_team_id';
   if (raw.results.some(row => positiveId(row?.[memberField]) !== id)) return unavailable('roster_team_identity_mismatch');
   const normalized = raw.results.slice(0, 200).map(normalizePlayer).filter(Boolean);
-  const rows = [...new Map(normalized.map(row => [row.id, { ...row, rosterTeamId: teamId }])).values()];
+  const unique = deduplicateRosterFacts(normalized.map(row => ({ ...row, rosterTeamId: teamId })));
+  const rows = unique.rows;
   const reportedTotal = integer(raw.count), invalidRows = raw.results.length - normalized.length;
   const complete = rows.length > 0 && !raw.next && reportedTotal === rows.length &&
     rows.length === raw.results.length && invalidRows === 0;
   return withCoverage(rows, { available: rows.length > 0, complete, partial: !complete,
     possiblyTruncated: Boolean(raw.next) || reportedTotal !== rows.length, reportedTotal,
-    invalidRows, teamId, scope: 'team_roster', temporalScope: 'current', teamType: kind,
+    invalidRows, duplicateRows: unique.duplicateRows, teamId, scope: 'team_roster', temporalScope: 'current', teamType: kind,
     reason: rows.length === 0 ? 'empty_squad' : !complete ? 'roster_profiles_partial' : null });
 };
 exports.getTeamFixtures = async (teamId, options = {}) => {

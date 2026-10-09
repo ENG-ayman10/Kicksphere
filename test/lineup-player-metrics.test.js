@@ -84,6 +84,58 @@ test('wrong owners, conflicting nested IDs, duplicate and foreign provider rows 
   assert.equal(result.squadCoverage.home.complete, false); assert.equal(result.squadValuation.home.totalEUR, 100);
 });
 
+test('conflicting duplicate roster facts remain unknown in the full roster and XI aliases without changing tactical evidence', () => {
+  const original = xi();
+  const facts = { dateOfBirth: '2000-01-01', dateBorn: '2000-01-01', age: 26,
+    nationality: 'Spain', country: 'Spain', height: 180, heightUnit: 'cm',
+    marketValue: 1000000, marketValueCurrency: 'EUR' };
+  Object.assign(original.home[0], facts);
+  Object.assign(original.home[0].player, facts);
+  const before = structuredClone(original);
+  const rows = roster([
+    { id: 'bsd_p_1', provider: 'bsd', ...facts },
+    { id: 'bsd_p_1', provider: 'bsd', ...facts, dateOfBirth: '2001-02-03', dateBorn: '2001-02-03', age: 25,
+      nationality: 'France', country: 'France', height: 190, marketValue: 99000000 },
+    // A later duplicate must not revive a value which was already ambiguous.
+    { id: 'bsd_p_1', provider: 'bsd', ...facts },
+    { id: 'bsd_p_2', provider: 'bsd', marketValue: 2000000, marketValueCurrency: 'EUR' },
+  ]);
+  const result = enrichLineupMetrics(original, { home: rows }, { home: 'bsd_t_44' }, 'bsd');
+  assert.deepEqual(original, before);
+  assert.equal(result.home[0].id, 'bsd_p_1'); assert.equal(result.home[0].player.id, 'bsd_p_1');
+  for (const field of ['number', 'position', 'grid', 'rating']) assert.equal(result.home[0][field], before.home[0][field]);
+  for (const field of ['dateOfBirth', 'age', 'height', 'heightUnit', 'marketValue', 'marketValueCurrency']) {
+    assert.equal(result.home[0][field], null, field);
+    assert.equal(result.home[0].player[field], null, field);
+    assert.equal(result.homeSquad[0][field], null, field);
+  }
+  for (const field of ['dateBorn', 'nationality', 'country']) {
+    assert.equal(result.home[0][field], '', field);
+    assert.equal(result.home[0].player[field], '', field);
+  }
+  assert.equal(result.homeBench[0].marketValue, 2000000);
+  assert.equal(result.squadCoverage.home.complete, false);
+  assert.equal(result.squadValuation.home.totalEUR, 2000000);
+  assert.equal(result.squadValuation.home.missingPlayers, 1);
+});
+
+test('identical duplicate facts and nonconflicting missing facts merge without counting a player twice', () => {
+  const rows = roster([
+    { id: 'bsd_p_1', marketValue: 0, marketValueCurrency: 'EUR', nationality: 'Spain', height: null },
+    { id: 'bsd_p_1', marketValue: '0', marketValueCurrency: 'EUR', nationality: 'spain', height: 180, heightUnit: 'cm' },
+    { id: 'bsd_p_1', marketValue: 0, marketValueCurrency: 'EUR', nationality: 'Spain', dateOfBirth: '2000-01-01', dateBorn: '2000-01-01' },
+  ]);
+  const result = enrichLineupMetrics(xi(), { home: rows }, { home: 'bsd_t_44' }, 'bsd');
+  assert.equal(result.homeSquad.length, 1);
+  assert.equal(result.home[0].marketValue, 0);
+  assert.equal(result.home[0].height, 180);
+  assert.equal(result.home[0].nationality, 'Spain');
+  assert.equal(result.home[0].dateOfBirth, '2000-01-01');
+  assert.equal(result.squadValuation.home.totalEUR, 0);
+  assert.equal(result.squadValuation.home.knownPlayers, 1);
+  assert.equal(result.squadCoverage.home.complete, false);
+});
+
 test('metric normalization validates dates and explicit height/currency units without inventing values', () => {
   const valid = playerFacts({ birth: { date: '2000-01-01' }, nationality: 'Norway', height: '195 cm', market_value_eur: 0 });
   assert.equal(valid.dateOfBirth, '2000-01-01'); assert.equal(valid.height, 195);
@@ -118,6 +170,32 @@ test('national team enrichment uses explicit national membership while retaining
   assert.equal(requests.length, 2); assert.equal(requests[1].params.national_team_id, 488);
   assert.equal(rows.coverage.teamType, 'national'); assert.equal(rows.coverage.complete, true);
   assert.equal(rows[0].rosterTeamId, 'bsd_t_488'); assert.equal(rows[0].marketValue, 240000000);
+});
+
+test('BSD duplicate profile conflicts are neutralized before deduplication reaches the public XI and valuation', async () => {
+  const base = { id: 1, name: 'Member', current_team_id: 44, date_of_birth: '2000-01-01',
+    nationality: 'Spain', height_cm: 180, market_value_eur: 1000000 };
+  const { service } = bsd(() => ({ count: 3, next: null, results: [base,
+    { ...base, date_of_birth: '2001-02-03', nationality: 'France', height_cm: 190, market_value_eur: 99000000 },
+    { id: 2, name: 'Reserve', current_team_id: 44, market_value_eur: 2000000 }] }));
+  const rows = await service.getTeamLineupSquad('bsd_t_44');
+  assert.deepEqual(rows.map(row => row.id), ['bsd_p_1', 'bsd_p_2']);
+  assert.equal(rows.coverage.complete, false); assert.equal(rows.coverage.duplicateRows, 1);
+  const result = enrichLineupMetrics(xi(), { home: rows }, { home: 'bsd_t_44' }, 'bsd');
+  for (const field of ['dateOfBirth', 'age', 'height', 'marketValue']) assert.equal(result.home[0][field], null, field);
+  assert.equal(result.home[0].nationality, '');
+  assert.equal(result.squadValuation.home.totalEUR, 2000000);
+  assert.equal(result.squadValuation.home.missingPlayers, 1);
+});
+
+test('BSD duplicate identical facts preserve explicit zero while missing facts fill from a compatible profile', async () => {
+  const base = { id: 1, name: 'Member', current_team_id: 44, market_value_eur: 0 };
+  const { service } = bsd(() => ({ count: 2, next: null, results: [base,
+    { ...base, date_of_birth: '2000-01-01', nationality: 'Spain', height_cm: 180 }] }));
+  const rows = await service.getTeamLineupSquad('bsd_t_44');
+  assert.equal(rows.length, 1); assert.equal(rows[0].marketValue, 0);
+  assert.equal(rows[0].height, 180); assert.equal(rows[0].dateOfBirth, '2000-01-01');
+  assert.equal(rows[0].nationality, 'Spain'); assert.equal(rows.coverage.complete, false);
 });
 
 test('a provider ignoring the team filter is rejected; pagination and duplicate IDs remain partial without unbounded traversal', async () => {

@@ -499,7 +499,9 @@ exports.getTeamSquad = async (teamIdOrName) => {
   if (!numericId) return unavailable('provider_team_identity_unavailable');
 
   const cacheKey = `kickoff:squad:${numericId}`;
-  const cached = getCached(cacheKey, TTL.SQUAD);
+  // Respect the TTL stored with an incomplete response so a temporary gap can
+  // recover on the next lineup refresh instead of persisting for two hours.
+  const cached = getCached(cacheKey);
   if (cached) return cached;
 
   const data = await safeFetch('/api/v1/players/squads', { team: numericId });
@@ -540,11 +542,12 @@ exports.getTeamSquad = async (teamIdOrName) => {
         (p.id ? `https://images.kickoffapi.com/images/players/${p.id}.png` : ''),
     };
   });
-  const complete = Number(data.paging?.current) === 1 && Number(data.paging?.total) === 1 &&
-    Number(data.results) === rawList.length && validPlayers.length === players.length;
+  const complete = formatted.length > 0 && Number(data.paging?.current) === 1 && Number(data.paging?.total) === 1 &&
+    Number(data.results) === rawList.length && validPlayers.length === players.length &&
+    new Set(formatted.map(row => row.id)).size === formatted.length;
   squadRows(formatted, { available: true, complete, partial: !complete, rosterAvailable: true,
     scope: 'team_roster', temporalScope: 'current', teamId: 'ko_t_' + numericId, invalidRows: players.length - validPlayers.length });
-  setCache(cacheKey, formatted, TTL.SQUAD);
+  setCache(cacheKey, formatted, complete ? TTL.SQUAD : 15000);
   logger.info(`✅ KickOff API: ${formatted.length} squad players for team ${numericId}`);
   return formatted;
 };

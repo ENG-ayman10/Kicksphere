@@ -30,19 +30,68 @@ function playerFacts(raw) {
     nationality: text(raw?.nationality), country: text(raw?.nationality),
     marketValue, marketValueCurrency: marketValue !== null ? 'EUR' : null };
 }
+const ROSTER_FACT_FIELDS = ['dateOfBirth', 'dateBorn', 'age', 'nationality', 'country',
+  'height', 'heightUnit', 'marketValue', 'marketValueCurrency'];
+const TEXT_FACT_FIELDS = new Set(['dateBorn', 'nationality', 'country']);
+function absentFact(field) { return TEXT_FACT_FIELDS.has(field) ? '' : null; }
+function presentFact(value) { return value !== undefined && value !== null && value !== ''; }
+function sameFact(field, a, b) {
+  if (['age', 'height', 'marketValue'].includes(field)) return number(a) === number(b);
+  return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+}
+function mergeDuplicateRosterFacts(first, next) {
+  const merged = { ...first };
+  const conflicts = new Set([...(Array.isArray(first.conflictingRosterFacts) ? first.conflictingRosterFacts : []),
+    ...(Array.isArray(next.conflictingRosterFacts) ? next.conflictingRosterFacts : [])]
+    .filter(field => ROSTER_FACT_FIELDS.includes(field)));
+  for (const field of ROSTER_FACT_FIELDS) {
+    const a = first[field] ?? first.player?.[field], b = next[field] ?? next.player?.[field];
+    if (presentFact(a) && presentFact(b) && !sameFact(field, a, b)) conflicts.add(field);
+    merged[field] = presentFact(a) ? a : presentFact(b) ? b : absentFact(field);
+  }
+  // Clear related aliases/units as well; otherwise a consumer could fall back
+  // to a contradictory dateBorn, country or nested player value.
+  for (const group of [
+    ['dateOfBirth', 'dateBorn', 'age'], ['nationality', 'country'],
+    ['height', 'heightUnit'], ['marketValue', 'marketValueCurrency'],
+  ]) {
+    const triggers = group[0] === 'dateOfBirth' ? group.slice(0, 2) : group;
+    if (triggers.some(field => conflicts.has(field))) group.forEach(field => conflicts.add(field));
+  }
+  for (const field of conflicts) merged[field] = absentFact(field);
+  if (first.player && typeof first.player === 'object') {
+    merged.player = { ...first.player };
+    for (const field of ROSTER_FACT_FIELDS) merged.player[field] = merged[field];
+  }
+  if (conflicts.size) merged.conflictingRosterFacts = [...conflicts];
+  return merged;
+}
+function deduplicateRosterFacts(rows) {
+  const byId = new Map();
+  let duplicateRows = 0;
+  for (const row of rows) {
+    const id = playerIdentity(row);
+    if (byId.has(id)) {
+      duplicateRows++;
+      byId.set(id, mergeDuplicateRosterFacts(byId.get(id), row));
+    } else byId.set(id, row);
+  }
+  return { rows: [...byId.values()], duplicateRows };
+}
 function uniqueRoster(rows, teamId, provider) {
-  const seen = new Set(), result = [];
+  const result = [];
   let invalidRows = 0;
   for (const row of Array.isArray(rows) ? rows : []) {
     const id = playerIdentity(row);
     const owner = row.rosterTeamId ?? row.lineupTeamId;
-    if (!id || seen.has(id) || (owner && String(owner) !== String(teamId)) ||
+    if (!id || (owner && String(owner) !== String(teamId)) ||
         (row.provider && provider && row.provider !== provider) ||
         (id.startsWith('bsd_p_') && provider !== 'bsd') ||
         (id.startsWith('ko_p_') && provider !== 'kickoffapi')) { invalidRows++; continue; }
-    seen.add(id); result.push(row);
+    result.push(row);
   }
-  return { rows: result, invalidRows };
+  const unique = deduplicateRosterFacts(result);
+  return { rows: unique.rows, invalidRows: invalidRows + unique.duplicateRows };
 }
 function valuation(rows, coverage, scope) {
   let total = 0, known = 0;
@@ -76,7 +125,13 @@ function enrichLineupMetrics(lineup, squads, teamIds, provider) {
         const profile = byId.get(playerIdentity(row));
         if (!profile) return row;
         const merged = { ...row };
-        for (const field of ['dateOfBirth', 'dateBorn', 'age', 'nationality', 'country', 'height', 'heightUnit', 'marketValue', 'marketValueCurrency']) {
+        const conflicts = profile.conflictingRosterFacts || [];
+        if (conflicts.length && row.player && typeof row.player === 'object') merged.player = { ...row.player };
+        for (const field of conflicts) {
+          merged[field] = absentFact(field);
+          if (merged.player) merged.player[field] = absentFact(field);
+        }
+        for (const field of ROSTER_FACT_FIELDS) {
           const value = profile[field];
           if (value !== undefined && value !== null && value !== '') merged[field] = value;
         }
@@ -93,4 +148,4 @@ function enrichLineupMetrics(lineup, squads, teamIds, provider) {
   return result;
 }
 
-module.exports = { enrichLineupMetrics, playerFacts, number, playerIdentity };
+module.exports = { enrichLineupMetrics, playerFacts, number, playerIdentity, deduplicateRosterFacts };
