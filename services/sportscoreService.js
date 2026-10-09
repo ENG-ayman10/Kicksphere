@@ -14,6 +14,7 @@ const { selectMatchesInInterval } = require('../utils/matchCalendar');
 const { normalizeMatchTiming } = require('../utils/matchTiming');
 const { normalizePlayerHonours, playerHonourInput, firstPlayerImage } = require('../utils/playerHonours');
 const { validateLineupIntegrity } = require('../utils/lineupIntegrity');
+const { playerFacts } = require('../utils/lineupPlayerMetrics');
 const { sportscoreMatchLocator, sameSportscoreFixture, sportscoreMatchLookupCandidate } = require('../utils/sportscoreMatchLocator');
 
 const BASE_URL = 'https://sportscore.com';
@@ -1026,6 +1027,22 @@ function normalizeSportScoreMatchDetail(m, slug) {
   const base = normalizeSportScoreMatch(m);
 
   // Incidents normalization (Timeline)
+  const incidentIdentity = value => {
+    if (!['string', 'number'].includes(typeof value)) return null;
+    const id = String(value).trim();
+    return id && !/^(bsd_p_|ko_p_)/.test(id) && id.length <= 200 ? id : null;
+  };
+  const incidentName = value => typeof value === 'string' ? value : typeof value?.name === 'string' ? value.name : '';
+  const incidentPerson = (values, nested) => {
+    const ids = [...new Set(values.map(incidentIdentity).filter(Boolean))];
+    const id = ids.length === 1 ? ids[0] : null;
+    const nestedValues = nested && typeof nested === 'object' ? [nested.slug, nested.id].filter(value => value !== undefined && value !== null && value !== '') : [];
+    const nestedCompatible = nestedValues.every(value => incidentIdentity(value) === id);
+    return { id, conflict: ids.length > 1, nestedCompatible };
+  };
+  const lineupPortraits = new Map(['home_xi', 'away_xi', 'home_subs', 'away_subs'].flatMap(key =>
+    Array.isArray(m.lineups?.[key]) ? m.lineups[key] : []).map(player => [incidentIdentity(player.slug ?? player.id),
+      firstPlayerImage(player.logo, player.image, player.photo, player.player_logo)]).filter(([id]) => id));
   const timeline = (m.incidents || []).map(inc => {
     let type = 'incident';
     let icon = '⚡';
@@ -1045,15 +1062,25 @@ function normalizeSportScoreMatchDetail(m, slug) {
       icon = '🔄';
     }
 
+    const scorer = incidentPerson([inc.player_id, inc.playerId, inc.player?.slug, inc.player?.id], inc.player);
+    const assistant = incidentPerson([inc.assist_id, inc.assistId, inc.assist_player_id, inc.assist?.slug, inc.assist?.id], inc.assist);
+    const playerId = scorer.id, assistId = assistant.id;
     return {
       minute: inc.time ?? null,
       type,
       icon,
       label: inc.type || 'Event',
       side: ['home', 'away'].includes(inc.side) ? inc.side : null,
-      player: inc.player || '',
-      assist: inc.assist || null,
-      playerOut: inc.player_out || inc.playerOut || null
+      player: incidentName(inc.player), playerId,
+      playerImage: scorer.conflict ? '' : firstPlayerImage(inc.player_image, inc.player_logo,
+        scorer.nestedCompatible ? inc.player?.photo : '', scorer.nestedCompatible ? inc.player?.image : '',
+        playerId ? lineupPortraits.get(playerId) : ''),
+      assist: incidentName(inc.assist) || null, assistId,
+      assistImage: assistant.conflict ? '' : firstPlayerImage(inc.assist_image, inc.assist_logo,
+        assistant.nestedCompatible ? inc.assist?.photo : '', assistant.nestedCompatible ? inc.assist?.image : '',
+        assistId ? lineupPortraits.get(assistId) : ''),
+      playerOut: inc.player_out || inc.playerOut || null,
+      source: 'sportscore', provider: 'sportscore'
     };
   });
 
@@ -1066,6 +1093,7 @@ function normalizeSportScoreMatchDetail(m, slug) {
     const number = p.number ?? null;
     return {
       id,
+      ...playerFacts(p),
       provider: 'sportscore',
       image: p.logo || p.image || p.photo || p.player_logo || '',
       name,
@@ -1110,7 +1138,8 @@ function normalizeSportScoreMatchDetail(m, slug) {
       home: homeXi,
       away: awayXi,
       homeBench: homeSubs,
-      awayBench: awaySubs
+      awayBench: awaySubs,
+      homeBenchComplete: Array.isArray(lineups.home_subs), awayBenchComplete: Array.isArray(lineups.away_subs)
     }, { homeTeamId: base.homeTeam?.id, awayTeamId: base.awayTeam?.id, provider: 'sportscore' }),
     tracker: m.tracker || null,
     source: 'sportscore'

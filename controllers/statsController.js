@@ -17,6 +17,7 @@ const { filterPresentedTimeline } = require('../utils/matchTimelineTiming');
 const { validateLineupIntegrity } = require('../utils/lineupIntegrity');
 const { canonicalMatchStatus } = require('../utils/matchStatus');
 const { compactPlayerInfo, compactTeamProfile } = require('../utils/profilePayload');
+const { enrichLineupMetrics, playerFacts } = require('../utils/lineupPlayerMetrics');
 
 // Predictions are optional previews. A completed/cancelled fixture must not
 // fetch a preview or present its guessed score as another match result.
@@ -344,8 +345,11 @@ function mapKickoffPlayer(item) {
   if (!name) return null;
   const id = p.id ? 'ko_p_' + String(p.id) : null;
   const number = p.number ?? null;
-  const image = p.photo || item.photo || '';
+  const wrapperMatchesPlayer = !item.player || [item.id, item.playerId].every(value =>
+    value === undefined || value === null || value === '' || String(value) === String(p.id));
+  const image = p.photo || (wrapperMatchesPlayer ? item.photo : '') || '';
   return { id, provider: 'kickoffapi', providerId: p.id?.toString() || '', name, image,
+    ...playerFacts(p),
     playerName: name, number, position: p.pos || p.position || '', grid: p.grid ?? item.grid ?? null, captain: Boolean(p.captain),
     rating: toNumberOrNull(p.rating), player: { id, name, number, image, provider: 'kickoffapi' } };
 }
@@ -397,6 +401,7 @@ async function resolveMatchLineups(id) {
     homeFormation: home?.formation || '', awayFormation: away?.formation || '',
     homeCoach: home?.coach?.name || null, awayCoach: away?.coach?.name || null,
     home: homePlayers, away: awayPlayers,
+    homeBenchComplete: Array.isArray(home?.substitutes), awayBenchComplete: Array.isArray(away?.substitutes),
     homeBench: (home?.substitutes || []).map(mapKickoffPlayer).filter(Boolean),
     awayBench: (away?.substitutes || []).map(mapKickoffPlayer).filter(Boolean)
   }, match);
@@ -420,6 +425,12 @@ exports.getMatchLineups = async (req, res) => {
 
     const result = await resolveMatchLineups(id, home, away, date);
     if (result && result.lineups && (result.lineups.home?.length > 0 || result.lineups.away?.length > 0)) {
+      const teamIds = { home: result.lineups.homeTeamId, away: result.lineups.awayTeamId };
+      const rosterProvider = result.source === 'bsd' ? bsdSportsService.getTeamLineupSquad
+        : result.source === 'kickoffapi' ? kickoffApiService.getTeamSquad : null;
+      const sides = await Promise.all(['home', 'away'].map(side => rosterProvider && teamIds[side]
+        ? callProvider('Lineup roster metrics', () => rosterProvider(teamIds[side])) : null));
+      result.lineups = enrichLineupMetrics(result.lineups, { home: sides[0], away: sides[1] }, teamIds, result.source);
       // Before and during a game a confirmed list may still be corrected.
       const finished = ['FINISHED', 'FT', 'AET', 'PEN'].includes(String(result.matchStatus || '').toUpperCase());
       const ttl = finished && result.lineups.confirmed ? 15 * 60 * 1000 : result.lineups.confirmed ? 30000 : 15000;

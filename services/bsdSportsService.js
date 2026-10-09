@@ -181,7 +181,8 @@ function normalizePlayer(raw) {
   const id = positiveId(raw?.id ?? raw?.player_id), name = raw?.name ?? raw?.player_name;
   if (!id || typeof name !== 'string' || !name.trim()) return null;
   const photo = safeImage(raw.image) || safeImage(raw.photo) || imageUrl('player', id), born = calendarDate(raw.date_of_birth), number = integer(raw.jersey_number);
-  return { id: 'bsd_p_' + id, rawId: id, providerId: String(id), provider: 'bsd', source: 'bsd', name: name.trim(), fullName: name.trim(), shortName: raw.short_name || name.trim(), playerName: name.trim(), image: photo, photo, position: raw.specific_position || raw.position || '', positionGroup: raw.position || '', specificPosition: raw.specific_position || '', number, jerseyNumber: number, nationality: raw.nationality || '', country: raw.nationality || '', dateBorn: born || '', dateOfBirth: born, age: ageFromBirth(born), height: numeric(raw.height_cm), weight: numeric(raw.weight_kg), preferredFoot: raw.preferred_foot || '', availability: availability(raw), captain: raw.captain === true, aiScore: numeric(raw.ai_score), player: { id: 'bsd_p_' + id, name: name.trim(), number, photo, image: photo, provider: 'bsd' } };
+  const height = numeric(raw.height_cm), value = numeric(raw.market_value_eur);
+  return { id: 'bsd_p_' + id, rawId: id, providerId: String(id), provider: 'bsd', source: 'bsd', name: name.trim(), fullName: name.trim(), shortName: raw.short_name || name.trim(), playerName: name.trim(), image: photo, photo, position: raw.specific_position || raw.position || '', positionGroup: raw.position || '', specificPosition: raw.specific_position || '', number, jerseyNumber: number, nationality: raw.nationality || '', country: raw.nationality || '', dateBorn: born || '', dateOfBirth: born, age: ageFromBirth(born), height: height !== null && height >= 100 && height <= 250 ? height : null, heightUnit: 'cm', weight: numeric(raw.weight_kg), marketValue: value !== null && value >= 0 ? value : null, marketValueCurrency: 'EUR', preferredFoot: raw.preferred_foot || '', availability: availability(raw), captain: raw.captain === true, aiScore: numeric(raw.ai_score), player: { id: 'bsd_p_' + id, name: name.trim(), number, photo, image: photo, provider: 'bsd' } };
 }
 function normalizeStatus(raw) {
   const status = require('../utils/matchStatus').canonicalMatchStatus(raw);
@@ -245,21 +246,35 @@ function normalizeBsdLineups(raw, match) {
     const mapPlayer = row => {
       if (!row || typeof row !== 'object') return null;
       const player = normalizePlayer(row);
-      if (player) return { ...player, grid: row.grid ?? row.player?.grid ?? null };
+      if (player) return { ...player, rating: matchRating(row.rating), grid: row.grid ?? row.player?.grid ?? null };
       const name = typeof (row.name ?? row.player_name) === 'string' ? (row.name ?? row.player_name).trim() : '';
       return name ? { id: null, name, playerName: name, provider: 'bsd', source: 'bsd',
         image: safeImage(row.image) || safeImage(row.photo) || '',
         position: row.position || '', number: integer(row.jersey_number), grid: row.grid ?? null } : null;
     };
-    return { players: (Array.isArray(value) ? value : Array.isArray(value?.players) ? value.players : []).map(mapPlayer).filter(Boolean), bench: (Array.isArray(value?.substitutes) ? value.substitutes : []).map(mapPlayer).filter(Boolean), formation: value?.formation || '', confidence: confidencePercent(value?.confidence), confidenceRaw: numeric(value?.confidence) };
+    return { players: (Array.isArray(value) ? value : Array.isArray(value?.players) ? value.players : []).map(mapPlayer).filter(Boolean), bench: (Array.isArray(value?.substitutes) ? value.substitutes : []).map(mapPlayer).filter(Boolean), benchComplete: Array.isArray(value?.substitutes) && value?.bench_complete !== false, formation: value?.formation || '', confidence: confidencePercent(value?.confidence), confidenceRaw: numeric(value?.confidence) };
   };
   const home = side('home'), away = side('away');
-  return validateLineupIntegrity({ matchId: match?.id, homeTeamId: match?.homeTeam?.id, awayTeamId: match?.awayTeam?.id, confirmed: status === 'confirmed', predicted: status === 'predicted', lineupStatus: status, beta: raw.beta === true, home: home.players, away: away.players, homeBench: home.bench, awayBench: away.bench, homeFormation: home.formation, awayFormation: away.formation, homeCoach: null, awayCoach: null, confidence: { home: home.confidence, away: away.confidence }, confidenceRaw: { home: home.confidenceRaw ?? null, away: away.confidenceRaw ?? null }, confidenceScale: 100, updatedAt: instant(raw.updated_at), unavailablePlayers: { home: (raw.unavailable_players?.home || []).map(normalizeMissing).filter(Boolean), away: (raw.unavailable_players?.away || []).map(normalizeMissing).filter(Boolean) }, source: 'bsd' }, { homeTeamId: match?.homeTeam?.id, awayTeamId: match?.awayTeam?.id, provider: 'bsd' });
+  return validateLineupIntegrity({ matchId: match?.id, homeTeamId: match?.homeTeam?.id, awayTeamId: match?.awayTeam?.id, confirmed: status === 'confirmed', predicted: status === 'predicted', lineupStatus: status, beta: raw.beta === true, home: home.players, away: away.players, homeBench: home.bench, awayBench: away.bench, homeBenchComplete: home.benchComplete === true, awayBenchComplete: away.benchComplete === true, homeFormation: home.formation, awayFormation: away.formation, homeCoach: null, awayCoach: null, confidence: { home: home.confidence, away: away.confidence }, confidenceRaw: { home: home.confidenceRaw ?? null, away: away.confidenceRaw ?? null }, confidenceScale: 100, updatedAt: instant(raw.updated_at), unavailablePlayers: { home: (raw.unavailable_players?.home || []).map(normalizeMissing).filter(Boolean), away: (raw.unavailable_players?.away || []).map(normalizeMissing).filter(Boolean) }, source: 'bsd' }, { homeTeamId: match?.homeTeam?.id, awayTeamId: match?.awayTeam?.id, provider: 'bsd' });
 }
 function normalizeIncident(raw) {
   if (!raw || typeof raw.type !== 'string') return null;
   const card = String(raw.card_type || '').toLowerCase(), type = raw.type === 'card' ? (card.includes('red') ? 'red_card' : card === 'yellow' ? 'yellow_card' : 'card') : raw.type;
-  return { id: positiveId(raw.id) ? 'bsd_inc_' + raw.id : null, minute: integer(raw.minute), addedTime: integer(raw.added_time), period: raw.period || '', periodSecond: integer(raw.period_second), ...(typeof raw.is_live === 'boolean' ? { isLive: raw.is_live } : {}), type, icon: { goal: '⚽', red_card: '🟥', yellow_card: '🟨', substitution: '🔄' }[type] || '', label: raw.text || raw.type, text: typeof raw.text === 'string' ? raw.text : '', side: raw.is_home === true ? 'home' : raw.is_home === false ? 'away' : null, player: raw.player || raw.player_in || '', playerId: positiveId(raw.player_id || raw.player_in_id) ? 'bsd_p_' + (raw.player_id || raw.player_in_id) : null, assist: raw.assist || null, playerOut: raw.player_out || null, playerOutId: positiveId(raw.player_out_id) ? 'bsd_p_' + raw.player_out_id : null, reason: raw.reason || '', goalType: raw.goal_type || null, rescinded: raw.rescinded === true || raw.is_rescinded === true, score: { home: integer(raw.home_score), away: integer(raw.away_score) }, source: 'bsd' };
+  const playerId = positiveId(raw.player_id ?? raw.player_in_id ?? raw.player?.id);
+  const nestedPlayerId = positiveId(raw.player?.id);
+  const nestedPhotoCompatible = !nestedPlayerId || nestedPlayerId === playerId;
+  const sequenceAssists = Array.isArray(raw.sequence) ? raw.sequence.filter(row => row?.assist === true && positiveId(row.pid)) : [];
+  const sequenceIds = [...new Set(sequenceAssists.map(row => positiveId(row.pid)))];
+  const explicitAssistIds = [...new Set([raw.assist_id, raw.assist_player_id, raw.assist?.id]
+    .map(positiveId).filter(Boolean))];
+  const explicitAssist = explicitAssistIds.length === 1 ? explicitAssistIds[0] : null;
+  // A sequence explicitly marks the assist identity. Multiple marked people or
+  // contradictory explicit IDs must not resolve by comparing display names.
+  const assistId = explicitAssistIds.length > 1 || sequenceIds.length > 1 || (explicitAssist && sequenceIds.length === 1 && explicitAssist !== sequenceIds[0])
+    ? null : explicitAssist ?? (sequenceIds.length === 1 ? sequenceIds[0] : null);
+  const name = value => typeof value === 'string' ? value : typeof value?.name === 'string' ? value.name : '';
+  const assistName = name(raw.assist) || (sequenceIds.length === 1 ? name(sequenceAssists[0].player) : '');
+  return { id: positiveId(raw.id) ? 'bsd_inc_' + raw.id : null, minute: integer(raw.minute), addedTime: integer(raw.added_time), period: raw.period || '', periodSecond: integer(raw.period_second), ...(typeof raw.is_live === 'boolean' ? { isLive: raw.is_live } : {}), type, icon: { goal: '⚽', red_card: '🟥', yellow_card: '🟨', substitution: '🔄' }[type] || '', label: raw.text || raw.type, text: typeof raw.text === 'string' ? raw.text : '', side: raw.is_home === true ? 'home' : raw.is_home === false ? 'away' : null, player: name(raw.player) || name(raw.player_in), playerId: playerId ? 'bsd_p_' + playerId : null, playerImage: safeImage(raw.player_image) || (nestedPhotoCompatible ? safeImage(raw.player?.photo) : '') || imageUrl('player', playerId), assist: assistName || null, assistId: assistId ? 'bsd_p_' + assistId : null, assistImage: assistId ? imageUrl('player', assistId) : '', playerOut: raw.player_out || null, playerOutId: positiveId(raw.player_out_id) ? 'bsd_p_' + raw.player_out_id : null, reason: raw.reason || '', goalType: raw.goal_type || null, rescinded: raw.rescinded === true || raw.is_rescinded === true, score: { home: integer(raw.home_score), away: integer(raw.away_score) }, source: 'bsd', provider: 'bsd' };
 }
 function normalizeXg(raw) {
   const side = name => raw?.stats?.[name]?.xg;
@@ -388,6 +403,12 @@ exports.getMatchDetails = async (matchId, options = {}) => {
   const incidents = (incidentData?.incidents || []).map(normalizeIncident).filter(Boolean);
   const byPlayer = new Map((lineups ? [...lineups.home, ...lineups.away, ...lineups.homeBench, ...lineups.awayBench] : []).map(player => [player.rawId, player]));
   const playerStatistics = (playerData?.player_stats || []).filter(row => positiveId(row.player_id) && Number(row.event_id) === id && [match.homeTeam.rawId, match.awayTeam.rawId].includes(Number(row.team_id))).map(row => ({ ...row, id: 'bsd_p_' + row.player_id, playerId: 'bsd_p_' + row.player_id, teamId: 'bsd_t_' + row.team_id, eventId: match.id, name: byPlayer.get(Number(row.player_id))?.name || '', image: imageUrl('player', row.player_id), provider: 'bsd', source: 'bsd' }));
+  if (lineups) for (const side of ['home', 'away']) {
+    const ratings = new Map(playerStatistics.filter(row => row.teamId === match[side + 'Team'].id)
+      .map(row => [row.playerId, matchRating(row.rating)]));
+    for (const key of [side, side + 'Bench']) lineups[key] = lineups[key].map(player => ratings.has(player.id)
+      ? { ...player, rating: ratings.get(player.id), ratingScope: 'match', ratingEventId: match.id } : player);
+  }
   const venue = match.venueId && positiveId(venueRaw?.id) === match.venueId ? normalizeVenue(venueRaw) : null;
   Object.assign(match, { venue, providerStatistics: statistics, lineups, timeline: incidents, detailsAvailable: true, xg: normalizeXg(stats) });
   const coverage = { source: 'bsd', available: true, complete: Boolean(available) && ['stats', 'lineups', 'incidents', 'player_stats'].every(name => available.available?.[name] === false || ({ stats, lineups: lineup, incidents: incidentData, player_stats: playerData })[name]), fields: { stats: Boolean(stats), lineups: Boolean(lineup), incidents: Boolean(incidentData), playerStatistics: Boolean(playerData) } };
@@ -446,6 +467,34 @@ exports.getTeamSquad = async teamId => {
   // lineups. An empty feed proves no roster coverage, not that the team has none.
   const complete = !empty && consistent;
   return withCoverage(unique, { available: true, complete, partial: !complete, possiblyTruncated: !consistent, invalidRows: raw.players.length - rows.length, reportedTotal, ...(empty ? { reason: 'empty_squad' } : {}) });
+};
+// One batched profile list enriches an entire roster. The exact membership
+// field is checked on every row, so a provider ignoring its filter cannot leak
+// another team's biography or valuation into this team. No per-player fan-out.
+exports.getTeamLineupSquad = async teamId => {
+  const id = scopedId(teamId, 'bsd_t_'); if (!id) return null;
+  const unavailable = reason => withCoverage([], { available: false, complete: false,
+    partial: true, teamId, scope: 'team_roster', temporalScope: 'current', reason });
+  let kind = 'club';
+  let raw = await fetchBsd('/api/v2/players/', { team_id: id, limit: 200 }, TTL.details, 3500);
+  // National membership is explicit provider evidence, not the player's club.
+  // Only a verified empty club filter may try the national selector.
+  if (raw && Array.isArray(raw.results) && raw.results.length === 0 && integer(raw.count) === 0 && !raw.next) {
+    kind = 'national';
+    raw = await fetchBsd('/api/v2/players/', { national_team_id: id, limit: 200 }, TTL.details, 3500);
+  }
+  if (!raw || !Array.isArray(raw.results)) return unavailable('roster_profiles_unavailable');
+  const memberField = kind === 'national' ? 'national_team_id' : 'current_team_id';
+  if (raw.results.some(row => positiveId(row?.[memberField]) !== id)) return unavailable('roster_team_identity_mismatch');
+  const normalized = raw.results.slice(0, 200).map(normalizePlayer).filter(Boolean);
+  const rows = [...new Map(normalized.map(row => [row.id, { ...row, rosterTeamId: teamId }])).values()];
+  const reportedTotal = integer(raw.count), invalidRows = raw.results.length - normalized.length;
+  const complete = rows.length > 0 && !raw.next && reportedTotal === rows.length &&
+    rows.length === raw.results.length && invalidRows === 0;
+  return withCoverage(rows, { available: rows.length > 0, complete, partial: !complete,
+    possiblyTruncated: Boolean(raw.next) || reportedTotal !== rows.length, reportedTotal,
+    invalidRows, teamId, scope: 'team_roster', temporalScope: 'current', teamType: kind,
+    reason: rows.length === 0 ? 'empty_squad' : !complete ? 'roster_profiles_partial' : null });
 };
 exports.getTeamFixtures = async (teamId, options = {}) => {
   const id = scopedId(teamId, 'bsd_t_'); if (!id) return null;

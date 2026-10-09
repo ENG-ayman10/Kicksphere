@@ -10,6 +10,7 @@ const logger = require('../utils/logger');
 const { getCached, setCache } = require('./cacheService');
 const { playerHonourInput, firstPlayerImage } = require('../utils/playerHonours');
 const { normalizeKickoffHonoursHistory } = require('../utils/kickoffHonoursHistory');
+const { playerFacts } = require('../utils/lineupPlayerMetrics');
 
 const BASE_URL = 'https://api.kickoffapi.com';
 const API_KEY = String(process.env.KICKOFF_API_KEY || '').trim();
@@ -520,8 +521,11 @@ exports.getTeamSquad = async (teamIdOrName) => {
   const formatted = validPlayers.map(item => {
     const p = item.player || item;
     const playerId = positiveProviderId(p.id ?? item.playerId);
+    const wrapperMatchesPlayer = !item.player || [item.id, item.playerId].every(value =>
+      value === undefined || value === null || value === '' || positiveProviderId(value) === playerId);
     return {
       id: 'ko_p_' + playerId,
+      ...playerFacts(p),
       provider: 'kickoffapi',
       providerId: String(playerId),
       name: p.name || `${p.firstname || ''} ${p.lastname || ''}`.trim() || 'Player',
@@ -532,14 +536,14 @@ exports.getTeamSquad = async (teamIdOrName) => {
       nationality: p.nationality || '',
       dateBorn: p.birth?.date || '',
       age: ageFromBirthDate(p.birth?.date) ?? p.age ?? null,
-      image: firstPlayerImage(p.photo, p.image, p.logo, item.photo, item.image) ||
+      image: firstPlayerImage(p.photo, p.image, p.logo, wrapperMatchesPlayer ? item.photo : '', wrapperMatchesPlayer ? item.image : '') ||
         (p.id ? `https://images.kickoffapi.com/images/players/${p.id}.png` : ''),
     };
   });
   const complete = Number(data.paging?.current) === 1 && Number(data.paging?.total) === 1 &&
     Number(data.results) === rawList.length && validPlayers.length === players.length;
   squadRows(formatted, { available: true, complete, partial: !complete, rosterAvailable: true,
-    scope: 'team_roster', teamId: 'ko_t_' + numericId, invalidRows: players.length - validPlayers.length });
+    scope: 'team_roster', temporalScope: 'current', teamId: 'ko_t_' + numericId, invalidRows: players.length - validPlayers.length });
   setCache(cacheKey, formatted, TTL.SQUAD);
   logger.info(`✅ KickOff API: ${formatted.length} squad players for team ${numericId}`);
   return formatted;
