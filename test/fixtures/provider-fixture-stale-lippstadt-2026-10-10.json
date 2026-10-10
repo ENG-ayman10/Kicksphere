@@ -1,0 +1,265 @@
+{
+  "auditedAt": "2026-10-10",
+  "evidence": {
+    "sourceCapture": "api-calendar-2026-09-20.json",
+    "rawUpcomingFeed": "https://sportscore.com/api/v1/fixtures/?sport=football&src=kicksphere&date=2026-09-20&status=upcoming&limit=200",
+    "officialScheduleChange": "https://svlippstadt08.de/news/sv-lippstadt-verlegt-oberliga-spiele-vor",
+    "officialResult": "https://asc-09-dortmund.de/41-gegen-lippstadt-asc-09-nach-sieg-in-turbulentem-duell-weiter-auf-dem-vormarsch/",
+    "actualMatch": {
+      "utcDate": "2026-09-19T13:00:00Z",
+      "home": "ASC 09 Dortmund",
+      "away": "SV Lippstadt 08",
+      "homeScore": 4,
+      "awayScore": 1
+    },
+    "note": "Only the two exact stale unfinished September 20 observations are quarantined. The provider third token remains available; its delayed September 24 schedule is not treated as corrected identity proof."
+  },
+  "stale": [
+    {
+      "id": "asc-09-dortmund-vs-sv-lippstadtx7lm7phxgw7wm2w",
+      "slug": "asc-09-dortmund-vs-sv-lippstadtx7lm7phxgw7wm2w",
+      "matchLocator": {
+        "id": "asc-09-dortmund-vs-sv-lippstadtx7lm7phxgw7wm2w",
+        "slug": "asc-09-dortmund-vs-sv-lippstadt",
+        "token": "x7lm7phxgw7wm2w",
+        "url": "/football/match/asc-09-dortmund-vs-sv-lippstadt/x7lm7phxgw7wm2w/"
+      },
+      "utcDate": "2026-09-20T13:00:00+00:00",
+      "status": "TIMED",
+      "statusText": "Not started",
+      "sourceStatus": "upcoming",
+      "minute": null,
+      "period": "",
+      "matchPhase": "NOT_STARTED",
+      "halfTimeConfirmed": false,
+      "homeTeam": {
+        "id": null,
+        "identityBasis": null,
+        "provider": "sportscore",
+        "name": "SV Lippstadt",
+        "shortName": "SV Lippstadt",
+        "crest": "https://img.thesports.com/football/team/2d442e2046833a95e2a05954dfbab693.png",
+        "logo": "https://img.thesports.com/football/team/2d442e2046833a95e2a05954dfbab693.png"
+      },
+      "awayTeam": {
+        "id": null,
+        "identityBasis": null,
+        "provider": "sportscore",
+        "name": "ASC 09 Dortmund",
+        "shortName": "ASC 09 Dortmund",
+        "crest": "https://img.thesports.com/football/team/e68fce460fe99cac2c8c9b41d6e87ddc.png",
+        "logo": "https://img.thesports.com/football/team/e68fce460fe99cac2c8c9b41d6e87ddc.png"
+      },
+      "score": {
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": null
+      },
+      "competition": {
+        "id": "SC:german bundesliga 5",
+        "name": "German Bundesliga 5",
+        "code": "SC:german bundesliga 5",
+        "country": "",
+        "emblem": "https://img.thesports.com/football/competition/499d780eb10677e3f4accea6b21bd7bf.png",
+        "logo": "https://img.thesports.com/football/competition/499d780eb10677e3f4accea6b21bd7bf.png"
+      },
+      "source": "sportscore",
+      "provider": "sportscore"
+    },
+    {
+      "id": "asc-09-dortmund-vs-sv-lippstadt1l4rjnhnyk2gm7v",
+      "slug": "asc-09-dortmund-vs-sv-lippstadt1l4rjnhnyk2gm7v",
+      "matchLocator": {
+        "id": "asc-09-dortmund-vs-sv-lippstadt1l4rjnhnyk2gm7v",
+        "slug": "asc-09-dortmund-vs-sv-lippstadt",
+        "token": "1l4rjnhnyk2gm7v",
+        "url": "/football/match/asc-09-dortmund-vs-sv-lippstadt/1l4rjnhnyk2gm7v/"
+      },
+      "utcDate": "2026-09-20T13:00:00+00:00",
+      "status": "TIMED",
+      "statusText": "Not started",
+      "sourceStatus": "upcoming",
+      "minute": null,
+      "period": "",
+      "matchPhase": "NOT_STARTED",
+      "halfTimeConfirmed": false,
+      "homeTeam": {
+        "id": null,
+        "identityBasis": null,
+        "provider": "sportscore",
+        "name": "SV Lippstadt",
+        "shortName": "SV Lippstadt",
+        "crest": "https://img.thesports.com/football/team/2d442e2046833a95e2a05954dfbab693.png",
+        "logo": "https://img.thesports.com/football/team/2d442e2046833a95e2a05954dfbab693.png"
+      },
+      "awayTeam": {
+        "id": null,
+        "identityBasis": null,
+        "provider": "sportscore",
+        "name": "ASC 09 Dortmund",
+        "shortName": "ASC 09 Dortmund",
+        "crest": "https://img.thesports.com/football/team/e68fce460fe99cac2c8c9b41d6e87ddc.png",
+        "logo": "https://img.thesports.com/football/team/e68fce460fe99cac2c8c9b41d6e87ddc.png"
+      },
+      "score": {
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": null
+      },
+      "competition": {
+        "id": "SC:german bundesliga 5",
+        "name": "German Bundesliga 5",
+        "code": "SC:german bundesliga 5",
+        "country": "",
+        "emblem": "https://img.thesports.com/football/competition/499d780eb10677e3f4accea6b21bd7bf.png",
+        "logo": "https://img.thesports.com/football/competition/499d780eb10677e3f4accea6b21bd7bf.png"
+      },
+      "source": "sportscore",
+      "provider": "sportscore"
+    }
+  ],
+  "otherProviderRecord": {
+    "raw": {
+      "home": "SV Lippstadt",
+      "away": "ASC 09 Dortmund",
+      "home_logo": "https://img.thesports.com/football/team/2d442e2046833a95e2a05954dfbab693.png",
+      "away_logo": "https://img.thesports.com/football/team/e68fce460fe99cac2c8c9b41d6e87ddc.png",
+      "home_score": null,
+      "away_score": null,
+      "status": "upcoming",
+      "status_text": "Delayed",
+      "time": "2026-09-24T13:00:00+00:00",
+      "competition": "German Bundesliga 5",
+      "competition_logo": "https://img.thesports.com/football/competition/499d780eb10677e3f4accea6b21bd7bf.png",
+      "url": "/football/match/asc-09-dortmund-vs-sv-lippstadt/ednm9wh58ee4ryo/",
+      "live_minute": null,
+      "incidents": [],
+      "stats": [],
+      "lineups": null,
+      "home_ht_score": 0,
+      "away_ht_score": 0,
+      "tracker": {
+        "id": "ednm9wh58ee4ryo",
+        "profile": "9emo4h1e9hluyqd",
+        "sport": "football"
+      }
+    },
+    "normalized": {
+      "id": "asc-09-dortmund-vs-sv-lippstadtednm9wh58ee4ryo",
+      "slug": "asc-09-dortmund-vs-sv-lippstadt",
+      "matchLocator": {
+        "id": "asc-09-dortmund-vs-sv-lippstadtednm9wh58ee4ryo",
+        "slug": "asc-09-dortmund-vs-sv-lippstadt",
+        "token": "ednm9wh58ee4ryo",
+        "url": "/football/match/asc-09-dortmund-vs-sv-lippstadt/ednm9wh58ee4ryo/"
+      },
+      "utcDate": "2026-09-24T13:00:00+00:00",
+      "status": "TIMED",
+      "statusText": "Delayed",
+      "sourceStatus": "upcoming",
+      "minute": null,
+      "period": "",
+      "matchPhase": "NOT_STARTED",
+      "halfTimeConfirmed": false,
+      "homeTeam": {
+        "id": null,
+        "identityBasis": null,
+        "provider": "sportscore",
+        "name": "SV Lippstadt",
+        "shortName": "SV Lippstadt",
+        "crest": "https://img.thesports.com/football/team/2d442e2046833a95e2a05954dfbab693.png",
+        "logo": "https://img.thesports.com/football/team/2d442e2046833a95e2a05954dfbab693.png"
+      },
+      "awayTeam": {
+        "id": null,
+        "identityBasis": null,
+        "provider": "sportscore",
+        "name": "ASC 09 Dortmund",
+        "shortName": "ASC 09 Dortmund",
+        "crest": "https://img.thesports.com/football/team/e68fce460fe99cac2c8c9b41d6e87ddc.png",
+        "logo": "https://img.thesports.com/football/team/e68fce460fe99cac2c8c9b41d6e87ddc.png"
+      },
+      "score": {
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": null
+      },
+      "competition": {
+        "id": "SC:german bundesliga 5",
+        "name": "German Bundesliga 5",
+        "code": "SC:german bundesliga 5",
+        "country": "",
+        "emblem": "https://img.thesports.com/football/competition/499d780eb10677e3f4accea6b21bd7bf.png",
+        "logo": "https://img.thesports.com/football/competition/499d780eb10677e3f4accea6b21bd7bf.png"
+      },
+      "source": "sportscore",
+      "provider": "sportscore",
+      "timeline": [],
+      "incidentCoverage": {
+        "available": true,
+        "complete": false,
+        "partial": true
+      },
+      "providerStatistics": [],
+      "lineups": {
+        "matchId": "asc-09-dortmund-vs-sv-lippstadtednm9wh58ee4ryo",
+        "homeTeamId": null,
+        "awayTeamId": null,
+        "source": "sportscore",
+        "homeFormation": "",
+        "awayFormation": "",
+        "homeCoach": null,
+        "awayCoach": null,
+        "confirmed": false,
+        "home": [],
+        "away": [],
+        "homeBench": [],
+        "awayBench": [],
+        "homeBenchComplete": false,
+        "awayBenchComplete": false,
+        "homeLayout": {
+          "mode": "unavailable",
+          "reason": "incomplete_starting_xi",
+          "rows": []
+        },
+        "awayLayout": {
+          "mode": "unavailable",
+          "reason": "incomplete_starting_xi",
+          "rows": []
+        },
+        "integrity": {
+          "complete": false,
+          "partial": true,
+          "reasons": [
+            "incomplete_starting_xi"
+          ],
+          "home": {
+            "startingXiComplete": false,
+            "complete": false,
+            "reasons": [
+              "incomplete_starting_xi"
+            ]
+          },
+          "away": {
+            "startingXiComplete": false,
+            "complete": false,
+            "reasons": [
+              "incomplete_starting_xi"
+            ]
+          }
+        }
+      },
+      "tracker": {
+        "id": "ednm9wh58ee4ryo",
+        "profile": "9emo4h1e9hluyqd",
+        "sport": "football"
+      }
+    }
+  }
+}

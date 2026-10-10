@@ -1,3 +1,5 @@
+const { isQuarantinedProviderFixture } = require('./providerFixtureQuarantine');
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_INTERVAL_MS = 26 * 60 * 60 * 1000;
 
@@ -66,6 +68,10 @@ function selectMatchesInInterval(matches, fromMs, toMs) {
     }
     if (timestamp < fromMs || timestamp >= toMs) {
       outsideInterval++;
+      continue;
+    }
+    if (isQuarantinedProviderFixture(match, timestamp)) {
+      invalidRecords++;
       continue;
     }
     const key = String(id);
