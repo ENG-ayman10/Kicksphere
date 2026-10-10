@@ -1,0 +1,1116 @@
+{
+  "verifiedAt": "2026-10-10",
+  "evidence": {
+    "bsdTeams": "/api/v2/teams/?league_id=5|6&is_women=false&in_competition=true&limit=200",
+    "sportscoreTeams": "/api/widget/standings/?slug=bundesliga|french-ligue-1",
+    "note": "Independent senior league catalogs. Exact source ID and catalog name retained; competition, cohort, oriented participant identities and exact kickoff still required. AS Monaco is verified in FL1 with BSDclub countryMonaco and SCcountryunpublished; leaguecountryFrance is separatelyscoped and never rewrites either sourceclubcountry."
+  },
+  "catalogs": [
+    {
+      "competition": "BL1",
+      "club": "koln",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_94",
+        "name": "1. FC Köln",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_fc-koln",
+        "name": "FC Köln",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "union-berlin",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_83",
+        "name": "1. FC Union Berlin",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_1-fc-union-berlin",
+        "name": "1. FC Union Berlin",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "mainz",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_93",
+        "name": "1. FSV Mainz 05",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_1-fsv-mainz-05",
+        "name": "1. FSV Mainz 05",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "leverkusen",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_85",
+        "name": "Bayer 04 Leverkusen",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_bayer-04-leverkusen",
+        "name": "Bayer 04 Leverkusen",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "dortmund",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_92",
+        "name": "Borussia Dortmund",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_borussia-dortmund",
+        "name": "Borussia Dortmund",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "monchengladbach",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_95",
+        "name": "Borussia M'gladbach",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_borussia-monchengladbach",
+        "name": "Borussia Monchengladbach",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "frankfurt",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_87",
+        "name": "Eintracht Frankfurt",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_eintracht-frankfurt",
+        "name": "Eintracht Frankfurt",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "augsburg",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_90",
+        "name": "FC Augsburg",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_fc-augsburg",
+        "name": "FC Augsburg",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "bayern",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_79",
+        "name": "FC Bayern München",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_fc-bayern-munich",
+        "name": "FC Bayern Munich",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "schalke",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_1290",
+        "name": "FC Schalke 04",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_schalke-04",
+        "name": "Schalke 04",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "hamburg",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_96",
+        "name": "Hamburger SV",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_hamburger-sv",
+        "name": "Hamburger SV",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "leipzig",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_80",
+        "name": "RB Leipzig",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_rb-leipzig",
+        "name": "RB Leipzig",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "freiburg",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_89",
+        "name": "SC Freiburg",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_sc-freiburg",
+        "name": "SC Freiburg",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "paderborn",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_1293",
+        "name": "SC Paderborn 07",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_sc-paderborn-07",
+        "name": "SC Paderborn 07",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "elversberg",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_1833",
+        "name": "SV 07 Elversberg",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_sv-07-elversberg",
+        "name": "SV 07 Elversberg",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "bremen",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_88",
+        "name": "SV Werder Bremen",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_sv-werder-bremen",
+        "name": "SV Werder Bremen",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "hoffenheim",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_86",
+        "name": "TSG Hoffenheim",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_tsg-hoffenheim",
+        "name": "TSG Hoffenheim",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "BL1",
+      "club": "stuttgart",
+      "country": "Germany",
+      "bsd": {
+        "id": "bsd_t_84",
+        "name": "VfB Stuttgart",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_vfb-stuttgart",
+        "name": "VfB Stuttgart",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "angers",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_107",
+        "name": "Angers",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_angers-sco",
+        "name": "Angers SCO",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "auxerre",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_109",
+        "name": "Auxerre",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_aj-auxerre",
+        "name": "AJ Auxerre",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "le-havre",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_102",
+        "name": "Le Havre",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_havre-athletic-club",
+        "name": "Havre Athletic Club",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "le-mans",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_1619",
+        "name": "Le Mans",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_le-mans",
+        "name": "Le Mans",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "lille",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_106",
+        "name": "Lille",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_losc-lille",
+        "name": "LOSC Lille",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "lorient",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_110",
+        "name": "Lorient",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_lorient",
+        "name": "Lorient",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "nice",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_103",
+        "name": "Nice",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_ogc-nice",
+        "name": "OGC Nice",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "marseille",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_98",
+        "name": "Olympique de Marseille",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_marseille",
+        "name": "Marseille",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "lyon",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_100",
+        "name": "Olympique Lyonnais",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_lyon",
+        "name": "Lyon",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "paris-fc",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_108",
+        "name": "Paris FC",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_paris-fc",
+        "name": "Paris FC",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "psg",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_114",
+        "name": "Paris Saint-Germain",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_paris-saint-germain",
+        "name": "Paris Saint Germain",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "lens",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_99",
+        "name": "RC Lens",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_rc-lens",
+        "name": "RC Lens",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "strasbourg",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_112",
+        "name": "RC Strasbourg",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_rc-strasbourg-alsace",
+        "name": "RC Strasbourg Alsace",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "brest",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_105",
+        "name": "Stade Brestois",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_stade-brestois-29",
+        "name": "Stade Brestois 29",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "rennes",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_97",
+        "name": "Stade Rennais",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_stade-rennais-fc",
+        "name": "Stade Rennais FC",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "toulouse",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_104",
+        "name": "Toulouse",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_toulouse-fc",
+        "name": "Toulouse FC",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "troyes",
+      "country": "France",
+      "bsd": {
+        "id": "bsd_t_1303",
+        "name": "Troyes",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_troyes",
+        "name": "Troyes",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "competition": "FL1",
+      "club": "monaco",
+      "country": "Monaco",
+      "competitionCountry": "France",
+      "bsd": {
+        "id": "bsd_t_101",
+        "name": "AS Monaco",
+        "provider": "bsd",
+        "country": "Monaco"
+      },
+      "sportscore": {
+        "id": "sc_t_as-monaco",
+        "name": "AS Monaco",
+        "provider": "sportscore",
+        "country": ""
+      },
+      "sportscoreProfile": {
+        "slug": "as-monaco",
+        "country": ""
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "preferred": {
+        "id": "bsd_213708",
+        "rawId": 213708,
+        "slug": "bsd_213708",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-10-10T13:30:00.000Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 90,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_90",
+          "rawId": 90,
+          "providerId": "90",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "FC Augsburg",
+          "shortName": "FC Augsburg",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/90/",
+          "logo": "https://sports.bzzoiro.com/img/team/90/",
+          "slug": "bsd_t_90",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_79",
+          "rawId": 79,
+          "providerId": "79",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "FC Bayern München",
+          "shortName": "FC Bayern München",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/79/",
+          "logo": "https://sports.bzzoiro.com/img/team/79/",
+          "slug": "bsd_t_79",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 2,
+            "away": 2
+          },
+          "halfTime": {
+            "home": 1,
+            "away": 0
+          }
+        },
+        "competition": {
+          "id": "BL1",
+          "code": "BL1",
+          "rawId": 5,
+          "providerId": "5",
+          "provider": "bsd",
+          "name": "Bundesliga",
+          "country": "Germany",
+          "emblem": "https://sports.bzzoiro.com/img/league/5/",
+          "logo": "https://sports.bzzoiro.com/img/league/5/",
+          "season": {
+            "id": 1091,
+            "name": "Bundesliga 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "regular-season",
+                "stage_name": "Regular season",
+                "matches": 306,
+                "rounds": 34,
+                "start_date": "2026-08-28",
+                "end_date": "2027-05-22"
+              }
+            ]
+          }
+        },
+        "seasonId": 1091,
+        "round": 5,
+        "roundLabel": "Regular season · Matchday 5",
+        "group": "",
+        "stage": "regular-season",
+        "stageName": "Regular season",
+        "venueId": 88,
+        "venue": null,
+        "refereeId": 1891,
+        "homeCoachId": 240,
+        "awayCoachId": 246,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": false,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "fc-augsburg-vs-fc-bayern-munich3glrw7hn5ln2qdy",
+        "slug": "fc-augsburg-vs-fc-bayern-munich3glrw7hn5ln2qdy",
+        "matchLocator": {
+          "id": "fc-augsburg-vs-fc-bayern-munich3glrw7hn5ln2qdy",
+          "slug": "fc-augsburg-vs-fc-bayern-munich",
+          "token": "3glrw7hn5ln2qdy",
+          "url": "/football/match/fc-augsburg-vs-fc-bayern-munich/3glrw7hn5ln2qdy/"
+        },
+        "utcDate": "2026-10-10T13:30:00+00:00",
+        "status": "IN_PLAY",
+        "statusText": "1st half",
+        "sourceStatus": "live",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FIRST_HALF",
+        "halfTimeConfirmed": false,
+        "homeTeam": {
+          "id": "sc_t_fc-augsburg",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "FC Augsburg",
+          "shortName": "FC Augsburg",
+          "crest": "https://img.thesports.com/football/team/db4411a3c4ce1d0f092f5b9d1df08664.png",
+          "logo": "https://img.thesports.com/football/team/db4411a3c4ce1d0f092f5b9d1df08664.png",
+          "identityCompetitionCode": "BL1",
+          "identityCompetitionSlug": "bundesliga"
+        },
+        "awayTeam": {
+          "id": "sc_t_fc-bayern-munich",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "FC Bayern Munich",
+          "shortName": "FC Bayern Munich",
+          "crest": "https://img.thesports.com/football/team/ef19a84a6745fe57aa786873d2b18e8a.png",
+          "logo": "https://img.thesports.com/football/team/ef19a84a6745fe57aa786873d2b18e8a.png",
+          "identityCompetitionCode": "BL1",
+          "identityCompetitionSlug": "bundesliga"
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 0
+          },
+          "halfTime": null
+        },
+        "competition": {
+          "id": "BL1",
+          "name": "Bundesliga",
+          "code": "BL1",
+          "country": "Germany",
+          "emblem": "https://img.thesports.com/football/competition/0c6a25cd746e802296d9064b4504179d.png",
+          "logo": "https://img.thesports.com/football/competition/0c6a25cd746e802296d9064b4504179d.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_210487",
+        "rawId": 210487,
+        "slug": "bsd_210487",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-10-09T18:45:00.000Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 95,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_99",
+          "rawId": 99,
+          "providerId": "99",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "RC Lens",
+          "shortName": "RC Lens",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/99/",
+          "logo": "https://sports.bzzoiro.com/img/team/99/",
+          "slug": "bsd_t_99",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_100",
+          "rawId": 100,
+          "providerId": "100",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Olympique Lyonnais",
+          "shortName": "Olympique Lyonnais",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/100/",
+          "logo": "https://sports.bzzoiro.com/img/team/100/",
+          "slug": "bsd_t_100",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 2,
+            "away": 1
+          },
+          "halfTime": {
+            "home": 1,
+            "away": 0
+          }
+        },
+        "competition": {
+          "id": "FL1",
+          "code": "FL1",
+          "rawId": 6,
+          "providerId": "6",
+          "provider": "bsd",
+          "name": "Ligue 1",
+          "country": "France",
+          "emblem": "https://sports.bzzoiro.com/img/league/6/",
+          "logo": "https://sports.bzzoiro.com/img/league/6/",
+          "season": {
+            "id": 1311,
+            "name": "Ligue 1 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "regular-season",
+                "stage_name": "Regular season",
+                "matches": 306,
+                "rounds": 34,
+                "start_date": "2026-08-21",
+                "end_date": "2027-05-29"
+              }
+            ]
+          }
+        },
+        "seasonId": 1311,
+        "round": 6,
+        "roundLabel": "Regular season · Matchday 6",
+        "group": "",
+        "stage": "regular-season",
+        "stageName": "Regular season",
+        "venueId": 97,
+        "venue": null,
+        "refereeId": 1921,
+        "homeCoachId": 3971,
+        "awayCoachId": 380,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "lyon-vs-rc-lens23xmvkh6zk5wqg8",
+        "slug": "lyon-vs-rc-lens23xmvkh6zk5wqg8",
+        "matchLocator": {
+          "id": "lyon-vs-rc-lens23xmvkh6zk5wqg8",
+          "slug": "lyon-vs-rc-lens",
+          "token": "23xmvkh6zk5wqg8",
+          "url": "/football/match/lyon-vs-rc-lens/23xmvkh6zk5wqg8/"
+        },
+        "utcDate": "2026-10-09T18:45:00+00:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_rc-lens",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "RC Lens",
+          "shortName": "RC Lens",
+          "crest": "https://img.thesports.com/football/team/b8c5038ebb0e21b09a72008b7cb6219f.png",
+          "logo": "https://img.thesports.com/football/team/b8c5038ebb0e21b09a72008b7cb6219f.png",
+          "identityCompetitionCode": "FL1",
+          "identityCompetitionSlug": "french-ligue-1"
+        },
+        "awayTeam": {
+          "id": "sc_t_lyon",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Lyon",
+          "shortName": "Lyon",
+          "crest": "https://img.thesports.com/football/team/92fb3cf79ea2ba919b94b04668e13491.png",
+          "logo": "https://img.thesports.com/football/team/92fb3cf79ea2ba919b94b04668e13491.png",
+          "identityCompetitionCode": "FL1",
+          "identityCompetitionSlug": "french-ligue-1"
+        },
+        "score": {
+          "fullTime": {
+            "home": 2,
+            "away": 1
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "FL1",
+          "name": "Ligue 1",
+          "code": "FL1",
+          "country": "France",
+          "emblem": "https://img.thesports.com/football/competition/6e13222836235b121c1af3bc3055e76b.png",
+          "logo": "https://img.thesports.com/football/competition/6e13222836235b121c1af3bc3055e76b.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_210482",
+        "rawId": 210482,
+        "slug": "bsd_210482",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-10-10T18:45:00.000Z",
+        "status": "TIMED",
+        "statusText": "Upcoming",
+        "minute": null,
+        "period": "",
+        "matchPhase": "NOT_STARTED",
+        "halfTimeConfirmed": false,
+        "homeTeam": {
+          "id": "bsd_t_101",
+          "rawId": 101,
+          "providerId": "101",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "AS Monaco",
+          "shortName": "AS Monaco",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/101/",
+          "logo": "https://sports.bzzoiro.com/img/team/101/",
+          "slug": "bsd_t_101",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_104",
+          "rawId": 104,
+          "providerId": "104",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Toulouse",
+          "shortName": "Toulouse",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/104/",
+          "logo": "https://sports.bzzoiro.com/img/team/104/",
+          "slug": "bsd_t_104",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": null,
+            "away": null
+          },
+          "halfTime": null
+        },
+        "competition": {
+          "id": "FL1",
+          "code": "FL1",
+          "rawId": 6,
+          "providerId": "6",
+          "provider": "bsd",
+          "name": "Ligue 1",
+          "country": "France",
+          "emblem": "https://sports.bzzoiro.com/img/league/6/",
+          "logo": "https://sports.bzzoiro.com/img/league/6/",
+          "season": {
+            "id": 1311,
+            "name": "Ligue 1 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "regular-season",
+                "stage_name": "Regular season",
+                "matches": 306,
+                "rounds": 34,
+                "start_date": "2026-08-21",
+                "end_date": "2027-05-29"
+              }
+            ]
+          }
+        },
+        "seasonId": 1311,
+        "round": 6,
+        "roundLabel": "Regular season · Matchday 6",
+        "group": "",
+        "stage": "regular-season",
+        "stageName": "Regular season",
+        "venueId": 99,
+        "venue": null,
+        "refereeId": 2133,
+        "homeCoachId": 1919,
+        "awayCoachId": 259,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": false,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "toulouse-fc-vs-as-monaco4jwq2ghndx2zm0v",
+        "slug": "toulouse-fc-vs-as-monaco4jwq2ghndx2zm0v",
+        "matchLocator": {
+          "id": "toulouse-fc-vs-as-monaco4jwq2ghndx2zm0v",
+          "slug": "toulouse-fc-vs-as-monaco",
+          "token": "4jwq2ghndx2zm0v",
+          "url": "/football/match/toulouse-fc-vs-as-monaco/4jwq2ghndx2zm0v/"
+        },
+        "utcDate": "2026-10-10T18:45:00+00:00",
+        "status": "TIMED",
+        "statusText": "Not started",
+        "sourceStatus": "upcoming",
+        "minute": null,
+        "period": "",
+        "matchPhase": "NOT_STARTED",
+        "halfTimeConfirmed": false,
+        "homeTeam": {
+          "id": "sc_t_as-monaco",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "AS Monaco",
+          "shortName": "AS Monaco",
+          "crest": "https://img.thesports.com/football/team/693af0d277fe3179594695614dce8666.png",
+          "logo": "https://img.thesports.com/football/team/693af0d277fe3179594695614dce8666.png",
+          "identityCompetitionCode": "FL1",
+          "identityCompetitionSlug": "french-ligue-1"
+        },
+        "awayTeam": {
+          "id": "sc_t_toulouse-fc",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Toulouse FC",
+          "shortName": "Toulouse FC",
+          "crest": "https://img.thesports.com/football/team/2947fe2f42551a5b7eccca7fc948f879.png",
+          "logo": "https://img.thesports.com/football/team/2947fe2f42551a5b7eccca7fc948f879.png",
+          "identityCompetitionCode": "FL1",
+          "identityCompetitionSlug": "french-ligue-1"
+        },
+        "score": {
+          "fullTime": {
+            "home": null,
+            "away": null
+          },
+          "halfTime": null
+        },
+        "competition": {
+          "id": "FL1",
+          "name": "Ligue 1",
+          "code": "FL1",
+          "country": "France",
+          "emblem": "https://img.thesports.com/football/competition/6e13222836235b121c1af3bc3055e76b.png",
+          "logo": "https://img.thesports.com/football/competition/6e13222836235b121c1af3bc3055e76b.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    }
+  ]
+}

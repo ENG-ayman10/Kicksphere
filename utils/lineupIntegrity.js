@@ -46,27 +46,43 @@ function buildLineupLayout(players, formation) {
   if (!Array.isArray(players) || players.length !== 11) return unavailable('incomplete_starting_xi');
   const ids = players.map(playerId);
   if (ids.some(id => !id) || new Set(ids).size !== 11) return unavailable('unverified_player_identity');
-  if (!rows) return unavailable('formation_unavailable');
   const grids = players.map(player => player.grid ?? player.player?.grid);
   if (grids.some(grid => grid !== undefined && grid !== null && grid !== '')) {
     const parsed = grids.map(parseGrid);
     if (parsed.some(grid => !grid)) return unavailable('incomplete_position_grid');
-    const assigned = rows.map((count, index) => {
+    const knownRoles = players.map(player => positionGroup(player.positionGroup || player.position || player.player?.position));
+    const keepers = knownRoles.flatMap((role, index) => role === 'G' ? [index] : []);
+    if (keepers.length > 1 || (keepers.length === 1 && parsed[keepers[0]].row !== 1) ||
+        (knownRoles.every(Boolean) && keepers.length !== 1) ||
+        knownRoles.some((role, index) => parsed[index].row === 1 && role && role !== 'G')) {
+      return unavailable('position_grid_conflict');
+    }
+    // An exact contiguous grid is independent provider positioning evidence.
+    // A missing formation label does not justify discarding it; a published
+    // conflicting formation still fails its row-count checks below.
+    const gridRows = rows || Array.from({ length: Math.max(...parsed.map(grid => grid.row)) },
+      (_, index) => parsed.filter(grid => grid.row === index + 1).length);
+    if (!rows && (gridRows[0] !== 1 || gridRows.some(count => count === 0))) return unavailable('position_grid_conflict');
+    const assigned = gridRows.map((count, index) => {
       const row = players.map((player, i) => ({ player, grid: parsed[i] }))
         .filter(item => item.grid.row === index + 1).sort((a, b) => a.grid.column - b.grid.column);
       return row.length === count && row.every((item, i) => item.grid.column === i + 1)
         ? row.map(item => playerId(item.player)) : null;
     });
     if (assigned.some(row => !row)) return unavailable('position_grid_conflict');
-    return { mode: 'grid', reason: null, rows: assigned };
+    return { mode: 'grid', reason: rows ? null : 'formation_unavailable', rows: assigned };
   }
   const groups = players.map(player => positionGroup(player.positionGroup || player.position || player.player?.position));
   if (groups.some(group => !group)) return unavailable('positions_unavailable');
   const byGroup = ['G', 'D', 'M', 'F'].map(group => ids.filter((_, index) => groups[index] === group));
-  if (byGroup[0].length !== 1 || byGroup[1].length !== rows[1]) return unavailable('source_position_conflict');
+  if (byGroup[0].length !== 1) return unavailable('source_position_conflict');
   // Grouping G/D/M/F is supported by the source. Splitting five midfielders into
-  // "2 holding + 3 attacking" or labelling a left/right slot is not.
-  return { mode: 'position_groups', reason: 'exact_positions_unavailable', rows: byGroup.filter(row => row.length) };
+  // "2 holding + 3 attacking" or labelling a left/right slot is not. A missing
+  // or inconsistent formation must not erase these independently reported
+  // broad roles. Preserve the conflict for callers to label the display.
+  const reason = !rows ? 'formation_unavailable' : byGroup[1].length !== rows[1]
+    ? 'source_position_conflict' : 'exact_positions_unavailable';
+  return { mode: 'position_groups', reason, rows: byGroup.filter(row => row.length) };
 }
 
 function comparableTeamId(value, provider) {

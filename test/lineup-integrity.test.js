@@ -24,6 +24,31 @@ test('explicit provider grid restores exact rows from a shuffled starting XI', (
   assert.deepEqual(layout.rows[1], ['bsd_p_2', 'bsd_p_3', 'bsd_p_4', 'bsd_p_5']);
 });
 
+test('a complete contiguous provider grid survives a missing formation label without inventing a formation', () => {
+  const grids = ['1:1', '2:1', '2:2', '2:3', '2:4', '3:1', '3:2', '4:1', '4:2', '4:3', '5:1'];
+  const players = xi().map((item, i) => ({ ...item, grid: grids[i] })).reverse();
+  const layout = buildLineupLayout(players, '');
+  assert.equal(layout.mode, 'grid'); assert.equal(layout.reason, 'formation_unavailable');
+  assert.deepEqual(layout.rows.map(row => row.length), [1, 4, 2, 3, 1]);
+  assert.equal(buildLineupLayout(players, '4-4-2').reason, 'position_grid_conflict');
+  const disconnected = players.map(item => ({ ...item, grid: item.grid.startsWith('4:') ? item.grid.replace('4:', '6:') : item.grid }));
+  assert.equal(buildLineupLayout(disconnected, '').reason, 'position_grid_conflict');
+});
+
+test('explicit grids cannot place a known outfield player in goal or a known goalkeeper outside its row', () => {
+  const grids = ['1:1', '2:1', '2:2', '2:3', '2:4', '3:1', '3:2', '3:3', '3:4', '4:1', '4:2'];
+  const valid = ['G','D','D','D','D','M','M','M','M','F','F'].map((position, index) =>
+    player(index + 1, position, { grid: grids[index] }));
+  for (const mutate of [rows => { rows[0].position = 'D'; rows[1].position = 'G'; },
+    rows => { rows[1].position = 'G'; }, rows => { rows[0].position = 'D'; },
+    rows => { rows[0].position = 'D'; rows[1].position = ''; }]) {
+    const rows = structuredClone(valid); mutate(rows);
+    assert.equal(buildLineupLayout(rows, '4-4-2').reason, 'position_grid_conflict');
+    assert.equal(buildLineupLayout(rows, '').reason, 'position_grid_conflict');
+  }
+  assert.equal(buildLineupLayout(valid.map(row => ({ ...row, position: '' })), '4-4-2').mode, 'grid');
+});
+
 test('partial or duplicate grids cannot silently fall back to made-up pitch slots', () => {
   const partial = xi(); partial[0].grid = '1:1';
   assert.equal(buildLineupLayout(partial, '4-2-3-1').reason, 'incomplete_position_grid');
@@ -75,6 +100,8 @@ test('missing formation and roles do not change verified XI completeness or clai
   const result = validateLineupIntegrity(input);
   assert.equal(result.integrity.complete, true);
   assert.equal(result.homeLayout.reason, 'formation_unavailable');
+  assert.equal(result.homeLayout.mode, 'position_groups');
+  assert.deepEqual(result.homeLayout.rows.map(row => row.length), [1, 4, 5, 1]);
   assert.equal(result.awayLayout.reason, 'positions_unavailable');
 });
 
@@ -93,5 +120,26 @@ test('saved BSD Germany–Serbia source conflict does not place a midfielder as 
   germany[4].name = 'Lennart Karl';
   const serbia = ['G','D','D','D','M','M','M','M','M','M','F'].map((role, i) => player(i + 20, role));
   serbia[4].name = 'Nemanja Gudelj';
-  for (const players of [germany, serbia]) assert.equal(buildLineupLayout(players, '4-2-3-1').reason, 'source_position_conflict');
+  for (const players of [germany, serbia]) {
+    const layout = buildLineupLayout(players, '4-2-3-1');
+    assert.equal(layout.reason, 'source_position_conflict');
+    assert.equal(layout.mode, 'position_groups');
+    assert.equal(layout.rows[1].length, 3);
+    assert.equal(layout.rows.flat().length, 11);
+  }
+  const checked = validateLineupIntegrity({ ...lineups(), home: germany, away: serbia });
+  assert.equal(checked.integrity.complete, false);
+  assert.ok(checked.integrity.reasons.includes('source_position_conflict'));
+});
+
+test('broad groups still reject an unverifiable XI, missing roles or a second goalkeeper', () => {
+  const input = xi();
+  assert.equal(buildLineupLayout(input.slice(1), '').mode, 'unavailable');
+  input[1].position = 'G';
+  assert.equal(buildLineupLayout(input, '').reason, 'source_position_conflict');
+  input[1].position = '';
+  assert.equal(buildLineupLayout(input, '').reason, 'positions_unavailable');
+  input[1].position = 'D';
+  input[1].id = input[0].id;
+  assert.equal(buildLineupLayout(input, '').reason, 'unverified_player_identity');
 });

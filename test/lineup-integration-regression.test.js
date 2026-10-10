@@ -147,6 +147,7 @@ test('controller lineup caching expires active confirmed lists at 30 seconds, pr
       const entry = entries.get(key); return entry && now < entry.expires ? entry.value : null;
     }, setCache: (key, value, ttl) => { writes.push({ key, ttl }); entries.set(key, { value, expires: now + ttl }); } };
     const normal = bsd().normalizeLineups(bsdRaw(), match);
+    for (const side of ['home', 'away']) normal[side] = normal[side].map(player => ({ ...player, rating: 7.2 }));
     const api = controller({ '../services/bsdSportsService': { getMatchDetails: async () => { calls++; return {
       matchInfo: { ...match, status }, lineups: { ...normal, confirmed, predicted: !confirmed, lineupStatus: confirmed ? 'confirmed' : 'predicted' } }; } } }, cache);
     const first = await request(api); assert.equal(first.body.source, 'bsd'); assert.equal(calls, 1);
@@ -154,4 +155,41 @@ test('controller lineup caching expires active confirmed lists at 30 seconds, pr
     now = expectedTtl - 1; const second = await request(api); assert.equal(second.body.source, 'bsd_cached'); assert.equal(calls, 1);
     now = expectedTtl; await request(api); assert.equal(calls, 2, 'An expired announcement must be fetched again');
   }
+});
+
+test('finished XI with late match ratings refreshes in sixty seconds and uses only lineup detail sections', async () => {
+  let now = 0, calls = 0;
+  const entries = new Map(), writes = [];
+  const cache = { getCached: key => {
+    const entry = entries.get(key); return entry && now < entry.expires ? entry.value : null;
+  }, setCache: (key, value, ttl) => { writes.push(ttl); entries.set(key, { value, expires: now + ttl }); } };
+  const normal = bsd().normalizeLineups(bsdRaw(), match);
+  const api = controller({ '../services/bsdSportsService': {
+    getMatchDetails: async (id, options) => {
+      assert.equal(id, 'bsd_1'); assert.deepEqual(options, { lineupsOnly: true }); calls++;
+      const lineups = { ...normal, home: normal.home.map(player => ({ ...player, rating: calls === 1 ? null : 8.2 })),
+        away: normal.away.map(player => ({ ...player, rating: calls === 1 ? null : 7.2 })) };
+      return { matchInfo: { ...match, status: 'FINISHED' }, lineups };
+    } } }, cache);
+  assert.equal((await request(api)).body.data.home[0].rating, null);
+  assert.equal(writes[0], 60000);
+  now = 59999; assert.equal((await request(api)).body.source, 'bsd_cached');
+  now = 60000; assert.equal((await request(api)).body.data.home[0].rating, 8.2);
+  assert.equal(writes[1], 900000); assert.equal(calls, 2);
+});
+
+test('an unlinked original lineup is retried shortly instead of freezing names-only recovery for fifteen minutes', async () => {
+  const writes = [], normal = bsd().normalizeLineups(bsdRaw(), match);
+  const original = { id: 'old-public-fixture', status: 'FINISHED', homeTeam: { id: 'sc_t_home' }, awayTeam: { id: 'sc_t_away' },
+    lineups: { confirmed: true, homeFormation: '4-4-2', awayFormation: '4-4-2',
+      home: normal.home.map(player => ({ name: player.name, position: player.position, id: null, provider: 'sportscore' })),
+      away: normal.away.map(player => ({ name: player.name, position: player.position, id: null, provider: 'sportscore' })),
+      homeBench: [], awayBench: [] } };
+  const api = controller({ '../services/sportsDataService': {
+    getMatchDetails: async () => ({ source: 'sportscore', data: original }) } },
+  { getCached: () => null, setCache: (_key, _value, ttl) => writes.push(ttl) });
+  const res = await request(api, original.id);
+  assert.equal(res.body.data.home.length, 11);
+  assert.equal(res.body.data.home[0].id, null);
+  assert.equal(writes[0], 15000);
 });

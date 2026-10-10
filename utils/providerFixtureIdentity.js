@@ -19,7 +19,7 @@ const sameCountry = (a, b) => !country(a) || !country(b) || country(a) === count
 
 // Explicit, source-scoped senior-club identities verified independently against
 // both provider catalogs. MLS was checked on 2026-10-02; the full PD senior
-// catalog on 2026-10-10 (provider-fixture-pd-catalog-2026-10-10.json). This is
+// catalog and BL1/FL1 catalogs on 2026-10-10 (provider-fixture-*-catalog-2026-10-10.json). This is
 // intentionally not a global name alias or a rule that removes FC/age suffixes.
 // Evidence and both unmodified kickoff values are captured in the regression fixture.
 const VERIFIED_CLUB_TEAMS = Object.freeze({
@@ -97,6 +97,64 @@ const VERIFIED_CLUB_TEAMS = Object.freeze({
   'sc_t_internacional-rs': { club: 'internacional', provider: 'sportscore', name: 'Internacional - RS', competition: 'BSA', country: 'Brazil' },
   bsd_t_303: { club: 'colorado', provider: 'bsd', name: 'Colorado Rapids', competition: 'MLS', country: 'USA' },
   'sc_t_colorado-rapids': { club: 'colorado', provider: 'sportscore', name: 'Colorado Rapids', competition: 'MLS', country: 'USA' },
+  'bsd_t_94': { club: 'koln', provider: 'bsd', name: "1. FC Köln", competition: 'BL1', country: 'Germany' },
+  'sc_t_fc-koln': { club: 'koln', provider: 'sportscore', name: "FC Köln", competition: 'BL1', country: 'Germany' },
+  'bsd_t_83': { club: 'union-berlin', provider: 'bsd', name: "1. FC Union Berlin", competition: 'BL1', country: 'Germany' },
+  'sc_t_1-fc-union-berlin': { club: 'union-berlin', provider: 'sportscore', name: "1. FC Union Berlin", competition: 'BL1', country: 'Germany' },
+  'bsd_t_93': { club: 'mainz', provider: 'bsd', name: "1. FSV Mainz 05", competition: 'BL1', country: 'Germany' },
+  'sc_t_1-fsv-mainz-05': { club: 'mainz', provider: 'sportscore', name: "1. FSV Mainz 05", competition: 'BL1', country: 'Germany' },
+  'bsd_t_85': { club: 'leverkusen', provider: 'bsd', name: "Bayer 04 Leverkusen", competition: 'BL1', country: 'Germany' },
+  'sc_t_bayer-04-leverkusen': { club: 'leverkusen', provider: 'sportscore', name: "Bayer 04 Leverkusen", competition: 'BL1', country: 'Germany' },
+  'bsd_t_92': { club: 'dortmund', provider: 'bsd', name: "Borussia Dortmund", competition: 'BL1', country: 'Germany' },
+  'sc_t_borussia-dortmund': { club: 'dortmund', provider: 'sportscore', name: "Borussia Dortmund", competition: 'BL1', country: 'Germany' },
+  'bsd_t_95': { club: 'monchengladbach', provider: 'bsd', name: "Borussia M'gladbach", competition: 'BL1', country: 'Germany' },
+  'sc_t_borussia-monchengladbach': { club: 'monchengladbach', provider: 'sportscore', name: "Borussia Monchengladbach", competition: 'BL1', country: 'Germany' },
+  'bsd_t_87': { club: 'frankfurt', provider: 'bsd', name: "Eintracht Frankfurt", competition: 'BL1', country: 'Germany' },
+  'sc_t_eintracht-frankfurt': { club: 'frankfurt', provider: 'sportscore', name: "Eintracht Frankfurt", competition: 'BL1', country: 'Germany' },
+  'bsd_t_90': { club: 'augsburg', provider: 'bsd', name: "FC Augsburg", competition: 'BL1', country: 'Germany' },
+  'sc_t_fc-augsburg': { club: 'augsburg', provider: 'sportscore', name: "FC Augsburg", competition: 'BL1', country: 'Germany' },
+  'bsd_t_79': { club: 'bayern', provider: 'bsd', name: "FC Bayern München", competition: 'BL1', country: 'Germany' },
+  'sc_t_fc-bayern-munich': { club: 'bayern', provider: 'sportscore', name: "FC Bayern Munich", competition: 'BL1', country: 'Germany' },
+  'bsd_t_96': { club: 'hamburg', provider: 'bsd', name: "Hamburger SV", competition: 'BL1', country: 'Germany' },
+  'sc_t_hamburger-sv': { club: 'hamburg', provider: 'sportscore', name: "Hamburger SV", competition: 'BL1', country: 'Germany' },
+  'bsd_t_80': { club: 'leipzig', provider: 'bsd', name: "RB Leipzig", competition: 'BL1', country: 'Germany' },
+  'sc_t_rb-leipzig': { club: 'leipzig', provider: 'sportscore', name: "RB Leipzig", competition: 'BL1', country: 'Germany' },
+  'bsd_t_89': { club: 'freiburg', provider: 'bsd', name: "SC Freiburg", competition: 'BL1', country: 'Germany' },
+  'sc_t_sc-freiburg': { club: 'freiburg', provider: 'sportscore', name: "SC Freiburg", competition: 'BL1', country: 'Germany' },
+  'bsd_t_1293': { club: 'paderborn', provider: 'bsd', name: "SC Paderborn 07", competition: 'BL1', country: 'Germany' },
+  'sc_t_sc-paderborn-07': { club: 'paderborn', provider: 'sportscore', name: "SC Paderborn 07", competition: 'BL1', country: 'Germany' },
+  'bsd_t_88': { club: 'bremen', provider: 'bsd', name: "SV Werder Bremen", competition: 'BL1', country: 'Germany' },
+  'sc_t_sv-werder-bremen': { club: 'bremen', provider: 'sportscore', name: "SV Werder Bremen", competition: 'BL1', country: 'Germany' },
+  'bsd_t_86': { club: 'hoffenheim', provider: 'bsd', name: "TSG Hoffenheim", competition: 'BL1', country: 'Germany' },
+  'sc_t_tsg-hoffenheim': { club: 'hoffenheim', provider: 'sportscore', name: "TSG Hoffenheim", competition: 'BL1', country: 'Germany' },
+  'bsd_t_84': { club: 'stuttgart', provider: 'bsd', name: "VfB Stuttgart", competition: 'BL1', country: 'Germany' },
+  'sc_t_vfb-stuttgart': { club: 'stuttgart', provider: 'sportscore', name: "VfB Stuttgart", competition: 'BL1', country: 'Germany' },
+  'bsd_t_107': { club: 'angers', provider: 'bsd', name: "Angers", competition: 'FL1', country: 'France' },
+  'sc_t_angers-sco': { club: 'angers', provider: 'sportscore', name: "Angers SCO", competition: 'FL1', country: 'France' },
+  'bsd_t_102': { club: 'le-havre', provider: 'bsd', name: "Le Havre", competition: 'FL1', country: 'France' },
+  'sc_t_havre-athletic-club': { club: 'le-havre', provider: 'sportscore', name: "Havre Athletic Club", competition: 'FL1', country: 'France' },
+  'bsd_t_1619': { club: 'le-mans', provider: 'bsd', name: "Le Mans", competition: 'FL1', country: 'France' },
+  'sc_t_le-mans': { club: 'le-mans', provider: 'sportscore', name: "Le Mans", competition: 'FL1', country: 'France' },
+  'bsd_t_110': { club: 'lorient', provider: 'bsd', name: "Lorient", competition: 'FL1', country: 'France' },
+  'sc_t_lorient': { club: 'lorient', provider: 'sportscore', name: "Lorient", competition: 'FL1', country: 'France' },
+  'bsd_t_100': { club: 'lyon', provider: 'bsd', name: "Olympique Lyonnais", competition: 'FL1', country: 'France' },
+  'sc_t_lyon': { club: 'lyon', provider: 'sportscore', name: "Lyon", competition: 'FL1', country: 'France' },
+  'bsd_t_108': { club: 'paris-fc', provider: 'bsd', name: "Paris FC", competition: 'FL1', country: 'France' },
+  'sc_t_paris-fc': { club: 'paris-fc', provider: 'sportscore', name: "Paris FC", competition: 'FL1', country: 'France' },
+  'bsd_t_99': { club: 'lens', provider: 'bsd', name: "RC Lens", competition: 'FL1', country: 'France' },
+  'sc_t_rc-lens': { club: 'lens', provider: 'sportscore', name: "RC Lens", competition: 'FL1', country: 'France' },
+  'bsd_t_112': { club: 'strasbourg', provider: 'bsd', name: "RC Strasbourg", competition: 'FL1', country: 'France' },
+  'sc_t_rc-strasbourg-alsace': { club: 'strasbourg', provider: 'sportscore', name: "RC Strasbourg Alsace", competition: 'FL1', country: 'France' },
+  'bsd_t_97': { club: 'rennes', provider: 'bsd', name: "Stade Rennais", competition: 'FL1', country: 'France' },
+  'sc_t_stade-rennais-fc': { club: 'rennes', provider: 'sportscore', name: "Stade Rennais FC", competition: 'FL1', country: 'France' },
+  'bsd_t_104': { club: 'toulouse', provider: 'bsd', name: "Toulouse", competition: 'FL1', country: 'France' },
+  'sc_t_toulouse-fc': { club: 'toulouse', provider: 'sportscore', name: "Toulouse FC", competition: 'FL1', country: 'France' },
+  'bsd_t_1303': { club: 'troyes', provider: 'bsd', name: "Troyes", competition: 'FL1', country: 'France' },
+  'sc_t_troyes': { club: 'troyes', provider: 'sportscore', name: "Troyes", competition: 'FL1', country: 'France' },
+  // Both catalogs put AS Monaco in FL1. Its club country remains Monaco;
+  // membership in a French league never turns its country into France.
+  bsd_t_101: { club: 'monaco', provider: 'bsd', name: 'AS Monaco', competition: 'FL1', country: 'Monaco', competitionCountry: 'France' },
+  'sc_t_as-monaco': { club: 'monaco', provider: 'sportscore', name: 'AS Monaco', competition: 'FL1', country: 'Monaco', competitionCountry: 'France' },
 });
 // The audited providers disagree by exactly ten minutes for the verified pair.
 // No other clubs or name-based fixture joins get a kickoff tolerance.
@@ -185,8 +243,10 @@ function verifiedBsdTeamIdForSportScoreTeam(team, competitionCode) {
 function seniorClubContext(match, identity) {
   const home = verifiedClub(match.homeTeam, identity.provider, identity.competitionCode);
   const away = verifiedClub(match.awayTeam, identity.provider, identity.competitionCode);
-  if (!home || !away || home.country !== away.country ||
-      !sameCountry(match.competition?.countryCode || match.competition?.country, home.country)) return null;
+  const homeLeagueCountry = home?.competitionCountry || home?.country;
+  const awayLeagueCountry = away?.competitionCountry || away?.country;
+  if (!home || !away || homeLeagueCountry !== awayLeagueCountry ||
+      !sameCountry(match.competition?.countryCode || match.competition?.country, homeLeagueCountry)) return null;
   for (const object of [match, match.competition, match.homeTeam, match.awayTeam]) {
     if (!['male', 'men', 'm'].includes(gender(object)) || !['senior', 'adult', 'open'].includes(ageGroup(object)) ||
         !['first', 'first team', 'senior'].includes(reserves(object))) return null;

@@ -5,6 +5,7 @@ const { validatedProviderIdentities, matchIdentityIds } = require('../utils/matc
 const pd = require('./fixtures/provider-fixture-pd-catalog-2026-10-10.json');
 const friendly = require('./fixtures/provider-fixture-friendly-2026-10-04.json');
 const other = require('./fixtures/provider-fixture-other-aliases-2026-10-10.json');
+const germanFrench = require('./fixtures/provider-fixture-bl1-fl1-catalog-2026-10-10.json');
 const clone = value => structuredClone(value);
 
 test('captured four PD name variants select the whole enriched fixture with exact old subscription identities', () => {
@@ -223,4 +224,60 @@ test('Colorado–Seattle does not inherit the prior Seattle–Kansas ten-minute 
   const { preferred, supplement } = clone(other.pairs[7]);
   supplement.utcDate = new Date(Date.parse(preferred.utcDate) + 10 * 60 * 1000).toISOString();
   assert.equal(mergeProviderFixtures([preferred], [supplement]).length, 2);
+});
+
+test('captured Bayern, Lyon and Monaco aliases recover the rich exact fixture without splicing original player IDs', () => {
+  for (const captured of germanFrench.pairs) {
+    const { preferred, supplement } = clone(captured);
+    const before = clone(captured);
+    const rows = mergeProviderFixtures([preferred], [supplement]);
+    assert.equal(rows.length, 1, supplement.id);
+    assert.strictEqual(rows[0].homeTeam, preferred.homeTeam);
+    assert.strictEqual(rows[0].awayTeam, preferred.awayTeam);
+    assert.deepEqual(matchIdentityIds(rows[0]), [preferred.id, supplement.id]);
+    assert.equal(findVerifiedCanonicalFixture(supplement.id, [preferred], [supplement]).id, preferred.id);
+    assert.deepEqual({ preferred, supplement }, before);
+  }
+});
+
+test('Monaco league membership preserves club country and never permits a conflicting reported country', () => {
+  const captured = germanFrench.pairs.find(pair => pair.preferred.id === 'bsd_210482');
+  const { preferred, supplement } = clone(captured);
+  preferred.homeTeam.country = 'Monaco'; supplement.homeTeam.country = 'Monaco';
+  const [joined] = mergeProviderFixtures([preferred], [supplement]);
+  assert.equal(joined.id, preferred.id);
+  assert.equal(joined.homeTeam.country, 'Monaco');
+  assert.equal(joined.competition.country, 'France');
+  assert.equal(verifiedBsdTeamIdForSportScoreTeam(supplement.homeTeam, 'FL1'), 'bsd_t_101');
+  for (const mutate of [pair => { pair.supplement.homeTeam.country = 'France'; },
+    pair => { pair.preferred.homeTeam.country = 'France'; },
+    pair => { pair.supplement.competition.country = 'Monaco'; },
+    pair => { pair.supplement.homeTeam.isWomen = true; },
+    pair => { pair.supplement.utcDate = '2026-10-10T18:46:00Z'; }]) {
+    const pair = clone({ preferred, supplement }); mutate(pair);
+    assert.equal(mergeProviderFixtures([pair.preferred], [pair.supplement]).length, 2);
+  }
+});
+
+test('independently verified German and French catalog identities remain source and competition scoped', () => {
+  for (const entry of germanFrench.catalogs) {
+    const bsdId = verifiedBsdTeamIdForSportScoreTeam({ ...entry.sportscore,
+      identityCompetitionCode: entry.competition }, entry.competition);
+    assert.equal(bsdId, entry.bsd.id, entry.sportscore.name);
+    assert.equal(verifiedBsdTeamIdForSportScoreTeam({ ...entry.sportscore, isWomen: true }, entry.competition), null);
+    assert.equal(verifiedBsdTeamIdForSportScoreTeam({ ...entry.sportscore, country: 'Brazil' }, entry.competition), null);
+    assert.equal(verifiedBsdTeamIdForSportScoreTeam(entry.sportscore, 'PL'), null);
+  }
+});
+
+test('new rich-fixture recovery never guesses a rematch, foreign cohort or source identity', () => {
+  for (const captured of germanFrench.pairs) {
+    for (const mutate of [m => { m.utcDate = new Date(Date.parse(m.utcDate) + 1000).toISOString(); },
+      m => { m.homeTeam.id += '-other'; }, m => { m.awayTeam.ageGroup = 'u21'; },
+      m => { m.homeTeam.provider = 'bsd'; }, m => { m.competition.code = 'CL'; }]) {
+      const { preferred, supplement } = clone(captured);
+      mutate(supplement);
+      assert.equal(mergeProviderFixtures([preferred], [supplement]).length, 2, mutate.toString());
+    }
+  }
 });

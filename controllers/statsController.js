@@ -375,7 +375,7 @@ async function resolveMatchLineups(id) {
         complete: data.integrity.complete, partial: data.integrity.partial, integrity: data.integrity } };
   };
   if (/^bsd_[1-9]\d*$/.test(String(id))) {
-    const details = await callProvider('BSD match lineups', () => bsdSportsService.getMatchDetails(id));
+    const details = await callProvider('BSD match lineups', () => bsdSportsService.getMatchDetails(id, { lineupsOnly: true }));
     return details?.matchInfo?.id === id ? checked('bsd', details.lineups, details.matchInfo, details.coverage) : null;
   }
   if (String(id).startsWith('bsd_')) return null;
@@ -386,7 +386,7 @@ async function resolveMatchLineups(id) {
   if (!match || String(match.id) !== String(id)) return null;
   const verifiedBsd = validatedProviderIdentities(match).find(identity => identity.provider === 'bsd');
   if (verifiedBsd && match.canonicalMatchId === verifiedBsd.id) {
-    const details = await callProvider('Verified BSD match lineups', () => bsdSportsService.getMatchDetails(verifiedBsd.id));
+    const details = await callProvider('Verified BSD match lineups', () => bsdSportsService.getMatchDetails(verifiedBsd.id, { lineupsOnly: true }));
     if (details?.matchInfo?.id === verifiedBsd.id &&
         details.matchInfo.homeTeam?.id === verifiedBsd.homeTeamId &&
         details.matchInfo.awayTeam?.id === verifiedBsd.awayTeamId &&
@@ -481,7 +481,14 @@ exports.getMatchLineups = async (req, res) => {
       // Unsupported enrichment has no retryable provider call to make.
       const incompleteRoster = typeof rosterProvider === 'function' && ['home', 'away'].some(side =>
         result.lineups.squadCoverage?.[side]?.available !== true || result.lineups.squadCoverage?.[side]?.complete !== true);
-      const ttl = incompleteRoster || result.retryableAlternative ? Math.min(lineupTtl, 15000) : lineupTtl;
+      // Ratings can be published after a final XI. Preserve their unknown
+      // state, but do not freeze missing measured values for fifteen minutes.
+      const incompleteRatings = finished && ['home', 'away'].some(side =>
+        (result.lineups[side] || []).some(player => toNumberOrNull(player.rating) === null));
+      const unlinkedPlayers = ['home', 'away'].some(side =>
+        (result.lineups[side] || []).some(player => !player.id && !player.player?.id));
+      const ttl = incompleteRoster || result.retryableAlternative || unlinkedPlayers ? Math.min(lineupTtl, 15000)
+        : incompleteRatings ? Math.min(lineupTtl, 60000) : lineupTtl;
       setCache(cacheKey, result, ttl);
 
       return res.json({

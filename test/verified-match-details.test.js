@@ -191,12 +191,17 @@ test('optional fixture lookup bounds its parallel league-catalog read as well as
   }
 });
 
-test('optional fixture lookup cancels the cold catalog request and gives each later page only the remaining budget', async () => {
+test('optional fixture lookup cancels the cold catalog request and gives each later page only the remaining budget', async t => {
   let catalogAborted = false, activeCatalogRequests = 0;
+  // Advance provider work deterministically. A heavily loaded build machine
+  // may delay a 30ms timer past the 80ms total budget, correctly preventing
+  // page two before this test can exercise its cancellation contract.
+  let clock = Date.now();
+  t.mock.method(Date, 'now', () => clock);
   const { api, calls } = bsdProvider(async (path, _params, config) => {
     if (path === '/api/v2/events/') return { count: 1, next: null, results: [rawEvent] };
     if (path === '/api/v2/leagues/') {
-      await new Promise(resolve => setTimeout(resolve, 30));
+      clock += 30;
       return { count: 2, next: 'https://sports.bzzoiro.com/api/v2/leagues/?limit=200&offset=200',
         results: [{ id: 3, name: 'La Liga' }] };
     }
@@ -209,7 +214,7 @@ test('optional fixture lookup cancels the cold catalog request and gives each la
       if (config.signal.aborted) cancelled(); else config.signal.addEventListener('abort', cancelled, { once: true });
     });
   });
-  const started = Date.now();
+  const started = performance.now();
   // The watchdog keeps the test process alive while AbortSignal's unref'ed
   // deadline runs, and fails a regression that leaves the request pending.
   const watchdog = setTimeout(() => {}, 500);
@@ -223,7 +228,7 @@ test('optional fixture lookup cancels the cold catalog request and gives each la
   const nextPage = calls.find(call => call.path.includes('offset=200'));
   assert.ok(nextPage.config.timeout > 0 && nextPage.config.timeout < 80);
   assert.equal(nextPage.config.signal.aborted, true);
-  assert.ok(Date.now() - started < 350);
+  assert.ok(performance.now() - started < 350);
 });
 
 test('bounded match summaries pass the remaining timeout and catalog limits through direct and summary-only calls', async () => {

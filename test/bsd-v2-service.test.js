@@ -704,3 +704,39 @@ test('same-name search teams are distinguished by their own current competition 
   assert.deepEqual(result.teams.map(row => row.id), ['bsd_t_57', 'bsd_t_44']);
   assert.ok(result.teams.every(row => row.league === 'LaLiga' && row.leagueCode === 'PD'));
 });
+
+test('lineup-only detail reads retain exact identities and measured ratings without unrelated optional requests', async () => {
+  const fixture = event(1, { status: 'finished', venue_id: 10, home_coach_id: 20, away_coach_id: 30 });
+  const rawXi = start => ['G','D','D','D','D','M','M','M','M','F','F'].map((position, index) =>
+    ({ id: start + index, name: 'Player ' + (start + index), position, rating: 7.1 }));
+  const { service, requests } = setup(url => {
+    if (url.pathname === '/api/v2/events/1/') return fixture;
+    if (url.pathname.endsWith('/availability/')) return { event_id: 1,
+      available: { stats: true, lineups: true, incidents: true, player_stats: true } };
+    if (url.pathname.endsWith('/lineups/')) return { event_id: 1, lineup_status: 'confirmed', lineups: {
+      home: { team_id: 57, formation: '4-4-2', players: rawXi(1), substitutes: [] },
+      away: { team_id: 44, formation: '4-4-2', players: rawXi(101), substitutes: [] } } };
+    if (url.pathname.endsWith('/player-stats/')) return { event_id: 1,
+      player_stats: [{ player_id: 1, event_id: 1, team_id: 57, rating: 8.4 },
+        { player_id: 101, event_id: 999, team_id: 44, rating: 9.9 },
+        { player_id: 102, event_id: 1, team_id: 999, rating: 9.8 }] };
+    if (url.pathname === '/api/v2/managers/20/') return { id: 20, name: 'Home coach', photo: 'https://example.test/home-coach.png' };
+    if (url.pathname === '/api/v2/managers/30/') return { id: 30, name: 'Away coach', photo: 'https://example.test/away-coach.png' };
+    return null;
+  });
+  const result = await service.getMatchDetails('bsd_1', { lineupsOnly: true });
+  assert.equal(result.matchInfo.id, 'bsd_1');
+  assert.equal(result.lineups.home[0].rating, 8.4);
+  assert.equal(result.lineups.away[0].rating, 7.1);
+  assert.equal(result.lineups.away[1].rating, 7.1);
+  assert.equal(result.lineups.home[0].ratingScope, 'match');
+  assert.equal(result.coverage.scope, 'match_lineups');
+  assert.equal(result.coverage.complete, true);
+  assert.equal(result.coverage.fields.stats, false);
+  assert.equal(result.homeCoach.name, 'Home coach');
+  assert.equal(result.awayCoach.photo, 'https://example.test/away-coach.png');
+  assert.deepEqual(requests.map(url => url.pathname).sort(), [
+    '/api/v2/events/1/', '/api/v2/events/1/availability/', '/api/v2/events/1/lineups/',
+    '/api/v2/events/1/player-stats/', '/api/v2/leagues/', '/api/v2/managers/20/', '/api/v2/managers/30/',
+  ].sort());
+});
