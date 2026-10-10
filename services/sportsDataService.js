@@ -1,6 +1,7 @@
 const sportscoreService = require('./sportscoreService');
 const kickoffApiService = require('./kickoffApiService');
 const bsdSportsService = require('./bsdSportsService');
+const { resolveVerifiedBsdFixture, publicFixture } = require('./verifiedMatchDetailsService');
 const {
   normalizeCompetitionCode,
   normalizeDateSelector,
@@ -9,7 +10,7 @@ const {
 const logger = require('../utils/logger');
 const { parseMatchInterval, selectMatchesInInterval } = require('../utils/matchCalendar');
 const { createLiveSnapshotReader } = require('./liveSnapshotReader');
-const { mergeProviderFixtures } = require('../utils/providerFixtureIdentity');
+const { mergeProviderFixtures, findVerifiedCanonicalFixture } = require('../utils/providerFixtureIdentity');
 const readLiveSnapshots = createLiveSnapshotReader();
 
 // From old footballApi for getSupportedCompetitions
@@ -227,7 +228,25 @@ exports.getMatchDetails = async (matchId) => {
   // SportScore match routes are opaque slugs, not football-data numeric IDs.
   if (!/^\d+$/.test(id)) {
     const details = await sportscoreService.getMatchDetails(id);
-    if (details) return { success: true, source: 'sportscore', data: details };
+    if (details) {
+      const started = Date.now();
+      const verified = await resolveVerifiedBsdFixture(details);
+      // Calendar batches certify identity, not the current live score. Read a
+      // fresh summary within the remaining optional lookup budget and verify
+      // its participants again before serving it under the preserved route.
+      const remainingMs = 3500 - (Date.now() - started);
+      if (verified && remainingMs > 0 && typeof bsdSportsService.getMatchSummary === 'function') {
+        try {
+          const summary = await bsdSportsService.getMatchSummary(verified.id,
+            { timeoutMs: remainingMs, maxPages: 1, maxRows: 200 });
+          const checked = summary && findVerifiedCanonicalFixture(id, [summary], [details]);
+          if (checked?.id === verified.id) return { success: true, source: 'bsd',
+            coverage: { source: 'bsd', available: true, complete: false, partial: true, scope: 'summary',
+              canonicalMatchId: verified.id }, data: publicFixture(checked, id) };
+        } catch (_) { /* Keep the original current summary if recovery is unavailable. */ }
+      }
+      return { success: true, source: 'sportscore', data: details };
+    }
   }
   return { success: false, source: 'unavailable', data: null };
 };

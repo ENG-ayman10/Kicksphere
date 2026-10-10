@@ -18,6 +18,8 @@ const { validateLineupIntegrity } = require('../utils/lineupIntegrity');
 const { canonicalMatchStatus } = require('../utils/matchStatus');
 const { compactPlayerInfo, compactTeamProfile } = require('../utils/profilePayload');
 const { enrichLineupMetrics, playerFacts } = require('../utils/lineupPlayerMetrics');
+const { getVerifiedBsdDetails } = require('../services/verifiedMatchDetailsService');
+const { verifiedBsdTeamIdForSportScoreTeam } = require('../utils/providerFixtureIdentity');
 
 // Predictions are optional previews. A completed/cancelled fixture must not
 // fetch a preview or present its guessed score as another match result.
@@ -317,6 +319,11 @@ exports.getMatchTimeline = async (req, res) => {
     // 1. Try SportScore
     try {
       const scMatch = await sportscoreService.getMatchDetails(id);
+      const recovered = scMatch ? await getVerifiedBsdDetails(scMatch) : null;
+      if (recovered?.coverage?.fields?.incidents === true) return res.json({
+        success: true, source: 'bsd', coverage: recovered.coverage,
+        data: hydrateTimelineTeams(recovered.timeline || recovered.incidents || [], recovered.matchInfo)
+      });
       if (scMatch?.detailsAvailable !== false && Array.isArray(scMatch?.timeline) &&
           scMatch.incidentCoverage?.available !== false) {
         return res.json({
@@ -358,7 +365,10 @@ async function resolveMatchLineups(id) {
   const checked = (source, lineups, match, coverage) => {
     if (!lineups || (lineups.matchId && String(lineups.matchId) !== String(id))) return null;
     const data = validateLineupIntegrity({ ...lineups, matchId: id,
-      homeTeamId: match?.homeTeam?.id, awayTeamId: match?.awayTeam?.id },
+      homeTeamId: match?.homeTeam?.id, awayTeamId: match?.awayTeam?.id,
+      ...(match?.canonicalMatchId ? { canonicalMatchId: match.canonicalMatchId,
+        sourceMatchId: match.sourceMatchId, providerIdentities: match.providerIdentities,
+        provider: source, utcDate: match.utcDate, competitionCode: match.competition?.code } : {}) },
       { homeTeamId: match?.homeTeam?.id, awayTeamId: match?.awayTeam?.id, provider: source });
     return { source, lineups: data, matchStatus: match?.status,
       coverage: { ...coverage, available: Boolean(data.home?.length || data.away?.length),
@@ -374,6 +384,38 @@ async function resolveMatchLineups(id) {
   const result = await sportsDataService.getMatchDetails(id);
   const match = result?.data;
   if (!match || String(match.id) !== String(id)) return null;
+  const verifiedBsd = validatedProviderIdentities(match).find(identity => identity.provider === 'bsd');
+  if (verifiedBsd && match.canonicalMatchId === verifiedBsd.id) {
+    const details = await callProvider('Verified BSD match lineups', () => bsdSportsService.getMatchDetails(verifiedBsd.id));
+    if (details?.matchInfo?.id === verifiedBsd.id &&
+        details.matchInfo.homeTeam?.id === verifiedBsd.homeTeamId &&
+        details.matchInfo.awayTeam?.id === verifiedBsd.awayTeamId &&
+        Date.parse(details.matchInfo.utcDate) === Date.parse(verifiedBsd.utcDate) &&
+        details.matchInfo.competition?.code === verifiedBsd.competitionCode) {
+      if (hasItems(details.lineups?.home) || hasItems(details.lineups?.away)) return checked('bsd',
+        { ...details.lineups, matchId: id },
+        { ...details.matchInfo, id, canonicalMatchId: verifiedBsd.id, sourceMatchId: verifiedBsd.id,
+          providerIdentities: match.providerIdentities }, details.coverage);
+    }
+    // An optional richer provider may have a temporary section outage. Keep a
+    // published original lineup when its exact alternative identity still
+    // agrees; never replace usable data with an empty enrichment response.
+    const identities = validatedProviderIdentities(match);
+    const originalIdentity = identities.find(identity => identity.id === id && identity.provider === 'sportscore');
+    if (originalIdentity) {
+      const original = await callProvider('Original match lineups', () => sportscoreService.getMatchDetails(id));
+      if (original?.id === id && original.homeTeam?.id === originalIdentity.homeTeamId &&
+          original.awayTeam?.id === originalIdentity.awayTeamId &&
+          Date.parse(original.utcDate) === Date.parse(originalIdentity.utcDate) &&
+          original.competition?.code === originalIdentity.competitionCode &&
+          (hasItems(original.lineups?.home) || hasItems(original.lineups?.away))) {
+        const ordered = [originalIdentity, ...identities.filter(identity => identity.id !== id)];
+        const fallback = checked('sportscore', { ...original.lineups, matchId: id },
+          { ...original, canonicalMatchId: id, sourceMatchId: id, providerIdentities: ordered }, result.coverage);
+        return fallback ? { ...fallback, retryableAlternative: true } : null;
+      }
+    }
+  }
   if (match.lineups && (hasItems(match.lineups.home) || hasItems(match.lineups.away))) {
     return checked(result.source, match.lineups, match, result.coverage);
   }
@@ -439,7 +481,7 @@ exports.getMatchLineups = async (req, res) => {
       // Unsupported enrichment has no retryable provider call to make.
       const incompleteRoster = typeof rosterProvider === 'function' && ['home', 'away'].some(side =>
         result.lineups.squadCoverage?.[side]?.available !== true || result.lineups.squadCoverage?.[side]?.complete !== true);
-      const ttl = incompleteRoster ? Math.min(lineupTtl, 15000) : lineupTtl;
+      const ttl = incompleteRoster || result.retryableAlternative ? Math.min(lineupTtl, 15000) : lineupTtl;
       setCache(cacheKey, result, ttl);
 
       return res.json({
@@ -510,6 +552,38 @@ exports.getDeepTeamDetails = async (req, res) => {
 
     const scopedKickoff = /^ko_t_\d+$/.test(String(lookup));
     const scTeam = scopedKickoff ? null : await callProvider('SportScore team details', () => sportscoreService.getTeamDetails(lookup));
+    const returnedScIds = ['id', 'slug'].filter(key => isPresent(scTeam?.info?.[key]))
+      .map(key => scopedTeamId(scTeam.info[key], 'sportscore'));
+    const returnedScSources = [scTeam?.provider, scTeam?.source, scTeam?.info?.provider, scTeam?.info?.source].filter(isPresent);
+    const exactSportScoreTeam = scopedSportScore && returnedScIds.length > 0 &&
+      returnedScIds.every(id => id === teamId) && returnedScSources.every(source => source === 'sportscore');
+    if (exactSportScoreTeam && typeof verifiedBsdTeamIdForSportScoreTeam === 'function') {
+      // Keep returned source and cohort metadata. Replacing a search fallback's
+      // slug with the requested ID would falsely certify a namesake's roster.
+      const scIdentity = { ...scTeam, ...scTeam.info, id: returnedScIds[0],
+        provider: scTeam.info.provider || scTeam.provider || 'sportscore',
+        source: scTeam.info.source || scTeam.source || 'sportscore' };
+      const competitions = [...new Set(['recent', 'upcoming', 'live'].flatMap(section =>
+        Array.isArray(scTeam.matches?.[section]) ? scTeam.matches[section].map(row => row.competition?.code).filter(Boolean) : []))];
+      const candidates = [...new Set(competitions.map(code => verifiedBsdTeamIdForSportScoreTeam(
+        scIdentity, code)).filter(Boolean))];
+      // The audited catalog relation is unique and source-scoped. Never seek
+      // another club by display name to fill an empty profile.
+      if (candidates.length === 1) {
+        const verifiedTeam = await callProvider('Verified BSD team profile', () => bsdSportsService.getTeamDetails(candidates[0]));
+        if (verifiedTeam?.info?.id === candidates[0]) {
+          const info = normalizeTeamInfo(null, verifiedTeam.info, scTeam.info);
+          Object.assign(info, { id: teamId, targetId: teamId, providerId: scTeam.info.id || lookup,
+            provider: 'sportscore', canonicalTeamId: candidates[0] });
+          return res.json({ success: true, source: 'sportscore+bsd', coverage: verifiedTeam.coverage,
+            data: { ...compactTeamProfile(verifiedTeam), info, canonicalTeamId: candidates[0],
+              squad: verifiedTeam.squad || verifiedTeam.players || [],
+              squadContext: { ...(verifiedTeam.squadContext || {}), teamId: candidates[0], source: 'bsd' },
+              matches: verifiedTeam.matches || { recent: [], upcoming: [], live: [] },
+              trophies: verifiedTeam.info.trophies || [], honours: verifiedTeam.info.honours || '' } });
+        }
+      }
+    }
     const koCandidate = scopedSportScore && !scTeam?.info ? null
       : await callProvider('KickOff team details', () => kickoffApiService.getTeamDetails(scTeam?.info?.name || lookup));
     const normalizeName = value => String(value || '').normalize('NFKD')
@@ -747,10 +821,14 @@ exports.getMatchDeepStats = async (req, res) => {
     try {
       const scMatch = /^(ko_|bsd_|\d+$)/.test(String(matchId)) ? null : await sportscoreService.getMatchDetails(matchId);
       if (scMatch) {
+        const recovered = await getVerifiedBsdDetails(scMatch);
+        if (recovered && (hasItems(recovered.statistics) || !hasItems(scMatch.providerStatistics))) return res.json({ success: true, source: 'bsd', coverage: recovered.coverage,
+          data: buildBsdDeepMatch(recovered, null) });
         const timeline = hydrateTimelineTeams(scMatch.timeline || [], scMatch);
         const goals = timeline
           .filter(event => event.type === 'goal')
           .map(event => ({
+            ...event,
             minute: event.minute,
             type: event.label || 'Goal',
             team: event.team || '',
@@ -762,6 +840,7 @@ exports.getMatchDeepStats = async (req, res) => {
         const bookings = timeline
           .filter(event => event.type === 'yellow_card' || event.type === 'red_card')
           .map(event => ({
+            ...event,
             minute: event.minute,
             card: event.type === 'red_card' ? 'RED' : 'YELLOW',
             team: event.team || '',
@@ -771,6 +850,7 @@ exports.getMatchDeepStats = async (req, res) => {
         const substitutions = timeline
           .filter(event => event.type === 'substitution')
           .map(event => ({
+            ...event,
             minute: event.minute,
             team: event.team || '',
             playerIn: event.player || '',

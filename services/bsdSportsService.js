@@ -122,8 +122,24 @@ async function fetchBsd(endpoint, params = {}, ttl = TTL.matches, timeoutMs, res
   try { return await pending; } finally { inflight.delete(inflightKey); }
 }
 function listRows(body, keys) { if (Array.isArray(body)) return body; for (const key of keys) if (Array.isArray(body?.[key])) return body[key]; return null; }
+function requestBudget(options = {}) {
+  const timeout = integer(options.timeoutMs), deadline = integer(options.deadlineAt);
+  if (timeout === null && deadline === null) return options;
+  const deadlineAt = Math.min(deadline ?? Infinity, timeout === null ? Infinity : Date.now() + timeout);
+  return { ...options, deadlineAt };
+}
+function remainingRequestTimeout(options) {
+  const deadline = integer(options.deadlineAt);
+  if (deadline === null) return options.timeoutMs;
+  return Math.max(0, Math.min(integer(options.timeoutMs) ?? 10000, deadline - Date.now()));
+}
 async function fetchList(endpoint, params = {}, ttl = TTL.matches, keys = ['results'], options = {}) {
-  let body = await fetchBsd(endpoint, params, ttl);
+  options = requestBudget(options);
+  const readPage = (path, pageParams) => {
+    const timeout = remainingRequestTimeout(options);
+    return timeout === 0 ? null : fetchBsd(path, pageParams, ttl, timeout);
+  };
+  let body = await readPage(endpoint, params);
   let pageRows = listRows(body, keys);
   if (!pageRows) return null;
   const endpointPath = new URL(endpoint, BASE_URL + '/').pathname;
@@ -150,7 +166,7 @@ async function fetchList(endpoint, params = {}, ttl = TTL.matches, keys = ['resu
     const nextUrl = new URL(nextPath, BASE_URL + '/');
     if (Object.entries(originalParams).some(([key, value]) => !['offset', 'limit'].includes(key) && nextUrl.searchParams.get(key) !== String(value))) { complete = false; reason = 'changed_pagination_scope'; break; }
     visited.add(nextPath);
-    body = await fetchBsd(nextPath, {}, ttl);
+    body = await readPage(nextPath, {});
     pageRows = listRows(body, keys);
     if (!pageRows) { complete = false; reason = 'page_unavailable'; break; }
     if (pageRows.length === 0 && body?.next) { complete = false; reason = 'empty_pagination'; break; }
@@ -287,8 +303,8 @@ function normalizeXg(raw) {
 }
 function normalizeVenue(raw) { return raw ? { id: positiveId(raw.id), name: raw.name || '', city: raw.city || '', country: raw.country || '', capacity: integer(raw.capacity), latitude: numeric(raw.latitude), longitude: numeric(raw.longitude), source: 'bsd' } : null; }
 function resource(raw, id, key = 'event_id') { return raw && Number(raw[key]) === id ? raw : null; }
-exports.getLeagues = async () => {
-  const raw = await fetchList('/api/v2/leagues/', { limit: 200 }, TTL.catalog);
+exports.getLeagues = async (options = {}) => {
+  const raw = await fetchList('/api/v2/leagues/', { limit: 200 }, TTL.catalog, ['results'], options);
   if (!raw) return null;
   const rows = raw.map(normalizeLeague).filter(Boolean);
   return withCoverage(rows, normalizedCoverage(raw, raw.length - rows.length));
@@ -350,9 +366,10 @@ function matchesFilters(match, params) {
   const allowed = { notstarted: ['TIMED'], finished: ['FINISHED'], live: ['IN_PLAY', 'PAUSED'], postponed: ['POSTPONED'], cancelled: ['CANCELLED'], suspended: ['SUSPENDED'] };
   return !params.status || allowed[params.status].includes(match.status);
 }
-exports.getMatches = async (input = {}) => {
+exports.getMatches = async (input = {}, options = {}) => {
   const params = matchFilters(input); if (!params) return null;
-  const [raw, leagues] = await Promise.all([fetchList('/api/v2/events/', params), exports.getLeagues()]);
+  options = requestBudget(options);
+  const [raw, leagues] = await Promise.all([fetchList('/api/v2/events/', params, TTL.matches, ['results'], options), exports.getLeagues(options)]);
   if (!raw) return null;
   const normalized = raw.map(value => normalizeBsdMatch(value, leagues || [])).filter(Boolean);
   const rows = normalized.filter(value => matchesFilters(value, params)).sort((a, b) => a.utcDate.localeCompare(b.utcDate));
@@ -365,9 +382,12 @@ exports.getLiveMatches = async () => {
   // The feed retains recently finished games; only active canonical states qualify as live.
   return withCoverage(normalized.filter(value => ['IN_PLAY', 'PAUSED'].includes(value.status)), fixtureCoverage(raw, normalized));
 };
-exports.getMatchSummary = async matchId => {
+exports.getMatchSummary = async (matchId, options = {}) => {
   const id = scopedId(matchId, 'bsd_'); if (!id) return null;
-  const [raw, leagues] = await Promise.all([fetchBsd('/api/v2/events/' + id + '/', {}, TTL.live), exports.getLeagues()]);
+  options = requestBudget(options);
+  const timeout = remainingRequestTimeout(options);
+  if (timeout === 0) return null;
+  const [raw, leagues] = await Promise.all([fetchBsd('/api/v2/events/' + id + '/', {}, TTL.live, timeout), exports.getLeagues(options)]);
   return positiveId(raw?.id) === id ? normalizeBsdMatch(raw, leagues || []) : null;
 };
 exports.getMatchTimeline = async matchId => {
@@ -387,7 +407,7 @@ function normalizeH2h(raw, match) {
   return { numberOfMatches: integer(raw.total_matches), totalMatches: integer(raw.total_matches), homeWins: integer(raw.home_wins), draws: integer(raw.draws), awayWins: integer(raw.away_wins), homeTeam: { id: match.homeTeam.id, wins: integer(raw.home_wins), draws: integer(raw.draws) }, awayTeam: { id: match.awayTeam.id, wins: integer(raw.away_wins), draws: integer(raw.draws) }, recentMatches: rows, source: 'bsd', orientation: { homeTeamId: match.homeTeam.id, awayTeamId: match.awayTeam.id } };
 }
 exports.getMatchDetails = async (matchId, options = {}) => {
-  if (options.summaryOnly) return exports.getMatchSummary(matchId);
+  if (options.summaryOnly) return exports.getMatchSummary(matchId, options);
   const id = scopedId(matchId, 'bsd_'); if (!id) return null;
   const [raw, leagues, availableRaw] = await Promise.all([fetchBsd('/api/v2/events/' + id + '/', {}, TTL.live), exports.getLeagues(), fetchBsd('/api/v2/events/' + id + '/availability/', {}, TTL.live)]);
   const match = positiveId(raw?.id) === id ? normalizeBsdMatch(raw, leagues || []) : null; if (!match) return null;
@@ -407,10 +427,23 @@ exports.getMatchDetails = async (matchId, options = {}) => {
   const byPlayer = new Map((lineups ? [...lineups.home, ...lineups.away, ...lineups.homeBench, ...lineups.awayBench] : []).map(player => [player.rawId, player]));
   const playerStatistics = (playerData?.player_stats || []).filter(row => positiveId(row.player_id) && Number(row.event_id) === id && [match.homeTeam.rawId, match.awayTeam.rawId].includes(Number(row.team_id))).map(row => ({ ...row, id: 'bsd_p_' + row.player_id, playerId: 'bsd_p_' + row.player_id, teamId: 'bsd_t_' + row.team_id, eventId: match.id, name: byPlayer.get(Number(row.player_id))?.name || '', image: imageUrl('player', row.player_id), provider: 'bsd', source: 'bsd' }));
   if (lineups) for (const side of ['home', 'away']) {
-    const ratings = new Map(playerStatistics.filter(row => row.teamId === match[side + 'Team'].id)
-      .map(row => [row.playerId, matchRating(row.rating)]));
-    for (const key of [side, side + 'Bench']) lineups[key] = lineups[key].map(player => ratings.has(player.id)
-      ? { ...player, rating: ratings.get(player.id), ratingScope: 'match', ratingEventId: match.id } : player);
+    const ratings = new Map(), conflicts = new Set();
+    for (const row of playerStatistics.filter(row => row.teamId === match[side + 'Team'].id)) {
+      const rating = matchRating(row.rating);
+      // A missing player-stats cell must not erase a measured rating reported
+      // in the same fixture's lineup. Duplicate contradictory measurements
+      // stay unknown instead of silently taking the last response row.
+      if (rating === null || conflicts.has(row.playerId)) continue;
+      if (ratings.has(row.playerId) && ratings.get(row.playerId) !== rating) {
+        ratings.delete(row.playerId); conflicts.add(row.playerId);
+      } else ratings.set(row.playerId, rating);
+    }
+    for (const key of [side, side + 'Bench']) lineups[key] = lineups[key].map(player => {
+      if (conflicts.has(player.id)) return { ...player, rating: null, ratingScope: 'match', ratingEventId: match.id,
+        ratingCoverage: { available: false, reason: 'conflicting_match_rating' } };
+      const rating = ratings.get(player.id) ?? matchRating(player.rating);
+      return rating !== null && rating !== undefined ? { ...player, rating, ratingScope: 'match', ratingEventId: match.id } : player;
+    });
   }
   const venue = match.venueId && positiveId(venueRaw?.id) === match.venueId ? normalizeVenue(venueRaw) : null;
   Object.assign(match, { venue, providerStatistics: statistics, lineups, timeline: incidents, detailsAvailable: true, xg: normalizeXg(stats) });
@@ -561,7 +594,14 @@ exports.getTeamDetails = async (teamId, options = {}) => {
   const id = scopedId(teamId, 'bsd_t_'); if (!id) return null;
   const raw = await fetchBsd('/api/v2/teams/' + id + '/', {}, TTL.catalog), info = positiveId(raw?.id) === id ? normalizeTeam(raw) : null;
   if (!info) return null;
-  const [squad, fixtures, venueRaw] = await Promise.all([exports.getTeamSquad(teamId), exports.getTeamFixtures(teamId, options), info.venueId ? fetchBsd('/api/v2/venues/' + info.venueId + '/', {}, TTL.catalog) : null]);
+  const readRoster = async () => {
+    // Match enrichment and club/player screens share this cached batch. The
+    // older /teams/{id}/squad/ endpoint often returned zero despite a populated
+    // exact-membership profile list; do not discard those complete biographies.
+    const profiles = await exports.getTeamLineupSquad(teamId);
+    return profiles?.length ? profiles : exports.getTeamSquad(teamId);
+  };
+  const [squad, fixtures, venueRaw] = await Promise.all([readRoster(), exports.getTeamFixtures(teamId, options), info.venueId ? fetchBsd('/api/v2/venues/' + info.venueId + '/', {}, TTL.catalog) : null]);
   const [recovered, statsScopes] = await Promise.all([
     squad?.length ? null : recoverBsdMatchSquad(teamId, fixtures, exports.getTeamMatchLineups),
     teamNumberScopes(teamId, fixtures, options),

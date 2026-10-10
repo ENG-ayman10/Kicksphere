@@ -53,3 +53,19 @@ test('legacy events without provenance retain only their exact IDs and never bor
   assert.deepEqual(matchIdentityIds(event), ['exact-old-slug']);
   assert.deepEqual(teamIdentityIds(event), ['sc_t_home', 'sc_t_away']);
 });
+
+test('verified legacy detail route preserves both subscription identities with canonical participants', () => {
+  const row = fixture();
+  const publicId = row.providerIdentities[1].id;
+  const restored = { ...row, id: publicId, canonicalMatchId: row.id };
+  assert.equal(validatedProviderIdentities(restored).length, 2);
+  assert.deepEqual(matchIdentityIds(restored), [publicId, row.id]);
+  assert.deepEqual(teamIdentityIds(restored), ['bsd_t_302', 'bsd_t_299', 'sc_t_seattle-sounders', 'sc_t_sporting-kansas-city']);
+  for (const bad of [
+    { ...restored, id: 'unrelated-old-route' },
+    { ...restored, canonicalMatchId: 'bsd_999' },
+    { ...restored, canonicalMatchId: '' },
+    { ...restored, homeTeam: { id: 'bsd_t_999' } },
+    { ...restored, providerIdentities: [] },
+  ]) assert.deepEqual(validatedProviderIdentities(bad), []);
+});

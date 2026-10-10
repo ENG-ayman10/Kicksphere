@@ -1,0 +1,367 @@
+{
+  "verifiedAt": "2026-10-10",
+  "evidence": {
+    "calendar": "/api/matches/date?date=2026-10-04",
+    "note": "The audited international-friendly competition pair permits display-only exact full oriented names, UTC kickoff, senior scope, nonconflicting countries and finished scores. No provider aliases or guessed team IDs are emitted. The separate captured USA–Mexico fixture has an explicitly bounded ten-minute discrepancy, only for these two exact fixture IDs, their measured timestamps and observed 3–0 terminal score."
+  },
+  "preferred": {
+    "id": "bsd_604932",
+    "rawId": 604932,
+    "slug": "bsd_604932",
+    "provider": "bsd",
+    "source": "bsd",
+    "utcDate": "2026-10-04T00:00:00Z",
+    "status": "FINISHED",
+    "statusText": "Finished",
+    "minute": 92,
+    "period": "FT",
+    "matchPhase": "FULL_TIME",
+    "halfTimeConfirmed": true,
+    "homeTeam": {
+      "id": "bsd_t_489",
+      "rawId": 489,
+      "providerId": "489",
+      "provider": "bsd",
+      "source": "bsd",
+      "name": "Argentina",
+      "shortName": "Argentina",
+      "country": "",
+      "countryCode": "",
+      "crest": "https://sports.bzzoiro.com/img/team/489/",
+      "logo": "https://sports.bzzoiro.com/img/team/489/",
+      "slug": "bsd_t_489",
+      "type": "team",
+      "venueId": null,
+      "coach": "",
+      "founded": null
+    },
+    "awayTeam": {
+      "id": "bsd_t_654",
+      "rawId": 654,
+      "providerId": "654",
+      "provider": "bsd",
+      "source": "bsd",
+      "name": "Burkina Faso",
+      "shortName": "Burkina Faso",
+      "country": "",
+      "countryCode": "",
+      "crest": "https://sports.bzzoiro.com/img/team/654/",
+      "logo": "https://sports.bzzoiro.com/img/team/654/",
+      "slug": "bsd_t_654",
+      "type": "team",
+      "venueId": null,
+      "coach": "",
+      "founded": null
+    },
+    "score": {
+      "fullTime": {
+        "home": 7,
+        "away": 0
+      },
+      "halfTime": {
+        "home": 5,
+        "away": 0
+      }
+    },
+    "competition": {
+      "id": "BSD:31",
+      "code": "BSD:31",
+      "rawId": 31,
+      "providerId": "31",
+      "provider": "bsd",
+      "name": "International Friendly Games",
+      "country": "International",
+      "emblem": "https://sports.bzzoiro.com/img/league/31/",
+      "logo": "https://sports.bzzoiro.com/img/league/31/",
+      "season": {
+        "id": 133,
+        "name": "Int. Friendly Games 2026",
+        "year": 2026,
+        "start_date": "2026-01-01",
+        "end_date": "2026-12-31",
+        "is_current": true,
+        "stages": [
+          {
+            "stage": "league-phase",
+            "stage_name": "League phase",
+            "matches": 361,
+            "rounds": 0,
+            "start_date": "2025-12-17",
+            "end_date": "2026-10-07"
+          },
+          {
+            "stage": "semifinals",
+            "stage_name": "Semifinals",
+            "matches": 3,
+            "rounds": 1,
+            "start_date": "2026-05-26",
+            "end_date": "2026-06-06"
+          }
+        ]
+      }
+    },
+    "seasonId": 133,
+    "round": null,
+    "roundLabel": "League phase",
+    "group": "",
+    "stage": "league-phase",
+    "stageName": "League phase",
+    "venueId": 445,
+    "venue": null,
+    "refereeId": 1663,
+    "homeCoachId": 124,
+    "awayCoachId": 4171,
+    "penaltyShootout": null,
+    "extraTimeScore": null,
+    "xg": {
+      "liveHome": null,
+      "liveAway": null,
+      "actualHome": null,
+      "actualAway": null,
+      "homeEstimated": null,
+      "awayEstimated": null,
+      "estimated": null,
+      "source": "bsd"
+    },
+    "lastUpdated": null,
+    "hasXg": false,
+    "aiPreview": null
+  },
+  "supplement": {
+    "id": "burkina-faso-vs-argentinay39mp1hdvw5ymoj",
+    "slug": "burkina-faso-vs-argentinay39mp1hdvw5ymoj",
+    "matchLocator": {
+      "id": "burkina-faso-vs-argentinay39mp1hdvw5ymoj",
+      "slug": "burkina-faso-vs-argentina",
+      "token": "y39mp1hdvw5ymoj",
+      "url": "/football/match/burkina-faso-vs-argentina/y39mp1hdvw5ymoj/"
+    },
+    "utcDate": "2026-10-04T03:00:00+03:00",
+    "status": "FINISHED",
+    "statusText": "Finished",
+    "sourceStatus": "finished",
+    "minute": null,
+    "period": "",
+    "matchPhase": "FULL_TIME",
+    "halfTimeConfirmed": true,
+    "homeTeam": {
+      "id": null,
+      "identityBasis": null,
+      "provider": "sportscore",
+      "name": "Argentina",
+      "shortName": "Argentina",
+      "crest": "https://img.thesports.com/football/team/e5e5e0f67481324ebdbd65d65890b2b8.png",
+      "logo": "https://img.thesports.com/football/team/e5e5e0f67481324ebdbd65d65890b2b8.png"
+    },
+    "awayTeam": {
+      "id": null,
+      "identityBasis": null,
+      "provider": "sportscore",
+      "name": "Burkina Faso",
+      "shortName": "Burkina Faso",
+      "crest": "https://img.thesports.com/football/team/f430088f4b4e68c28f0043ac07ab93b3.png",
+      "logo": "https://img.thesports.com/football/team/f430088f4b4e68c28f0043ac07ab93b3.png"
+    },
+    "score": {
+      "fullTime": {
+        "home": 7,
+        "away": 0
+      },
+      "halfTime": {
+        "home": null,
+        "away": null
+      }
+    },
+    "competition": {
+      "id": "SC:international friendly",
+      "name": "International Friendly",
+      "code": "SC:international friendly",
+      "country": "",
+      "emblem": "https://img.thesports.com/football/competition/4e7c9460ee862d47c2ce6debfef6aace.png",
+      "logo": "https://img.thesports.com/football/competition/4e7c9460ee862d47c2ce6debfef6aace.png"
+    },
+    "source": "sportscore",
+    "provider": "sportscore"
+  },
+  "kickoffException": {
+    "preferred": {
+      "id": "bsd_587776",
+      "rawId": 587776,
+      "slug": "bsd_587776",
+      "provider": "bsd",
+      "source": "bsd",
+      "utcDate": "2026-10-04T02:00:00Z",
+      "status": "FINISHED",
+      "statusText": "Finished",
+      "minute": 90,
+      "period": "FT",
+      "matchPhase": "FULL_TIME",
+      "halfTimeConfirmed": true,
+      "homeTeam": {
+        "id": "bsd_t_457",
+        "rawId": 457,
+        "providerId": "457",
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "USA",
+        "shortName": "USA",
+        "country": "",
+        "countryCode": "",
+        "crest": "https://sports.bzzoiro.com/img/team/457/",
+        "logo": "https://sports.bzzoiro.com/img/team/457/",
+        "slug": "bsd_t_457",
+        "type": "team",
+        "venueId": null,
+        "coach": "",
+        "founded": null
+      },
+      "awayTeam": {
+        "id": "bsd_t_451",
+        "rawId": 451,
+        "providerId": "451",
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Mexico",
+        "shortName": "Mexico",
+        "country": "",
+        "countryCode": "",
+        "crest": "https://sports.bzzoiro.com/img/team/451/",
+        "logo": "https://sports.bzzoiro.com/img/team/451/",
+        "slug": "bsd_t_451",
+        "type": "team",
+        "venueId": null,
+        "coach": "",
+        "founded": null
+      },
+      "score": {
+        "fullTime": {
+          "home": 3,
+          "away": 0
+        },
+        "halfTime": {
+          "home": 1,
+          "away": 0
+        }
+      },
+      "competition": {
+        "id": "BSD:31",
+        "code": "BSD:31",
+        "rawId": 31,
+        "providerId": "31",
+        "provider": "bsd",
+        "name": "International Friendly Games",
+        "country": "International",
+        "emblem": "https://sports.bzzoiro.com/img/league/31/",
+        "logo": "https://sports.bzzoiro.com/img/league/31/",
+        "season": {
+          "id": 133,
+          "name": "Int. Friendly Games 2026",
+          "year": 2026,
+          "start_date": "2026-01-01",
+          "end_date": "2026-12-31",
+          "is_current": true,
+          "stages": [
+            {
+              "stage": "league-phase",
+              "stage_name": "League phase",
+              "matches": 361,
+              "rounds": 0,
+              "start_date": "2025-12-17",
+              "end_date": "2026-10-07"
+            },
+            {
+              "stage": "semifinals",
+              "stage_name": "Semifinals",
+              "matches": 3,
+              "rounds": 1,
+              "start_date": "2026-05-26",
+              "end_date": "2026-06-06"
+            }
+          ]
+        }
+      },
+      "seasonId": 133,
+      "round": null,
+      "roundLabel": "League phase",
+      "group": "",
+      "stage": "league-phase",
+      "stageName": "League phase",
+      "venueId": 1184,
+      "venue": null,
+      "refereeId": 2648,
+      "homeCoachId": 122,
+      "awayCoachId": 2039,
+      "penaltyShootout": null,
+      "extraTimeScore": null,
+      "xg": {
+        "liveHome": null,
+        "liveAway": null,
+        "actualHome": null,
+        "actualAway": null,
+        "homeEstimated": null,
+        "awayEstimated": null,
+        "estimated": null,
+        "source": "bsd"
+      },
+      "lastUpdated": null,
+      "hasXg": false,
+      "aiPreview": null
+    },
+    "supplement": {
+      "id": "mexico-vs-usak82rekh2z693rep",
+      "slug": "mexico-vs-usak82rekh2z693rep",
+      "matchLocator": {
+        "id": "mexico-vs-usak82rekh2z693rep",
+        "slug": "mexico-vs-usa",
+        "token": "k82rekh2z693rep",
+        "url": "/football/match/mexico-vs-usa/k82rekh2z693rep/"
+      },
+      "utcDate": "2026-10-04T05:10:00+03:00",
+      "status": "FINISHED",
+      "statusText": "Finished",
+      "sourceStatus": "finished",
+      "minute": null,
+      "period": "",
+      "matchPhase": "FULL_TIME",
+      "halfTimeConfirmed": true,
+      "homeTeam": {
+        "id": null,
+        "identityBasis": null,
+        "provider": "sportscore",
+        "name": "USA",
+        "shortName": "USA",
+        "crest": "https://img.thesports.com/football/team/e8b03b5c083ffa4e9179571b70c1febe.png",
+        "logo": "https://img.thesports.com/football/team/e8b03b5c083ffa4e9179571b70c1febe.png"
+      },
+      "awayTeam": {
+        "id": null,
+        "identityBasis": null,
+        "provider": "sportscore",
+        "name": "Mexico",
+        "shortName": "Mexico",
+        "crest": "https://img.thesports.com/football/team/e399c54b84794822f6e5e3c02c7f3b6e.png",
+        "logo": "https://img.thesports.com/football/team/e399c54b84794822f6e5e3c02c7f3b6e.png"
+      },
+      "score": {
+        "fullTime": {
+          "home": 3,
+          "away": 0
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "competition": {
+        "id": "SC:international friendly",
+        "name": "International Friendly",
+        "code": "SC:international friendly",
+        "country": "",
+        "emblem": "https://img.thesports.com/football/competition/4e7c9460ee862d47c2ce6debfef6aace.png",
+        "logo": "https://img.thesports.com/football/competition/4e7c9460ee862d47c2ce6debfef6aace.png"
+      },
+      "source": "sportscore",
+      "provider": "sportscore"
+    }
+  }
+}

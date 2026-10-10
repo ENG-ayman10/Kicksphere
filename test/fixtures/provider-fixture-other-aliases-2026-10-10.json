@@ -1,0 +1,1662 @@
+{
+  "verifiedAt": "2026-10-10",
+  "evidence": {
+    "bsdTeams": "/api/v2/teams/?league_id=<code>&is_women=false&in_competition=true&limit=200",
+    "sportscoreTeams": "/api/v1/football/standings/?competition=<code>",
+    "note": "Each observed alias was checked against both independent senior competition catalogs. Exact kickoff applies including new Colorado/Seattle pair. Only the previously audited Seattle/Kansas fixture gets its narrow ten-minute allowance."
+  },
+  "catalogs": [
+    {
+      "competition": "SA",
+      "bsdTeams": [
+        {
+          "id": "bsd_t_68",
+          "provider": "bsd",
+          "name": "Fiorentina",
+          "country": "Italy",
+          "type": "team"
+        },
+        {
+          "id": "bsd_t_62",
+          "provider": "bsd",
+          "name": "SSC Napoli",
+          "country": "Italy",
+          "type": "team"
+        }
+      ],
+      "sportscoreTeams": [
+        {
+          "id": "sc_t_napoli",
+          "provider": "sportscore",
+          "name": "Napoli"
+        },
+        {
+          "id": "sc_t_fiorentina",
+          "provider": "sportscore",
+          "name": "Fiorentina"
+        }
+      ]
+    },
+    {
+      "competition": "PL",
+      "bsdTeams": [
+        {
+          "id": "bsd_t_2",
+          "provider": "bsd",
+          "name": "Bournemouth",
+          "country": "England",
+          "type": "team"
+        },
+        {
+          "id": "bsd_t_1",
+          "provider": "bsd",
+          "name": "Liverpool FC",
+          "country": "England",
+          "type": "team"
+        }
+      ],
+      "sportscoreTeams": [
+        {
+          "id": "sc_t_liverpool",
+          "provider": "sportscore",
+          "name": "Liverpool"
+        },
+        {
+          "id": "sc_t_bournemouth-afc",
+          "provider": "sportscore",
+          "name": "Bournemouth AFC"
+        }
+      ]
+    },
+    {
+      "competition": "BL1",
+      "bsdTeams": [
+        {
+          "id": "bsd_t_1290",
+          "provider": "bsd",
+          "name": "FC Schalke 04",
+          "country": "Germany",
+          "type": "team"
+        },
+        {
+          "id": "bsd_t_1833",
+          "provider": "bsd",
+          "name": "SV 07 Elversberg",
+          "country": "Germany",
+          "type": "team"
+        }
+      ],
+      "sportscoreTeams": [
+        {
+          "id": "sc_t_sv-07-elversberg",
+          "provider": "sportscore",
+          "name": "SV 07 Elversberg"
+        },
+        {
+          "id": "sc_t_schalke-04",
+          "provider": "sportscore",
+          "name": "Schalke 04"
+        }
+      ]
+    },
+    {
+      "competition": "FL1",
+      "bsdTeams": [
+        {
+          "id": "bsd_t_109",
+          "provider": "bsd",
+          "name": "Auxerre",
+          "country": "France",
+          "type": "team"
+        },
+        {
+          "id": "bsd_t_106",
+          "provider": "bsd",
+          "name": "Lille",
+          "country": "France",
+          "type": "team"
+        },
+        {
+          "id": "bsd_t_103",
+          "provider": "bsd",
+          "name": "Nice",
+          "country": "France",
+          "type": "team"
+        },
+        {
+          "id": "bsd_t_98",
+          "provider": "bsd",
+          "name": "Olympique de Marseille",
+          "country": "France",
+          "type": "team"
+        },
+        {
+          "id": "bsd_t_114",
+          "provider": "bsd",
+          "name": "Paris Saint-Germain",
+          "country": "France",
+          "type": "team"
+        },
+        {
+          "id": "bsd_t_105",
+          "provider": "bsd",
+          "name": "Stade Brestois",
+          "country": "France",
+          "type": "team"
+        }
+      ],
+      "sportscoreTeams": [
+        {
+          "id": "sc_t_losc-lille",
+          "provider": "sportscore",
+          "name": "LOSC Lille"
+        },
+        {
+          "id": "sc_t_paris-saint-germain",
+          "provider": "sportscore",
+          "name": "Paris Saint Germain"
+        },
+        {
+          "id": "sc_t_aj-auxerre",
+          "provider": "sportscore",
+          "name": "AJ Auxerre"
+        },
+        {
+          "id": "sc_t_stade-brestois-29",
+          "provider": "sportscore",
+          "name": "Stade Brestois 29"
+        },
+        {
+          "id": "sc_t_ogc-nice",
+          "provider": "sportscore",
+          "name": "OGC Nice"
+        },
+        {
+          "id": "sc_t_marseille",
+          "provider": "sportscore",
+          "name": "Marseille"
+        }
+      ]
+    },
+    {
+      "competition": "BSA",
+      "bsdTeams": [
+        {
+          "id": "bsd_t_161",
+          "provider": "bsd",
+          "name": "Internacional",
+          "country": "Brazil",
+          "type": "team"
+        },
+        {
+          "id": "bsd_t_158",
+          "provider": "bsd",
+          "name": "São Paulo",
+          "country": "Brazil",
+          "type": "team"
+        }
+      ],
+      "sportscoreTeams": [
+        {
+          "id": "sc_t_sao-paulo-sp",
+          "provider": "sportscore",
+          "name": "São Paulo - SP"
+        },
+        {
+          "id": "sc_t_internacional-rs",
+          "provider": "sportscore",
+          "name": "Internacional - RS"
+        }
+      ]
+    },
+    {
+      "competition": "MLS",
+      "bsdTeams": [
+        {
+          "id": "bsd_t_303",
+          "provider": "bsd",
+          "name": "Colorado Rapids",
+          "country": "USA",
+          "type": "team"
+        },
+        {
+          "id": "bsd_t_302",
+          "provider": "bsd",
+          "name": "Seattle Sounders FC",
+          "country": "USA",
+          "type": "team"
+        }
+      ],
+      "sportscoreTeams": [
+        {
+          "id": "sc_t_seattle-sounders",
+          "provider": "sportscore",
+          "name": "Seattle Sounders"
+        },
+        {
+          "id": "sc_t_colorado-rapids",
+          "provider": "sportscore",
+          "name": "Colorado Rapids"
+        }
+      ]
+    }
+  ],
+  "pairs": [
+    {
+      "preferred": {
+        "id": "bsd_209575",
+        "rawId": 209575,
+        "slug": "bsd_209575",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-09-20T13:00:00Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 94,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_2",
+          "rawId": 2,
+          "providerId": "2",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Bournemouth",
+          "shortName": "Bournemouth",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/2/",
+          "logo": "https://sports.bzzoiro.com/img/team/2/",
+          "slug": "bsd_t_2",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_1",
+          "rawId": 1,
+          "providerId": "1",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Liverpool FC",
+          "shortName": "Liverpool FC",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/1/",
+          "logo": "https://sports.bzzoiro.com/img/team/1/",
+          "slug": "bsd_t_1",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 0,
+            "away": 1
+          },
+          "halfTime": {
+            "home": 0,
+            "away": 0
+          }
+        },
+        "competition": {
+          "id": "PL",
+          "code": "PL",
+          "rawId": 1,
+          "providerId": "1",
+          "provider": "bsd",
+          "name": "Premier League",
+          "country": "England",
+          "emblem": "https://sports.bzzoiro.com/img/league/1/",
+          "logo": "https://sports.bzzoiro.com/img/league/1/",
+          "season": {
+            "id": 1058,
+            "name": "Premier League 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "regular-season",
+                "stage_name": "Regular season",
+                "matches": 380,
+                "rounds": 38,
+                "start_date": "2026-08-21",
+                "end_date": "2027-05-30"
+              }
+            ]
+          }
+        },
+        "seasonId": 1058,
+        "round": 5,
+        "roundLabel": "Regular season · Matchday 5",
+        "group": "",
+        "stage": "regular-season",
+        "stageName": "Regular season",
+        "venueId": 2,
+        "venue": null,
+        "refereeId": 1756,
+        "homeCoachId": 1820,
+        "awayCoachId": 547,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "bournemouth-afc-vs-liverpooldj2ryohl30j0q1z",
+        "slug": "bournemouth-afc-vs-liverpooldj2ryohl30j0q1z",
+        "matchLocator": {
+          "id": "bournemouth-afc-vs-liverpooldj2ryohl30j0q1z",
+          "slug": "bournemouth-afc-vs-liverpool",
+          "token": "dj2ryohl30j0q1z",
+          "url": "/football/match/bournemouth-afc-vs-liverpool/dj2ryohl30j0q1z/"
+        },
+        "utcDate": "2026-09-20T16:00:00+03:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_bournemouth-afc",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Bournemouth AFC",
+          "shortName": "Bournemouth AFC",
+          "crest": "https://img.thesports.com/football/team/240b30d333c97d293752ab7afd77ccd6.png",
+          "logo": "https://img.thesports.com/football/team/240b30d333c97d293752ab7afd77ccd6.png",
+          "identityCompetitionCode": "PL",
+          "identityCompetitionSlug": "english-premier-league"
+        },
+        "awayTeam": {
+          "id": "sc_t_liverpool",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Liverpool",
+          "shortName": "Liverpool",
+          "crest": "https://img.thesports.com/football/team/1cb3d08adac0e2dc1c4f10429d055bfe.png",
+          "logo": "https://img.thesports.com/football/team/1cb3d08adac0e2dc1c4f10429d055bfe.png",
+          "identityCompetitionCode": "PL",
+          "identityCompetitionSlug": "english-premier-league"
+        },
+        "score": {
+          "fullTime": {
+            "home": 0,
+            "away": 1
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "PL",
+          "name": "Premier League",
+          "code": "PL",
+          "country": "England",
+          "emblem": "https://img.thesports.com/football/competition/3549f192c75cbc737a05fd51ecad383e.png",
+          "logo": "https://img.thesports.com/football/competition/3549f192c75cbc737a05fd51ecad383e.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_210100",
+        "rawId": 210100,
+        "slug": "bsd_210100",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-09-20T10:30:00Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 95,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_68",
+          "rawId": 68,
+          "providerId": "68",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Fiorentina",
+          "shortName": "Fiorentina",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/68/",
+          "logo": "https://sports.bzzoiro.com/img/team/68/",
+          "slug": "bsd_t_68",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_62",
+          "rawId": 62,
+          "providerId": "62",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "SSC Napoli",
+          "shortName": "SSC Napoli",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/62/",
+          "logo": "https://sports.bzzoiro.com/img/team/62/",
+          "slug": "bsd_t_62",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 1
+          },
+          "halfTime": {
+            "home": 0,
+            "away": 1
+          }
+        },
+        "competition": {
+          "id": "SA",
+          "code": "SA",
+          "rawId": 4,
+          "providerId": "4",
+          "provider": "bsd",
+          "name": "Serie A",
+          "country": "Italy",
+          "emblem": "https://sports.bzzoiro.com/img/league/4/",
+          "logo": "https://sports.bzzoiro.com/img/league/4/",
+          "season": {
+            "id": 1375,
+            "name": "Serie A 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "regular-season",
+                "stage_name": "Regular season",
+                "matches": 380,
+                "rounds": 38,
+                "start_date": "2026-08-22",
+                "end_date": "2027-05-29"
+              }
+            ]
+          }
+        },
+        "seasonId": 1375,
+        "round": 5,
+        "roundLabel": "Regular season · Matchday 5",
+        "group": "",
+        "stage": "regular-season",
+        "stageName": "Regular season",
+        "venueId": 68,
+        "venue": null,
+        "refereeId": 1764,
+        "homeCoachId": 278,
+        "awayCoachId": 483,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "napoli-vs-fiorentinak82rekhgdvk9rep",
+        "slug": "napoli-vs-fiorentinak82rekhgdvk9rep",
+        "matchLocator": {
+          "id": "napoli-vs-fiorentinak82rekhgdvk9rep",
+          "slug": "napoli-vs-fiorentina",
+          "token": "k82rekhgdvk9rep",
+          "url": "/football/match/napoli-vs-fiorentina/k82rekhgdvk9rep/"
+        },
+        "utcDate": "2026-09-20T13:30:00+03:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_fiorentina",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Fiorentina",
+          "shortName": "Fiorentina",
+          "crest": "https://img.thesports.com/football/team/858d87ded0cce014bae0c9681af48524.png",
+          "logo": "https://img.thesports.com/football/team/858d87ded0cce014bae0c9681af48524.png",
+          "identityCompetitionCode": "SA",
+          "identityCompetitionSlug": "italian-serie-a"
+        },
+        "awayTeam": {
+          "id": "sc_t_napoli",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Napoli",
+          "shortName": "Napoli",
+          "crest": "https://img.thesports.com/football/team/37ed13d27edccd30e053167962c02b3a.png",
+          "logo": "https://img.thesports.com/football/team/37ed13d27edccd30e053167962c02b3a.png",
+          "identityCompetitionCode": "SA",
+          "identityCompetitionSlug": "italian-serie-a"
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 1
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "SA",
+          "name": "Serie A",
+          "code": "SA",
+          "country": "Italy",
+          "emblem": "https://img.thesports.com/football/competition/6b38f4015a6b3309ad9462e6ce27ae99.png",
+          "logo": "https://img.thesports.com/football/competition/6b38f4015a6b3309ad9462e6ce27ae99.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_213699",
+        "rawId": 213699,
+        "slug": "bsd_213699",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-09-20T15:30:00Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 92,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_1290",
+          "rawId": 1290,
+          "providerId": "1290",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "FC Schalke 04",
+          "shortName": "FC Schalke 04",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/1290/",
+          "logo": "https://sports.bzzoiro.com/img/team/1290/",
+          "slug": "bsd_t_1290",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_1833",
+          "rawId": 1833,
+          "providerId": "1833",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "SV 07 Elversberg",
+          "shortName": "SV 07 Elversberg",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/1833/",
+          "logo": "https://sports.bzzoiro.com/img/team/1833/",
+          "slug": "bsd_t_1833",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 0,
+            "away": 0
+          },
+          "halfTime": {
+            "home": 0,
+            "away": 0
+          }
+        },
+        "competition": {
+          "id": "BL1",
+          "code": "BL1",
+          "rawId": 5,
+          "providerId": "5",
+          "provider": "bsd",
+          "name": "Bundesliga",
+          "country": "Germany",
+          "emblem": "https://sports.bzzoiro.com/img/league/5/",
+          "logo": "https://sports.bzzoiro.com/img/league/5/",
+          "season": {
+            "id": 1091,
+            "name": "Bundesliga 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "regular-season",
+                "stage_name": "Regular season",
+                "matches": 306,
+                "rounds": 34,
+                "start_date": "2026-08-28",
+                "end_date": "2027-05-22"
+              }
+            ]
+          }
+        },
+        "seasonId": 1091,
+        "round": 4,
+        "roundLabel": "Regular season · Matchday 4",
+        "group": "",
+        "stage": "regular-season",
+        "stageName": "Regular season",
+        "venueId": 755,
+        "venue": null,
+        "refereeId": 2347,
+        "homeCoachId": 1201,
+        "awayCoachId": 1190,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "schalke-04-vs-sv-elversbergednm9whw4dwvryo",
+        "slug": "schalke-04-vs-sv-elversbergednm9whw4dwvryo",
+        "matchLocator": {
+          "id": "schalke-04-vs-sv-elversbergednm9whw4dwvryo",
+          "slug": "schalke-04-vs-sv-elversberg",
+          "token": "ednm9whw4dwvryo",
+          "url": "/football/match/schalke-04-vs-sv-elversberg/ednm9whw4dwvryo/"
+        },
+        "utcDate": "2026-09-20T18:30:00+03:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_schalke-04",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Schalke 04",
+          "shortName": "Schalke 04",
+          "crest": "https://img.thesports.com/football/team/4533ab7ef9ad5e53c981f7ea7bea7033.png",
+          "logo": "https://img.thesports.com/football/team/4533ab7ef9ad5e53c981f7ea7bea7033.png",
+          "identityCompetitionCode": "BL1",
+          "identityCompetitionSlug": "bundesliga"
+        },
+        "awayTeam": {
+          "id": "sc_t_sv-07-elversberg",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "SV 07 Elversberg",
+          "shortName": "SV 07 Elversberg",
+          "crest": "https://img.thesports.com/football/team/20f905fb0975e88482cf157ad9da4874.png",
+          "logo": "https://img.thesports.com/football/team/20f905fb0975e88482cf157ad9da4874.png",
+          "identityCompetitionCode": "BL1",
+          "identityCompetitionSlug": "bundesliga"
+        },
+        "score": {
+          "fullTime": {
+            "home": 0,
+            "away": 0
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "BL1",
+          "name": "Bundesliga",
+          "code": "BL1",
+          "country": "Germany",
+          "emblem": "https://img.thesports.com/football/competition/0c6a25cd746e802296d9064b4504179d.png",
+          "logo": "https://img.thesports.com/football/competition/0c6a25cd746e802296d9064b4504179d.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_210475",
+        "rawId": 210475,
+        "slug": "bsd_210475",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-09-20T13:00:00Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 94,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_109",
+          "rawId": 109,
+          "providerId": "109",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Auxerre",
+          "shortName": "Auxerre",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/109/",
+          "logo": "https://sports.bzzoiro.com/img/team/109/",
+          "slug": "bsd_t_109",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_105",
+          "rawId": 105,
+          "providerId": "105",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Stade Brestois",
+          "shortName": "Stade Brestois",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/105/",
+          "logo": "https://sports.bzzoiro.com/img/team/105/",
+          "slug": "bsd_t_105",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 2,
+            "away": 1
+          },
+          "halfTime": {
+            "home": 0,
+            "away": 1
+          }
+        },
+        "competition": {
+          "id": "FL1",
+          "code": "FL1",
+          "rawId": 6,
+          "providerId": "6",
+          "provider": "bsd",
+          "name": "Ligue 1",
+          "country": "France",
+          "emblem": "https://sports.bzzoiro.com/img/league/6/",
+          "logo": "https://sports.bzzoiro.com/img/league/6/",
+          "season": {
+            "id": 1311,
+            "name": "Ligue 1 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "regular-season",
+                "stage_name": "Regular season",
+                "matches": 306,
+                "rounds": 34,
+                "start_date": "2026-08-21",
+                "end_date": "2027-05-29"
+              }
+            ]
+          }
+        },
+        "seasonId": 1311,
+        "round": 5,
+        "roundLabel": "Regular season · Matchday 5",
+        "group": "",
+        "stage": "regular-season",
+        "stageName": "Regular season",
+        "venueId": 107,
+        "venue": null,
+        "refereeId": 1591,
+        "homeCoachId": 1901,
+        "awayCoachId": 1906,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "aj-auxerre-vs-stade-brestois-292y8m4zh5d8ylql0",
+        "slug": "aj-auxerre-vs-stade-brestois-292y8m4zh5d8ylql0",
+        "matchLocator": {
+          "id": "aj-auxerre-vs-stade-brestois-292y8m4zh5d8ylql0",
+          "slug": "aj-auxerre-vs-stade-brestois-29",
+          "token": "2y8m4zh5d8ylql0",
+          "url": "/football/match/aj-auxerre-vs-stade-brestois-29/2y8m4zh5d8ylql0/"
+        },
+        "utcDate": "2026-09-20T16:00:00+03:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_aj-auxerre",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "AJ Auxerre",
+          "shortName": "AJ Auxerre",
+          "crest": "https://img.thesports.com/football/team/8c03e57af9e8bec20a3ed2f5aaddf78b.png",
+          "logo": "https://img.thesports.com/football/team/8c03e57af9e8bec20a3ed2f5aaddf78b.png",
+          "identityCompetitionCode": "FL1",
+          "identityCompetitionSlug": "french-ligue-1"
+        },
+        "awayTeam": {
+          "id": "sc_t_stade-brestois-29",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Stade Brestois 29",
+          "shortName": "Stade Brestois 29",
+          "crest": "https://img.thesports.com/football/team/bb7e6346a3860008e4ff266ba3b655e8.png",
+          "logo": "https://img.thesports.com/football/team/bb7e6346a3860008e4ff266ba3b655e8.png",
+          "identityCompetitionCode": "FL1",
+          "identityCompetitionSlug": "french-ligue-1"
+        },
+        "score": {
+          "fullTime": {
+            "home": 2,
+            "away": 1
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "FL1",
+          "name": "Ligue 1",
+          "code": "FL1",
+          "country": "France",
+          "emblem": "https://img.thesports.com/football/competition/6e13222836235b121c1af3bc3055e76b.png",
+          "logo": "https://img.thesports.com/football/competition/6e13222836235b121c1af3bc3055e76b.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_210477",
+        "rawId": 210477,
+        "slug": "bsd_210477",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-09-20T15:15:00Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 96,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_103",
+          "rawId": 103,
+          "providerId": "103",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Nice",
+          "shortName": "Nice",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/103/",
+          "logo": "https://sports.bzzoiro.com/img/team/103/",
+          "slug": "bsd_t_103",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_106",
+          "rawId": 106,
+          "providerId": "106",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Lille",
+          "shortName": "Lille",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/106/",
+          "logo": "https://sports.bzzoiro.com/img/team/106/",
+          "slug": "bsd_t_106",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 2,
+            "away": 1
+          },
+          "halfTime": {
+            "home": 1,
+            "away": 0
+          }
+        },
+        "competition": {
+          "id": "FL1",
+          "code": "FL1",
+          "rawId": 6,
+          "providerId": "6",
+          "provider": "bsd",
+          "name": "Ligue 1",
+          "country": "France",
+          "emblem": "https://sports.bzzoiro.com/img/league/6/",
+          "logo": "https://sports.bzzoiro.com/img/league/6/",
+          "season": {
+            "id": 1311,
+            "name": "Ligue 1 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "regular-season",
+                "stage_name": "Regular season",
+                "matches": 306,
+                "rounds": 34,
+                "start_date": "2026-08-21",
+                "end_date": "2027-05-29"
+              }
+            ]
+          }
+        },
+        "seasonId": 1311,
+        "round": 5,
+        "roundLabel": "Regular season · Matchday 5",
+        "group": "",
+        "stage": "regular-season",
+        "stageName": "Regular season",
+        "venueId": 101,
+        "venue": null,
+        "refereeId": 2135,
+        "homeCoachId": 404,
+        "awayCoachId": 1778,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "losc-lille-vs-ogc-nice3glrw7hney8jqdy",
+        "slug": "losc-lille-vs-ogc-nice3glrw7hney8jqdy",
+        "matchLocator": {
+          "id": "losc-lille-vs-ogc-nice3glrw7hney8jqdy",
+          "slug": "losc-lille-vs-ogc-nice",
+          "token": "3glrw7hney8jqdy",
+          "url": "/football/match/losc-lille-vs-ogc-nice/3glrw7hney8jqdy/"
+        },
+        "utcDate": "2026-09-20T18:15:00+03:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_ogc-nice",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "OGC Nice",
+          "shortName": "OGC Nice",
+          "crest": "https://img.thesports.com/football/team/ff8991853f7aabce7cb66f09cda0c58e.png",
+          "logo": "https://img.thesports.com/football/team/ff8991853f7aabce7cb66f09cda0c58e.png",
+          "identityCompetitionCode": "FL1",
+          "identityCompetitionSlug": "french-ligue-1"
+        },
+        "awayTeam": {
+          "id": "sc_t_losc-lille",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "LOSC Lille",
+          "shortName": "LOSC Lille",
+          "crest": "https://img.thesports.com/football/team/28e94925fdcc848f86a544a1cedcceed.png",
+          "logo": "https://img.thesports.com/football/team/28e94925fdcc848f86a544a1cedcceed.png",
+          "identityCompetitionCode": "FL1",
+          "identityCompetitionSlug": "french-ligue-1"
+        },
+        "score": {
+          "fullTime": {
+            "home": 2,
+            "away": 1
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "FL1",
+          "name": "Ligue 1",
+          "code": "FL1",
+          "country": "France",
+          "emblem": "https://img.thesports.com/football/competition/6e13222836235b121c1af3bc3055e76b.png",
+          "logo": "https://img.thesports.com/football/competition/6e13222836235b121c1af3bc3055e76b.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_210479",
+        "rawId": 210479,
+        "slug": "bsd_210479",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-09-20T18:45:00Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 95,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_98",
+          "rawId": 98,
+          "providerId": "98",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Olympique de Marseille",
+          "shortName": "Olympique de Marseille",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/98/",
+          "logo": "https://sports.bzzoiro.com/img/team/98/",
+          "slug": "bsd_t_98",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_114",
+          "rawId": 114,
+          "providerId": "114",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Paris Saint-Germain",
+          "shortName": "Paris Saint-Germain",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/114/",
+          "logo": "https://sports.bzzoiro.com/img/team/114/",
+          "slug": "bsd_t_114",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 2
+          },
+          "halfTime": {
+            "home": 0,
+            "away": 0
+          }
+        },
+        "competition": {
+          "id": "FL1",
+          "code": "FL1",
+          "rawId": 6,
+          "providerId": "6",
+          "provider": "bsd",
+          "name": "Ligue 1",
+          "country": "France",
+          "emblem": "https://sports.bzzoiro.com/img/league/6/",
+          "logo": "https://sports.bzzoiro.com/img/league/6/",
+          "season": {
+            "id": 1311,
+            "name": "Ligue 1 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "regular-season",
+                "stage_name": "Regular season",
+                "matches": 306,
+                "rounds": 34,
+                "start_date": "2026-08-21",
+                "end_date": "2027-05-29"
+              }
+            ]
+          }
+        },
+        "seasonId": 1311,
+        "round": 5,
+        "roundLabel": "Regular season · Matchday 5",
+        "group": "",
+        "stage": "regular-season",
+        "stageName": "Regular season",
+        "venueId": 96,
+        "venue": null,
+        "refereeId": 2113,
+        "homeCoachId": 321,
+        "awayCoachId": 201,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "paris-saint-germain-vs-marseilley0or5jh8d3p1qwz",
+        "slug": "paris-saint-germain-vs-marseilley0or5jh8d3p1qwz",
+        "matchLocator": {
+          "id": "paris-saint-germain-vs-marseilley0or5jh8d3p1qwz",
+          "slug": "paris-saint-germain-vs-marseille",
+          "token": "y0or5jh8d3p1qwz",
+          "url": "/football/match/paris-saint-germain-vs-marseille/y0or5jh8d3p1qwz/"
+        },
+        "utcDate": "2026-09-20T21:45:00+03:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_marseille",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Marseille",
+          "shortName": "Marseille",
+          "crest": "https://img.thesports.com/football/team/0dc4b45524350a50a4d3276a2525693f.png",
+          "logo": "https://img.thesports.com/football/team/0dc4b45524350a50a4d3276a2525693f.png",
+          "identityCompetitionCode": "FL1",
+          "identityCompetitionSlug": "french-ligue-1"
+        },
+        "awayTeam": {
+          "id": "sc_t_paris-saint-germain",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Paris Saint Germain",
+          "shortName": "Paris Saint Germain",
+          "crest": "https://img.thesports.com/football/team/3b720f181ce9993f9422d276acf7b292.png",
+          "logo": "https://img.thesports.com/football/team/3b720f181ce9993f9422d276acf7b292.png",
+          "identityCompetitionCode": "FL1",
+          "identityCompetitionSlug": "french-ligue-1"
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 2
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "FL1",
+          "name": "Ligue 1",
+          "code": "FL1",
+          "country": "France",
+          "emblem": "https://img.thesports.com/football/competition/6e13222836235b121c1af3bc3055e76b.png",
+          "logo": "https://img.thesports.com/football/competition/6e13222836235b121c1af3bc3055e76b.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_7271",
+        "rawId": 7271,
+        "slug": "bsd_7271",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-09-20T00:00:00Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 94,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_158",
+          "rawId": 158,
+          "providerId": "158",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "São Paulo",
+          "shortName": "São Paulo",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/158/",
+          "logo": "https://sports.bzzoiro.com/img/team/158/",
+          "slug": "bsd_t_158",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_161",
+          "rawId": 161,
+          "providerId": "161",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Internacional",
+          "shortName": "Internacional",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/161/",
+          "logo": "https://sports.bzzoiro.com/img/team/161/",
+          "slug": "bsd_t_161",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 0
+          },
+          "halfTime": {
+            "home": 1,
+            "away": 0
+          }
+        },
+        "competition": {
+          "id": "BSA",
+          "code": "BSA",
+          "rawId": 9,
+          "providerId": "9",
+          "provider": "bsd",
+          "name": "Brasileirão Serie A",
+          "country": "Brazil",
+          "emblem": "https://sports.bzzoiro.com/img/league/9/",
+          "logo": "https://sports.bzzoiro.com/img/league/9/",
+          "season": {
+            "id": 28,
+            "name": "Brasileiro Serie A 2026",
+            "year": 2026,
+            "start_date": "2026-01-01",
+            "end_date": "2026-12-31",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "regular-season",
+                "stage_name": "Regular season",
+                "matches": 388,
+                "rounds": 38,
+                "start_date": "2026-01-28",
+                "end_date": "2026-12-02"
+              }
+            ]
+          }
+        },
+        "seasonId": 28,
+        "round": 28,
+        "roundLabel": "Regular season · Matchday 28",
+        "group": "",
+        "stage": "regular-season",
+        "stageName": "Regular season",
+        "venueId": 156,
+        "venue": null,
+        "refereeId": 1835,
+        "homeCoachId": 1579,
+        "awayCoachId": 140,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "sao-paulo-vs-internacional-rsx7lm7phj3koxm2w",
+        "slug": "sao-paulo-vs-internacional-rsx7lm7phj3koxm2w",
+        "matchLocator": {
+          "id": "sao-paulo-vs-internacional-rsx7lm7phj3koxm2w",
+          "slug": "sao-paulo-vs-internacional-rs",
+          "token": "x7lm7phj3koxm2w",
+          "url": "/football/match/sao-paulo-vs-internacional-rs/x7lm7phj3koxm2w/"
+        },
+        "utcDate": "2026-09-20T03:00:00+03:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_sao-paulo-sp",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "São Paulo - SP",
+          "shortName": "São Paulo - SP",
+          "crest": "https://img.thesports.com/football/team/31f5171de0e1404fdebcef19cd7cd409.png",
+          "logo": "https://img.thesports.com/football/team/31f5171de0e1404fdebcef19cd7cd409.png",
+          "identityCompetitionCode": "BSA",
+          "identityCompetitionSlug": "brazilian-serie-a"
+        },
+        "awayTeam": {
+          "id": "sc_t_internacional-rs",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Internacional - RS",
+          "shortName": "Internacional - RS",
+          "crest": "https://img.thesports.com/football/team/7fc8831956b0f4fab51d0390a3957780.png",
+          "logo": "https://img.thesports.com/football/team/7fc8831956b0f4fab51d0390a3957780.png",
+          "identityCompetitionCode": "BSA",
+          "identityCompetitionSlug": "brazilian-serie-a"
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 0
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "BSA",
+          "name": "Brasileirão",
+          "code": "BSA",
+          "country": "Brazil",
+          "emblem": "https://img.thesports.com/football/competition/5ad7bd885c64690f15f6971a2827190d.png",
+          "logo": "https://img.thesports.com/football/competition/5ad7bd885c64690f15f6971a2827190d.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_5299",
+        "rawId": 5299,
+        "slug": "bsd_5299",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-09-20T02:30:00Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 97,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_303",
+          "rawId": 303,
+          "providerId": "303",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Colorado Rapids",
+          "shortName": "Colorado Rapids",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/303/",
+          "logo": "https://sports.bzzoiro.com/img/team/303/",
+          "slug": "bsd_t_303",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_302",
+          "rawId": 302,
+          "providerId": "302",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Seattle Sounders FC",
+          "shortName": "Seattle Sounders FC",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/302/",
+          "logo": "https://sports.bzzoiro.com/img/team/302/",
+          "slug": "bsd_t_302",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 3,
+            "away": 3
+          },
+          "halfTime": {
+            "home": 1,
+            "away": 0
+          }
+        },
+        "competition": {
+          "id": "MLS",
+          "code": "MLS",
+          "rawId": 18,
+          "providerId": "18",
+          "provider": "bsd",
+          "name": "MLS",
+          "country": "USA",
+          "emblem": "https://sports.bzzoiro.com/img/league/18/",
+          "logo": "https://sports.bzzoiro.com/img/league/18/",
+          "season": {
+            "id": 158,
+            "name": "MLS 2026",
+            "year": 2026,
+            "start_date": "2026-01-01",
+            "end_date": "2026-12-31",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "regular-season",
+                "stage_name": "Regular season",
+                "matches": 517,
+                "rounds": 0,
+                "start_date": "2026-02-21",
+                "end_date": "2026-11-08"
+              }
+            ]
+          }
+        },
+        "seasonId": 158,
+        "round": null,
+        "roundLabel": "Regular season",
+        "group": "",
+        "stage": "regular-season",
+        "stageName": "Regular season",
+        "venueId": 291,
+        "venue": null,
+        "refereeId": 2067,
+        "homeCoachId": 296,
+        "awayCoachId": 346,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "seattle-sounders-vs-colorado-rapidsl7oqdehg3x73r51",
+        "slug": "seattle-sounders-vs-colorado-rapidsl7oqdehg3x73r51",
+        "matchLocator": {
+          "id": "seattle-sounders-vs-colorado-rapidsl7oqdehg3x73r51",
+          "slug": "seattle-sounders-vs-colorado-rapids",
+          "token": "l7oqdehg3x73r51",
+          "url": "/football/match/seattle-sounders-vs-colorado-rapids/l7oqdehg3x73r51/"
+        },
+        "utcDate": "2026-09-20T05:30:00+03:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_colorado-rapids",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Colorado Rapids",
+          "shortName": "Colorado Rapids",
+          "crest": "https://img.thesports.com/football/team/2d874c6a14447ac110695b300849ca7c.png",
+          "logo": "https://img.thesports.com/football/team/2d874c6a14447ac110695b300849ca7c.png",
+          "identityCompetitionCode": "MLS",
+          "identityCompetitionSlug": "united-states-major-league-soccer"
+        },
+        "awayTeam": {
+          "id": "sc_t_seattle-sounders",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Seattle Sounders",
+          "shortName": "Seattle Sounders",
+          "crest": "https://img.thesports.com/football/team/cef1725baaf3f3be0cb7215c5f39d162.png",
+          "logo": "https://img.thesports.com/football/team/cef1725baaf3f3be0cb7215c5f39d162.png",
+          "identityCompetitionCode": "MLS",
+          "identityCompetitionSlug": "united-states-major-league-soccer"
+        },
+        "score": {
+          "fullTime": {
+            "home": 3,
+            "away": 3
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "MLS",
+          "name": "MLS",
+          "code": "MLS",
+          "country": "USA",
+          "emblem": "https://img.thesports.com/football/competition/d2fe5be131ad888084f50d6af533570c.png",
+          "logo": "https://img.thesports.com/football/competition/d2fe5be131ad888084f50d6af533570c.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    }
+  ]
+}

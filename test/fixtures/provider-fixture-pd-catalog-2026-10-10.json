@@ -1,0 +1,587 @@
+{
+  "verifiedAt": "2026-10-10",
+  "evidence": {
+    "bsdTeams": "/api/v2/teams/?league_id=3&is_women=false&in_competition=true&limit=200",
+    "sportscoreTeams": "/api/v1/football/standings/?competition=spanish-la-liga",
+    "calendar": "/api/matches/date?date=2026-09-20",
+    "note": "Both independent senior PD catalogs were inspected. Every mapping retains exact source ID and exact catalog name. Equal oriented fixture kickoff is required; scores are captured only for regression, never identity evidence."
+  },
+  "bsdTeams": [
+    {
+      "id": "bsd_t_51",
+      "provider": "bsd",
+      "name": "Athletic Club",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_54",
+      "provider": "bsd",
+      "name": "Atlético Madrid",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_49",
+      "provider": "bsd",
+      "name": "Celta Vigo",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_45",
+      "provider": "bsd",
+      "name": "Deportivo Alavés",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_1260",
+      "provider": "bsd",
+      "name": "Deportivo de A Coruña",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_55",
+      "provider": "bsd",
+      "name": "Elche",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_53",
+      "provider": "bsd",
+      "name": "Espanyol",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_44",
+      "provider": "bsd",
+      "name": "FC Barcelona",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_50",
+      "provider": "bsd",
+      "name": "Getafe",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_46",
+      "provider": "bsd",
+      "name": "Levante UD",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_1259",
+      "provider": "bsd",
+      "name": "Málaga CF",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_58",
+      "provider": "bsd",
+      "name": "Osasuna",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_40",
+      "provider": "bsd",
+      "name": "Rayo Vallecano",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_56",
+      "provider": "bsd",
+      "name": "Real Betis",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_57",
+      "provider": "bsd",
+      "name": "Real Madrid",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_1400",
+      "provider": "bsd",
+      "name": "Real Racing Club",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_48",
+      "provider": "bsd",
+      "name": "Real Sociedad",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_52",
+      "provider": "bsd",
+      "name": "Sevilla",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_47",
+      "provider": "bsd",
+      "name": "Valencia",
+      "type": "team",
+      "country": "Spain"
+    },
+    {
+      "id": "bsd_t_41",
+      "provider": "bsd",
+      "name": "Villarreal",
+      "type": "team",
+      "country": "Spain"
+    }
+  ],
+  "sportscoreTeams": [
+    {
+      "id": "sc_t_fc-barcelona",
+      "provider": "sportscore",
+      "name": "FC Barcelona",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_atletico-madrid",
+      "provider": "sportscore",
+      "name": "Atletico Madrid",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_real-betis",
+      "provider": "sportscore",
+      "name": "Real Betis",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_real-madrid",
+      "provider": "sportscore",
+      "name": "Real Madrid",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_sevilla-fc",
+      "provider": "sportscore",
+      "name": "Sevilla FC",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_deportivo-alaves",
+      "provider": "sportscore",
+      "name": "Deportivo Alavés",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_rc-deportivo",
+      "provider": "sportscore",
+      "name": "RC Deportivo",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_real-sociedad",
+      "provider": "sportscore",
+      "name": "Real Sociedad",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_villarreal-cf",
+      "provider": "sportscore",
+      "name": "Villarreal CF",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_athletic-club",
+      "provider": "sportscore",
+      "name": "Athletic Club",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_rcd-espanyol-de-barcelona",
+      "provider": "sportscore",
+      "name": "RCD Espanyol de Barcelona",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_getafe",
+      "provider": "sportscore",
+      "name": "Getafe",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_rayo-vallecano",
+      "provider": "sportscore",
+      "name": "Rayo Vallecano",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_ca-osasuna",
+      "provider": "sportscore",
+      "name": "CA Osasuna",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_rc-celta",
+      "provider": "sportscore",
+      "name": "RC Celta",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_racing-santander",
+      "provider": "sportscore",
+      "name": "Racing Santander",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_levante",
+      "provider": "sportscore",
+      "name": "Levante",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_elche-cf",
+      "provider": "sportscore",
+      "name": "Elche CF",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_valencia-cf",
+      "provider": "sportscore",
+      "name": "Valencia CF",
+      "identityBasis": "provider_slug_or_url"
+    },
+    {
+      "id": "sc_t_malaga",
+      "provider": "sportscore",
+      "name": "Malaga",
+      "identityBasis": "provider_slug_or_url"
+    }
+  ],
+  "pairs": [
+    {
+      "preferred": {
+        "id": "bsd_213585",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-09-20T12:00:00Z",
+        "status": "FINISHED",
+        "minute": 98,
+        "matchPhase": "FULL_TIME",
+        "competition": {
+          "code": "PD",
+          "name": "La Liga",
+          "country": "Spain"
+        },
+        "homeTeam": {
+          "id": "bsd_t_50",
+          "provider": "bsd",
+          "name": "Getafe",
+          "type": "team"
+        },
+        "awayTeam": {
+          "id": "bsd_t_1259",
+          "provider": "bsd",
+          "name": "Málaga CF",
+          "type": "team"
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 0
+          },
+          "halfTime": {
+            "home": 0,
+            "away": 0
+          }
+        },
+        "round": 7,
+        "stage": "regular-season"
+      },
+      "supplement": {
+        "id": "malaga-vs-getafe6ypq3nhvo150md7",
+        "provider": "sportscore",
+        "source": "sportscore",
+        "utcDate": "2026-09-20T15:00:00+03:00",
+        "status": "FINISHED",
+        "minute": null,
+        "matchPhase": "FULL_TIME",
+        "competition": {
+          "code": "PD",
+          "name": "La Liga",
+          "country": "Spain"
+        },
+        "homeTeam": {
+          "id": "sc_t_getafe",
+          "provider": "sportscore",
+          "name": "Getafe",
+          "identityCompetitionCode": "PD",
+          "identityBasis": "competition_standings"
+        },
+        "awayTeam": {
+          "id": "sc_t_malaga",
+          "provider": "sportscore",
+          "name": "Malaga",
+          "identityCompetitionCode": "PD",
+          "identityBasis": "competition_standings"
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 0
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        }
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_213589",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-09-20T16:30:00Z",
+        "status": "FINISHED",
+        "minute": 94,
+        "matchPhase": "FULL_TIME",
+        "competition": {
+          "code": "PD",
+          "name": "La Liga",
+          "country": "Spain"
+        },
+        "homeTeam": {
+          "id": "bsd_t_41",
+          "provider": "bsd",
+          "name": "Villarreal",
+          "type": "team"
+        },
+        "awayTeam": {
+          "id": "bsd_t_46",
+          "provider": "bsd",
+          "name": "Levante UD",
+          "type": "team"
+        },
+        "score": {
+          "fullTime": {
+            "home": 3,
+            "away": 1
+          },
+          "halfTime": {
+            "home": 1,
+            "away": 1
+          }
+        },
+        "round": 7,
+        "stage": "regular-season"
+      },
+      "supplement": {
+        "id": "levante-vs-villarreal-cfn54qllhn6dekqvy",
+        "provider": "sportscore",
+        "source": "sportscore",
+        "utcDate": "2026-09-20T19:30:00+03:00",
+        "status": "FINISHED",
+        "minute": null,
+        "matchPhase": "FULL_TIME",
+        "competition": {
+          "code": "PD",
+          "name": "La Liga",
+          "country": "Spain"
+        },
+        "homeTeam": {
+          "id": "sc_t_villarreal-cf",
+          "provider": "sportscore",
+          "name": "Villarreal CF",
+          "identityCompetitionCode": "PD",
+          "identityBasis": "competition_standings"
+        },
+        "awayTeam": {
+          "id": "sc_t_levante",
+          "provider": "sportscore",
+          "name": "Levante",
+          "identityCompetitionCode": "PD",
+          "identityBasis": "competition_standings"
+        },
+        "score": {
+          "fullTime": {
+            "home": 3,
+            "away": 1
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        }
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_213583",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-09-20T16:30:00Z",
+        "status": "FINISHED",
+        "minute": 93,
+        "matchPhase": "FULL_TIME",
+        "competition": {
+          "code": "PD",
+          "name": "La Liga",
+          "country": "Spain"
+        },
+        "homeTeam": {
+          "id": "bsd_t_1260",
+          "provider": "bsd",
+          "name": "Deportivo de A Coruña",
+          "type": "team"
+        },
+        "awayTeam": {
+          "id": "bsd_t_56",
+          "provider": "bsd",
+          "name": "Real Betis",
+          "type": "team"
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 1
+          },
+          "halfTime": {
+            "home": 0,
+            "away": 1
+          }
+        },
+        "round": 7,
+        "stage": "regular-season"
+      },
+      "supplement": {
+        "id": "real-betis-vs-deportivo-la-coruna2y8m4zh5913lql0",
+        "provider": "sportscore",
+        "source": "sportscore",
+        "utcDate": "2026-09-20T19:30:00+03:00",
+        "status": "FINISHED",
+        "minute": null,
+        "matchPhase": "FULL_TIME",
+        "competition": {
+          "code": "PD",
+          "name": "La Liga",
+          "country": "Spain"
+        },
+        "homeTeam": {
+          "id": "sc_t_rc-deportivo",
+          "provider": "sportscore",
+          "name": "RC Deportivo",
+          "identityCompetitionCode": "PD",
+          "identityBasis": "competition_standings"
+        },
+        "awayTeam": {
+          "id": "sc_t_real-betis",
+          "provider": "sportscore",
+          "name": "Real Betis",
+          "identityCompetitionCode": "PD",
+          "identityBasis": "competition_standings"
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 1
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        }
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_213588",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-09-20T19:00:00Z",
+        "status": "FINISHED",
+        "minute": 96,
+        "matchPhase": "FULL_TIME",
+        "competition": {
+          "code": "PD",
+          "name": "La Liga",
+          "country": "Spain"
+        },
+        "homeTeam": {
+          "id": "bsd_t_47",
+          "provider": "bsd",
+          "name": "Valencia",
+          "type": "team"
+        },
+        "awayTeam": {
+          "id": "bsd_t_48",
+          "provider": "bsd",
+          "name": "Real Sociedad",
+          "type": "team"
+        },
+        "score": {
+          "fullTime": {
+            "home": 2,
+            "away": 3
+          },
+          "halfTime": {
+            "home": 0,
+            "away": 1
+          }
+        },
+        "round": 7,
+        "stage": "regular-season"
+      },
+      "supplement": {
+        "id": "valencia-cf-vs-real-sociedadx7lm7phjepo9m2w",
+        "provider": "sportscore",
+        "source": "sportscore",
+        "utcDate": "2026-09-20T22:00:00+03:00",
+        "status": "FINISHED",
+        "minute": null,
+        "matchPhase": "FULL_TIME",
+        "competition": {
+          "code": "PD",
+          "name": "La Liga",
+          "country": "Spain"
+        },
+        "homeTeam": {
+          "id": "sc_t_valencia-cf",
+          "provider": "sportscore",
+          "name": "Valencia CF",
+          "identityCompetitionCode": "PD",
+          "identityBasis": "competition_standings"
+        },
+        "awayTeam": {
+          "id": "sc_t_real-sociedad",
+          "provider": "sportscore",
+          "name": "Real Sociedad",
+          "identityCompetitionCode": "PD",
+          "identityBasis": "competition_standings"
+        },
+        "score": {
+          "fullTime": {
+            "home": 2,
+            "away": 3
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        }
+      }
+    }
+  ]
+}

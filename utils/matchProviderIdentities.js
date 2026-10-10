@@ -25,7 +25,10 @@ const verifiedMlsClub = id => ({ bsd_t_302: 'seattle', bsd_t_299: 'kansas',
 function validatedProviderIdentities(value = {}) {
   const raw = value.providerIdentities;
   if (!Array.isArray(raw) || raw.length < 2 || raw.length > 3) return [];
-  const id = text(value.matchId || value.id);
+  const requestedId = text(value.matchId || value.id);
+  const canonicalId = value.canonicalMatchId === undefined ? null : text(value.canonicalMatchId);
+  if (value.canonicalMatchId !== undefined && !canonicalId) return [];
+  const id = canonicalId || requestedId;
   const explicitProvider = value.provider || value.source;
   const provider = explicitProvider ? providerName(explicitProvider) : providerForId(id);
   const home = text(value.homeTeam?.id || value.homeTeamId);
@@ -55,6 +58,10 @@ function validatedProviderIdentities(value = {}) {
     rows.push({ id: rowId, provider: rowProvider, utcDate: row.utcDate, competitionCode: rowCode,
       homeTeamId: rowHome, awayTeamId: rowAway });
   }
+  // A legacy route may serve another provider's complete, verified fixture.
+  // Its public route remains valid only when that exact ID occurs in the join;
+  // a canonicalMatchId field alone never authorizes changing participants.
+  if (canonicalId && !rows.some(row => row.id === requestedId)) return [];
   return rows;
 }
 

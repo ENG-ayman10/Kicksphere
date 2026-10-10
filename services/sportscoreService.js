@@ -1102,7 +1102,10 @@ function normalizeSportScoreMatchDetail(m, slug) {
       position: p.position || '',
       grid: p.grid ?? p.player?.grid ?? null,
       captain: Boolean(p.captain),
-      rating: normalizedRating(p.rating),
+      // The match widget uses zero as an unpublished rating placeholder. It is
+      // not a measured 0/10 performance (many otherwise unplayed substitutes
+      // carry it); keep that state unknown without changing season ratings.
+      rating: numericOrNull(p.rating) === 0 ? null : normalizedRating(p.rating),
       player: {
         id,
         provider: 'sportscore',
