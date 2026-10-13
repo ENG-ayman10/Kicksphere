@@ -398,6 +398,28 @@ exports.getMatchTimeline = async matchId => {
   const rows = raw.incidents.map(normalizeIncident).filter(Boolean);
   return withCoverage(rows, { available: true, complete: rows.length === raw.incidents.length, partial: rows.length !== raw.incidents.length, possiblyTruncated: false });
 };
+// Alert detection reads only authoritative event/incident/XI data. Player
+// profiles, valuations and statistics cannot delay a time-sensitive alert.
+exports.getMatchAlertDetails = async (matchId, options = {}) => {
+  const id = scopedId(matchId, 'bsd_'); if (!id) return null;
+  const budget = requestBudget({ ...options, timeoutMs: options.timeoutMs ?? 5000 });
+  const match = await exports.getMatchSummary(matchId, budget);
+  if (!match) return null;
+  const timeout = remainingRequestTimeout(budget);
+  if (timeout === 0) return match;
+  const [incidentRaw, lineupRaw] = await Promise.all([
+    options.includeTimeline ? fetchBsd('/api/v2/events/' + id + '/incidents/', {}, TTL.live, timeout) : null,
+    options.includeLineups ? fetchBsd('/api/v2/events/' + id + '/lineups/', {}, TTL.live, timeout) : null,
+  ]);
+  const incidentData = resource(incidentRaw, id), lineupData = resource(lineupRaw, id);
+  const lineups = normalizeBsdLineups(lineupData, match);
+  return { ...match,
+    ...(Array.isArray(incidentData?.incidents) ? {
+      timeline: incidentData.incidents.map(normalizeIncident).filter(Boolean),
+    } : {}),
+    ...(lineups ? { lineups } : {}),
+  };
+};
 function normalizeH2h(raw, match) {
   if (!raw || typeof raw !== 'object') return null;
   const rows = (raw.recent_matches || []).filter(value => [match.homeTeam.rawId, match.awayTeam.rawId].includes(Number(value.home_team_id)) && [match.homeTeam.rawId, match.awayTeam.rawId].includes(Number(value.away_team_id)) && Number(value.home_team_id) !== Number(value.away_team_id)).map(value => {

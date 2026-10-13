@@ -3,8 +3,10 @@ const { matchIdentityIds, teamIdentityIds } = require('./matchProviderIdentities
 const MAX_DEVICES_PER_USER = 10;
 const MAX_TOKEN_LENGTH = 4096;
 const DEVICE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const DEFAULT_ALERTS = Object.freeze({ enabled: true, reminders: true, lineups: true,
+  goals: true, cards: true, matchStatus: true, other: true });
 const DEFAULT_PREFERENCES = Object.freeze({ sound: true, vibration: true, hideScores: false,
-  favoritesOnly: false, teamIds: [], matchIds: [] });
+  favoritesOnly: false, teamIds: [], matchIds: [], alerts: DEFAULT_ALERTS });
 
 function validationError(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -35,7 +37,7 @@ function normalizeIds(value, field, limit) {
 }
 function normalizeNotificationPreferences(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw validationError('preferences must be an object.');
-  const result = { ...DEFAULT_PREFERENCES, teamIds: [], matchIds: [] };
+  const result = { ...DEFAULT_PREFERENCES, teamIds: [], matchIds: [], alerts: { ...DEFAULT_ALERTS } };
   for (const field of ['sound', 'vibration', 'hideScores', 'favoritesOnly']) {
     if (Object.hasOwn(value, field)) {
       if (typeof value[field] !== 'boolean') throw validationError(`${field} must be boolean.`);
@@ -44,6 +46,15 @@ function normalizeNotificationPreferences(value = {}) {
   }
   for (const [field, limit] of [['teamIds', 50], ['matchIds', 100]]) {
     if (Object.hasOwn(value, field)) result[field] = normalizeIds(value[field], field, limit);
+  }
+  if (Object.hasOwn(value, 'alerts')) {
+    if (!value.alerts || typeof value.alerts !== 'object' || Array.isArray(value.alerts)) {
+      throw validationError('alerts must be an object.');
+    }
+    for (const field of Object.keys(DEFAULT_ALERTS)) if (Object.hasOwn(value.alerts, field)) {
+      if (typeof value.alerts[field] !== 'boolean') throw validationError(`alerts.${field} must be boolean.`);
+      result.alerts[field] = value.alerts[field];
+    }
   }
   return result;
 }
@@ -56,12 +67,24 @@ function normalizeDeviceRegistration(body) {
 }
 function eventMatchesPreferences(event, preferences = {}) {
   // Score hiding protects against every match spoiler, including a generic goal alert.
-  if (preferences.hideScores === true) return false;
+  if (preferences.hideScores === true || !eventCategoryEnabled(event.type, preferences)) return false;
   const matchIds = Array.isArray(preferences.matchIds) ? preferences.matchIds : [];
   const teamIds = Array.isArray(preferences.teamIds) ? preferences.teamIds : [];
   // An explicit match bell is always honored, including with favoritesOnly enabled.
   return matchIdentityIds(event).some(id => matchIds.includes(id)) ||
     (!event.isDetailed && teamIdentityIds(event).some(id => teamIds.includes(id)));
 }
+function eventCategoryEnabled(type, preferences = {}) {
+  if (type === 'systemTest') return true;
+  const alerts = preferences.alerts || {};
+  if (alerts.enabled === false) return false;
+  const category = type === 'matchReminder' ? 'reminders' : type === 'lineup' ? 'lineups'
+    : ['goal', 'goalCancelled', 'scoreCorrection'].includes(type) ? 'goals'
+      : ['card', 'redCard', 'yellowCard'].includes(type) ? 'cards'
+        : ['matchStart', 'matchEnd', 'halfTime', 'secondHalfStart', 'extraTimeStart',
+          'penaltyShootout', 'matchPostponed', 'matchCancelled'].includes(type) ? 'matchStatus' : 'other';
+  return alerts[category] !== false;
+}
 module.exports = { MAX_DEVICES_PER_USER, DEVICE_TTL_MS, DEFAULT_PREFERENCES, validationError,
+  DEFAULT_ALERTS, eventCategoryEnabled,
   normalizeDeviceId, normalizeToken, normalizeNotificationPreferences, normalizeDeviceRegistration, eventMatchesPreferences };

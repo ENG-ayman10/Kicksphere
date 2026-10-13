@@ -8,7 +8,10 @@ const sportscoreService = require('./sportscoreService');
 const sportsDataService = require('./sportsDataService');
 const bsdSportsService = require('./bsdSportsService');
 const logger = require('../utils/logger');
+const { createHash } = require('node:crypto');
 let running = false;
+const broadcasts = new WeakMap();
+const HEARTBEAT_MS = 30000;
 
 // ==========================================
 // 🔥 EMIT LIVE MATCHES
@@ -25,7 +28,16 @@ exports.emitLiveMatches = async (io) => {
     // A partial/temporarily unavailable zero-row snapshot cannot certify that
     // every match ended. Keep the current board until a verified empty feed.
     if (Array.isArray(data) && (data.length > 0 || Array.isArray(result) || result.coverage?.complete === true)) {
-      io.emit('liveMatches', data);
+      const signature = createHash('sha256').update(JSON.stringify(data)).digest('hex');
+      const previous = broadcasts.get(io);
+      const now = Date.now();
+      // Five-second score checks share a cached provider feed. Avoid making
+      // every handset decode/rebuild that identical scoreboard each cycle.
+      // A bounded heartbeat still lets connected clients retain fresh state.
+      if (!previous || signature !== previous.signature || now - previous.at >= HEARTBEAT_MS) {
+        io.emit('liveMatches', data);
+        broadcasts.set(io, { signature, at: now });
+      }
     }
     // The transition detector consumes exactly the scoreboard snapshot. It must
     // not start a second broad provider read on an unrelated event timer.

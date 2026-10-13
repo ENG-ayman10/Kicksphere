@@ -18,7 +18,7 @@ function createLivePollingCoordinator(options) {
     eventWork = Promise.resolve().then(async () => {
       while (!stopped && (scorePending || detailsPending)) {
         // Broadcast score/status changes before optional provider details. A
-        // fresh source snapshot never waits for the 90-second detail timer.
+        // fresh source snapshot never waits for the optional detail timer.
         const includeDetails = !scorePending;
         if (scorePending) scorePending = false;
         else {

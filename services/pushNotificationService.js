@@ -1,24 +1,53 @@
 const { getMessaging } = require('firebase-admin/messaging');
+const { createHash } = require('node:crypto');
 const logger = require('../utils/logger');
 const { normalizeProviderTimestamp } = require('../utils/providerTimestamp');
 const { validatedProviderIdentities } = require('../utils/matchProviderIdentities');
+const { eventCategoryEnabled } = require('../utils/notificationContracts');
 const clean = (value, limit = 160) => typeof value === 'string' ? value.slice(0, limit) : '';
 const finiteScore = value => Number.isFinite(Number(value)) && value !== null && value !== '' && value !== undefined ? Number(value) : null;
+const penaltyTitles = Object.freeze({
+  penalty_awarded: ['احتُسبت ركلة جزاء', 'Penalty awarded'],
+  penalty_missed: ['ركلة جزاء ضائعة', 'Penalty missed'],
+  penalty_saved: ['تصدى الحارس لركلة الجزاء', 'Penalty saved'],
+  shootout_scored: ['ركلة ترجيح ناجحة', 'Shootout penalty scored'],
+  shootout_missed: ['ركلة ترجيح ضائعة', 'Shootout penalty missed'],
+  shootout_saved: ['تصدى الحارس لركلة الترجيح', 'Shootout penalty saved'],
+});
 
 function buildEventNotification(event, language = 'en') {
   const arabic = language === 'ar';
-  const title = event.type === 'goal' ? (arabic ? '⚽ هدف!' : '⚽ Goal!') : event.type === 'matchStart'
-    ? (arabic ? '🟢 بدأت المباراة' : '🟢 Match started') : event.type === 'matchEnd'
-      ? (arabic ? '🏁 نهاية المباراة' : '🏁 Full time') : event.type === 'card'
-        ? (arabic ? '🟥 بطاقة حمراء' : '🟥 Red card') : event.type === 'var'
-          ? (arabic ? 'تحديث تقنية الفيديو' : 'VAR update') : clean(event.title) || (arabic ? 'تحديث المباراة' : 'Match update');
+  const titles = {
+    goal: ['⚽ هدف!', '⚽ Goal!'], goalCancelled: ['إلغاء هدف', 'Goal cancelled'],
+    scoreCorrection: ['تصحيح النتيجة', 'Score corrected'],
+    matchReminder: ['المباراة تبدأ بعد 15 دقيقة', 'Kickoff in 15 minutes'],
+    lineup: ['التشكيلة الرسمية جاهزة', 'Confirmed lineups are ready'],
+    matchStart: ['بدأت المباراة', 'Kickoff'], matchEnd: ['نهاية المباراة', 'Full time'],
+    halfTime: ['نهاية الشوط الأول', 'Half time'], secondHalfStart: ['بدأ الشوط الثاني', 'Second half started'],
+    extraTimeStart: ['بدأ الوقت الإضافي', 'Extra time started'], penaltyShootout: ['ركلات الترجيح', 'Penalty shootout'],
+    matchPostponed: ['تأجيل المباراة', 'Match postponed'], matchCancelled: ['إلغاء المباراة', 'Match cancelled'],
+    redCard: ['🟥 بطاقة حمراء', '🟥 Red card'], yellowCard: ['بطاقة صفراء', 'Yellow card'],
+    substitution: ['تبديل لاعب', 'Substitution'], penalty: ['ركلة جزاء', 'Penalty'],
+    var: ['تحديث تقنية الفيديو', 'VAR update'],
+  };
+  const card = event.type === 'card' ? (event.cardType === 'yellow' ? 'yellowCard' : 'redCard') : event.type;
+  const title = (event.type === 'penalty' ? penaltyTitles[event.penaltyType]?.[arabic ? 0 : 1] : null) ||
+    titles[card]?.[arabic ? 0 : 1] || clean(event.title) || (arabic ? 'تحديث المباراة' : 'Match update');
   const homeName = event.homeTeam ? event.homeTeam.name : event.side === 'away' ? event.against : event.team;
   const awayName = event.awayTeam ? event.awayTeam.name : event.side === 'away' ? event.team : event.against;
   const teams = [clean(homeName), clean(awayName)].filter(Boolean).join(arabic ? ' ضد ' : ' vs ');
   const score = typeof event.score === 'string' ? clean(event.score, 32)
     : event.score?.home !== null && event.score?.home !== undefined ? `${event.score.home} - ${event.score.away ?? '-'}` : '';
-  const details = clean(event.player || (event.isDetailed ? event.message : ''));
-  return { title, message: [teams, score, details].filter(Boolean).join(' — ') };
+  const incoming = clean(event.player);
+  const outgoing = clean(event.playerOut);
+  const details = [event.type === 'substitution' && incoming && outgoing
+    ? `${arabic ? 'دخول: ' : 'In: '}${incoming} · ${arabic ? 'خروج: ' : 'Out: '}${outgoing}` : incoming,
+    event.assist ? (arabic ? 'صناعة: ' : 'Assist: ') + clean(event.assist) : '']
+    .filter(Boolean).join(' · ') || clean(event.isDetailed ? event.message : '');
+  const minute = event.minute !== null && event.minute !== undefined && /^\d{1,3}(?:\+\d{1,2})?$/.test(String(event.minute))
+    ? `${event.minute}′` : '';
+  const preMatch = ['matchReminder', 'lineup', 'matchPostponed', 'matchCancelled'].includes(event.type);
+  return { title, message: [teams, preMatch ? '' : score, details, preMatch ? '' : minute].filter(Boolean).join(' — ') };
 }
 
 function normalizedEvent(event) {
@@ -44,13 +73,28 @@ function normalizedEvent(event) {
     team: clean(event.team), against: clean(event.against), teamId: clean(event.teamId, 120),
     againstTeamId: clean(event.againstTeamId, 120), side: ['home', 'away'].includes(event.side) ? event.side : '',
     score, player: clean(event.player), minute: event.minute === null || event.minute === undefined ? null : clean(String(event.minute), 12),
-    cardType: clean(event.cardType, 32), tournament: clean(event.tournament) };
+    cardType: clean(event.cardType, 32), tournament: clean(event.tournament),
+    ...(event.assist ? { assist: clean(event.assist, 96) } : {}),
+    ...(event.playerOut ? { playerOut: clean(event.playerOut, 96) } : {}),
+    ...(event.penaltyType === 'penalty' || Object.hasOwn(penaltyTitles, event.penaltyType || '')
+      ? { penaltyType: event.penaltyType } : {}),
+    ...(normalizeProviderTimestamp(event.utcDate) ? { utcDate: normalizeProviderTimestamp(event.utcDate) } : {}),
+    ...(event.previousScore ? { previousScore: {
+      home: finiteScore(event.previousScore.home), away: finiteScore(event.previousScore.away) } } : {}),
+    ...(event.reminderMinutes === 15 ? { reminderMinutes: 15 } : {}),
+    ...(event.lineupConfirmed === true ? { lineupConfirmed: true } : {}),
+    ...(event.phase ? { phase: clean(event.phase, 32) } : {}),
+    ...(event.incidentId ? { incidentId: clean(String(event.incidentId), 120) } : {}) };
 }
 
 function buildPushMessage(token, title, body, options = {}) {
   const preferences = options.preferences || {};
   const event = options.event ? normalizedEvent(options.event) : null;
   const type = event?.type || 'systemTest';
+  // Keep the latest score/correction on the OS card. The inbox and payload
+  // retain each distinct event ID, including a goal after a cancellation.
+  const notificationTag = event?.matchId && ['goal', 'goalCancelled', 'scoreCorrection'].includes(type)
+    ? `score_${createHash('sha256').update(event.matchId).digest('hex').slice(0, 40)}` : event?.eventId;
   const sound = preferences.sound !== false;
   const vibration = preferences.vibration !== false;
   const ttl = Number.isFinite(options.ttlMs) ? Math.max(1000, Math.min(5 * 60 * 1000, options.ttlMs)) : 5 * 60 * 1000;
@@ -80,7 +124,7 @@ function buildPushMessage(token, title, body, options = {}) {
       // Preserve every verified identity and the oriented canonical participants.
       // Optional display text cannot crowd navigation or subscription provenance
       // out of the bounded FCM envelope for long IDs and multibyte names.
-      for (const field of ['team', 'against', 'player', 'tournament']) event[field] = '';
+      for (const field of ['team', 'against', 'player', 'tournament', 'assist', 'playerOut']) if (Object.hasOwn(event, field)) event[field] = '';
       event.homeTeam.name = '';
       event.awayTeam.name = '';
       notification.title = clean(notification.title, 48);
@@ -100,18 +144,25 @@ function buildPushMessage(token, title, body, options = {}) {
   return { token, notification, data,
     android: { priority: 'high', ttl, notification: {
       channelId: `match_events_${type}_s${sound ? 1 : 0}_v${vibration ? 1 : 0}`,
-      ...(event?.eventId ? { tag: event.eventId } : {}),
+      icon: 'ic_notification', color: '#40607A', priority: 'max',
+      ...(notificationTag ? { tag: notificationTag } : {}),
       ...(sound ? { defaultSound: true } : {}), ...(vibration ? { defaultVibrateTimings: true } : {})
     } },
-    apns: { headers: { 'apns-expiration': String(Math.floor((Date.now() + ttl) / 1000)),
-      ...(event?.eventId ? { 'apns-collapse-id': event.eventId.slice(0, 64) } : {}) },
+    apns: { headers: { 'apns-priority': '10', 'apns-push-type': 'alert',
+      'apns-expiration': String(Math.floor((Date.now() + ttl) / 1000)),
+      ...(notificationTag ? { 'apns-collapse-id': notificationTag.slice(0, 64) } : {}) },
       payload: { aps: { ...(sound ? { sound: 'default' } : {}), threadId: event?.matchId || 'system' } } }
   };
 }
 
 async function sendPushNotification(token, title, body, options = {}) {
   if (!token) return { sent: false };
-  if (options.event?.matchId && options.preferences?.hideScores === true) return { sent: false, suppressed: true };
+  if (options.event?.matchId && (options.preferences?.hideScores === true ||
+      !eventCategoryEnabled(options.event.type, options.preferences))) return { sent: false, suppressed: true };
+  const kickoff = Date.parse(normalizeProviderTimestamp(options.event?.utcDate) || '');
+  if (options.event?.type === 'matchReminder' && Number.isFinite(kickoff) && kickoff <= Date.now()) {
+    return { sent: false, expired: true };
+  }
   try {
     await getMessaging().send(buildPushMessage(token, title, body, options));
     return { sent: true };

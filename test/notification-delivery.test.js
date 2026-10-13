@@ -11,6 +11,30 @@ const event = { eventId: 'evt_offline_goal', matchId: 'bsd_123', type: 'goal', p
   team: 'Away', against: 'Home', teamId: 'bsd_t_44', againstTeamId: 'bsd_t_57', side: 'away',
   scoreValues: { home: 1, away: 2 }, score: '1 - 2', minute: 70, player: '', createdAt: new Date('2026-10-01T12:00:00Z') };
 
+test('penalty outcomes and substitution participants survive the bounded bilingual FCM envelope', () => {
+  const push = load('../services/pushNotificationService', { '../utils/logger': logger });
+  for (const [penaltyType, english] of [['penalty_awarded', 'Penalty awarded'], ['penalty_missed', 'Penalty missed'],
+    ['penalty_saved', 'Penalty saved'], ['shootout_scored', 'Shootout penalty scored'],
+    ['shootout_missed', 'Shootout penalty missed'], ['shootout_saved', 'Shootout penalty saved']]) {
+    const penalty = { ...event, type: 'penalty', penaltyType, phase: 'PENALTIES', player: 'Taker' };
+    const content = push.buildEventNotification(penalty, 'en');
+    assert.equal(content.title, english);
+    assert.notEqual(push.buildEventNotification(penalty, 'ar').title, english);
+    const message = push.buildPushMessage(token(1), content.title, content.message, { event: penalty });
+    const parsed = JSON.parse(message.data.event);
+    assert.equal(parsed.penaltyType, penaltyType);
+    assert.equal(parsed.phase, 'PENALTIES');
+  }
+  const substitution = { ...event, type: 'substitution', player: 'Incoming', playerOut: 'Outgoing' };
+  const content = push.buildEventNotification(substitution, 'en');
+  assert.match(content.message, /In: Incoming · Out: Outgoing/);
+  assert.match(push.buildEventNotification(substitution, 'ar').message, /دخول: Incoming · خروج: Outgoing/);
+  const message = push.buildPushMessage(token(1), content.title, content.message, { event: substitution });
+  assert.equal(JSON.parse(message.data.event).playerOut, 'Outgoing');
+  assert.ok(Buffer.byteLength(JSON.stringify(message.data)) < 3500);
+  assert.equal(push.buildEventNotification({ ...event, type: 'penalty', penaltyType: 'unverified' }).title, 'Penalty');
+});
+
 function aliasedEvent() {
   const { preferred, supplement } = structuredClone(require('./fixtures/provider-fixture-seattle-2026-10-02.json'));
   const { mergeProviderFixtures } = require('../utils/providerFixtureIdentity');
@@ -261,7 +285,7 @@ test('FCM payload preserves navigation, side and structured scores without requi
   assert.equal(message.data.eventId, event.eventId);
   assert.equal(message.data.emittedAt, String(event.createdAt.getTime()));
   assert.equal(message.android.notification.channelId, 'match_events_goal_s0_v0');
-  assert.equal(message.android.notification.tag, event.eventId);
+  assert.match(message.android.notification.tag, /^score_[a-f0-9]{40}$/);
   assert.equal(message.android.notification.defaultSound, undefined);
   assert.equal(message.apns.payload.aps.sound, undefined);
   const payload = JSON.parse(message.data.event);
@@ -411,7 +435,7 @@ test('live emitter pushes to every subscribed installation while a socket is act
   goals = 1; timeline = [...timeline, { id: 'new', type: 'red_card', side: 'away', player: 'New player', minute: 70 }];
   await poll(io); await poll(io);
   assert.ok(detailReads.every(row => row.id === 'bsd_123' && row.includeTimeline));
-  assert.equal(f.sent.length, 3, 'Both installations receive the goal; only the match bell receives the card');
+  assert.equal(f.sent.length, 4, 'Both followed-team and match-bell installations receive the goal and red card');
   assert.equal(saved.length, 2, 'Inbox saves once per event for this user');
   assert.equal(new Set(f.sent.map(args => args[3].event.eventId)).size, 2);
   assert.ok(f.sent.every(args => emitted.some(row => row.data.eventId === args[3].event.eventId)));
@@ -419,7 +443,7 @@ test('live emitter pushes to every subscribed installation while a socket is act
   assert.equal(card.cardType, 'red'); assert.equal(card.homeTeamId, 'bsd_t_57'); assert.equal(card.awayTeamId, 'bsd_t_44');
   assert.equal(card.player, 'New player');
   failInbox = true; goals = 2; await poll(io);
-  assert.equal(f.sent.length, 5, 'An inbox persistence outage cannot suppress either installation push');
+  assert.equal(f.sent.length, 6, 'An inbox persistence outage cannot suppress either installation push');
 });
 
 test('test HTTP controller returns failure when FCM does not accept the message', async () => {
@@ -515,4 +539,70 @@ test('transient retries stop after three backoff attempts and the queue remains 
   assert.equal(calls, 4); assert.equal((await f.service.flushRetries()).queued, 0);
   for (let i = 0; i < 5; i++) await f.service.deliver(device, { ...currentEvent, eventId: `new-${i}`, createdAt: new Date(time) });
   assert.equal((await f.service.flushRetries()).queued, 3);
+});
+
+test('event category switches suppress only chosen events and master-off still permits genuine diagnostics', async () => {
+  const { normalizeNotificationPreferences, eventMatchesPreferences, eventCategoryEnabled } = require('../utils/notificationContracts');
+  const preferences = normalizeNotificationPreferences({ matchIds: ['bsd_123'], alerts: { goals: false, reminders: false } });
+  for (const type of ['goal', 'goalCancelled', 'scoreCorrection', 'matchReminder']) {
+    assert.equal(eventMatchesPreferences({ ...event, type }, preferences), false, type);
+  }
+  for (const type of ['lineup', 'matchStart', 'halfTime', 'card', 'var']) {
+    assert.equal(eventMatchesPreferences({ ...event, type }, preferences), true, type);
+  }
+  assert.equal(eventCategoryEnabled('goal', { alerts: { enabled: false } }), false);
+  assert.equal(eventCategoryEnabled('systemTest', { alerts: { enabled: false } }), true);
+  assert.throws(() => normalizeNotificationPreferences({ alerts: { goals: 'false' } }), /must be boolean/);
+  const f = harness();
+  const suppressed = await f.push.sendPushNotification(token(1), 'Goal', 'Body', { event, preferences });
+  assert.equal(suppressed.suppressed, true);
+  assert.equal(f.sent.length, 0);
+});
+
+test('confirmed notification details survive FCM and a correction replaces its prior OS score card', () => {
+  const f = harness();
+  const metadata = { ...event, assist: 'Assist player', utcDate: '2026-10-02T11:00:00Z',
+    incidentId: 'incident_22', phase: 'SECOND_HALF', previousScore: { home: 1, away: 3 } };
+  const goalMessage = f.push.buildPushMessage(token(1), 'Goal', 'Body', { event: metadata });
+  const correction = f.push.buildPushMessage(token(1), 'Correction', 'Body', {
+    event: { ...metadata, type: 'goalCancelled', eventId: 'evt_correction' } });
+  assert.equal(goalMessage.android.priority, 'high');
+  assert.equal(goalMessage.android.notification.priority, 'max');
+  assert.equal(goalMessage.apns.headers['apns-priority'], '10');
+  assert.equal(correction.android.notification.tag, goalMessage.android.notification.tag);
+  assert.equal(correction.apns.headers['apns-collapse-id'], goalMessage.apns.headers['apns-collapse-id']);
+  const data = JSON.parse(correction.data.event);
+  assert.equal(data.eventId, 'evt_correction');
+  assert.equal(data.type, 'goalCancelled');
+  assert.equal(data.assist, 'Assist player');
+  assert.deepEqual(data.previousScore, { home: 1, away: 3 });
+  assert.equal(data.utcDate, '2026-10-02T11:00:00.000Z');
+  assert.equal(data.incidentId, 'incident_22');
+  assert.ok(Buffer.byteLength(JSON.stringify({ notification: correction.notification, data: correction.data })) < 4096);
+});
+
+test('pre-match wording never invents a score and all lifecycle events have accurate bilingual titles', () => {
+  const f = harness();
+  for (const type of ['matchReminder', 'lineup', 'matchPostponed', 'matchCancelled']) {
+    const notification = f.push.buildEventNotification({ ...event, type, player: '', minute: null }, 'ar');
+    assert.equal(notification.message.includes('1 - 2'), false, type);
+    assert.notEqual(notification.title, 'تحديث المباراة', type);
+  }
+  for (const type of ['goalCancelled', 'scoreCorrection', 'halfTime', 'secondHalfStart', 'extraTimeStart', 'penaltyShootout']) {
+    const notification = f.push.buildEventNotification({ ...event, type }, 'en');
+    assert.notEqual(notification.title, 'Match update', type);
+    assert.notEqual(notification.title, 'Full time', type);
+  }
+});
+
+test('a followed club requests alert details while a hidden or disabled installation cannot expand that audience', async () => {
+  const f = harness();
+  await f.service.register('u1', 'install_1', registration(1, { teamIds: ['bsd_t_57'] }));
+  await f.service.register('u2', 'install_2', registration(2, { matchIds: ['bsd_124'], hideScores: true }));
+  await f.service.register('u3', 'install_3', registration(3, { matchIds: ['bsd_125'], alerts: { enabled: false } }));
+  const matches = [123, 124, 125].map(id => ({ id: `bsd_${id}`, homeTeam: { id: id === 123 ? 'bsd_t_57' : 'bsd_t_99' },
+    awayTeam: { id: 'bsd_t_44' } }));
+  assert.deepEqual([...(await f.service.getAlertMatchIds(matches))], ['bsd_123']);
+  await f.service.revoke('u1', 'install_1');
+  assert.equal((await f.service.getAlertMatchIds(matches)).size, 0, 'Revocation invalidates cached audience immediately');
 });

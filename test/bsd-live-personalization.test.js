@@ -129,8 +129,8 @@ test('BSD detailed subscribers receive new incidents without replaying old or re
   await poll(io);
   await poll(io);
   assert.equal(emitted.length, 1);
-  assert.equal(emitted[0].type, 'detailedAlert');
-  assert.equal(emitted[0].target, 'matchAlerts_bsd_212636');
+  assert.equal(emitted[0].type, 'liveEvent');
+  assert.ok(emitted[0].target.includes('matchAlerts_bsd_212636'));
   assert.equal(emitted[0].data.teamId, 'bsd_t_492');
   assert.equal(emitted[0].data.message, 'New card');
   rooms.clear();

@@ -65,6 +65,23 @@ test('officially conflicting scheduled records are excluded with partial coverag
   assert.equal(service.normalizeMatch({ ...conflictingEvent(), status: 'finished' }).status, 'FINISHED');
 });
 
+test('alert reads use only event, incidents and genuine official lineups without profile/statistics fan-out', async () => {
+  const { service, requests } = setup(url => {
+    if (url.pathname === '/api/v2/events/1/') return event(1, { status: 'live', period: 'second_half', home_score: 1, away_score: 0 });
+    if (url.pathname.endsWith('/incidents/')) return { event_id: 1, incidents: [{ id: 9, type: 'goal', team_id: 57, minute: 60, player: 'Scorer' }] };
+    if (url.pathname.endsWith('/lineups/')) return { event_id: 1, lineup_status: 'confirmed', lineups: {
+      home: { team_id: 57, players: [] }, away: { team_id: 44, players: [] } } };
+    assert.fail('Unexpected expensive alert resource: ' + url.pathname);
+  });
+  const result = await service.getMatchAlertDetails('bsd_1', { includeTimeline: true, includeLineups: true });
+  assert.equal(result.id, 'bsd_1');
+  assert.equal(result.matchPhase, 'SECOND_HALF');
+  assert.equal(result.timeline.length, 1);
+  assert.equal(result.lineups.confirmed, true);
+  assert.equal(result.lineups.integrity.complete, false, 'An official flag alone cannot certify a complete XI');
+  assert.deepEqual(requests.map(url => url.pathname).sort(), ['/api/v2/events/1/', '/api/v2/events/1/incidents/', '/api/v2/events/1/lineups/', '/api/v2/leagues/'].sort());
+});
+
 test('summary, deep detail, timeline and predictions cannot serve a quarantined scheduled fixture', async () => {
   const raw = conflictingEvent();
   const { service, requests } = setup(url => {

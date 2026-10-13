@@ -93,17 +93,19 @@ function loadRuntimeConfig(env = process.env) {
     const raw = env[name];
     if (raw === undefined || raw === '') return fallback;
     const value = Number(raw);
-    if (!/^\d+$/.test(String(raw)) || !Number.isInteger(value) || value < 30000 || value > 900000) {
-      invalid(name, 'must be an integer from 30000 to 900000 milliseconds');
+    if (!/^\d+$/.test(String(raw)) || !Number.isInteger(value) || value < 5000 || value > 900000) {
+      invalid(name, 'must be an integer from 5000 to 900000 milliseconds');
     }
     return value;
   };
   return Object.freeze({ environment, production, allowedOrigins, allowAllOrigins, publicBaseUrl: publicOrigin,
     trustProxy, port, livePollingEnabled: env.ENABLE_LIVE_POLLING === 'true',
-    liveMatchesPollIntervalMs: pollingInterval('LIVE_MATCHES_POLL_INTERVAL_MS', 60000),
+    // Provider reads remain coalesced behind their 15-second source cache;
+    // frequent observation picks up a completed read without another minute.
+    liveMatchesPollIntervalMs: pollingInterval('LIVE_MATCHES_POLL_INTERVAL_MS', 5000),
     // Score/status detection shares every live match snapshot. This interval
     // independently bounds optional subscribed/disappeared match detail work.
-    liveEventsPollIntervalMs: pollingInterval('LIVE_EVENTS_POLL_INTERVAL_MS', 90000) });
+    liveEventsPollIntervalMs: pollingInterval('LIVE_EVENTS_POLL_INTERVAL_MS', 15000) });
 }
 
 function isOriginAllowed(config, origin) {

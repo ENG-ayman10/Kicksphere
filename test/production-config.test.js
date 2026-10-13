@@ -71,15 +71,15 @@ test('development wildcard is explicit or empty and is not allowed alongside tru
 test('live poll intervals remain explicit and bounded to protect provider quotas', () => {
   const defaults = loadRuntimeConfig({ NODE_ENV: 'test' });
   assert.equal(defaults.livePollingEnabled, false);
-  assert.equal(defaults.liveMatchesPollIntervalMs, 60000);
-  assert.equal(defaults.liveEventsPollIntervalMs, 90000);
+  assert.equal(defaults.liveMatchesPollIntervalMs, 5000);
+  assert.equal(defaults.liveEventsPollIntervalMs, 15000);
   const enabled = loadRuntimeConfig({ NODE_ENV: 'test', ENABLE_LIVE_POLLING: 'true',
     LIVE_MATCHES_POLL_INTERVAL_MS: '45000', LIVE_EVENTS_POLL_INTERVAL_MS: '30000' });
   assert.equal(enabled.livePollingEnabled, true);
   assert.equal(enabled.liveMatchesPollIntervalMs, 45000);
   assert.equal(enabled.liveEventsPollIntervalMs, 30000);
   for (const name of ['LIVE_MATCHES_POLL_INTERVAL_MS', 'LIVE_EVENTS_POLL_INTERVAL_MS']) {
-    for (const value of ['0', '-1', '29999', '900001', 'NaN', '30s', '30000.5']) {
+    for (const value of ['0', '-1', '4999', '900001', 'NaN', '30s', '30000.5']) {
       assert.throws(() => loadRuntimeConfig({ NODE_ENV: 'test', [name]: value }), new RegExp(name));
     }
   }
