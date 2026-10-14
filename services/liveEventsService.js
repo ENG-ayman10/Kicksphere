@@ -571,7 +571,8 @@ function createLiveEventsEmitter(options = {}) {
               if (recipient.user.fcmToken && !recipient.user.notificationDeviceVersion && !recipient.devices?.length &&
                   recipient.user.preferences?.hideScores !== true) {
                 const token = recipient.user.fcmToken;
-                const result = await sendPushNotification(token, title, message, { event, preferences: recipient.user.preferences, recipientUserId: userId });
+                const result = await sendPushNotification(token, title, message, { event, preferences: recipient.user.preferences,
+                  recipientUserId: userId, supportsExtendedAlerts: false });
                 if (result?.invalidToken) {
                   await db.runTransaction(async transaction => {
                     const ref = db.collection('users').doc(userId);

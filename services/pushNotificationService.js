@@ -6,6 +6,8 @@ const { validatedProviderIdentities } = require('../utils/matchProviderIdentitie
 const { eventCategoryEnabled } = require('../utils/notificationContracts');
 const clean = (value, limit = 160) => typeof value === 'string' ? value.slice(0, limit) : '';
 const finiteScore = value => Number.isFinite(Number(value)) && value !== null && value !== '' && value !== undefined ? Number(value) : null;
+const LEGACY_ALERT_TYPES = new Set(['goal', 'matchStart', 'matchEnd', 'card', 'lineup',
+  'substitution', 'var', 'penalty', 'detailed', 'systemTest']);
 const penaltyTitles = Object.freeze({
   penalty_awarded: ['احتُسبت ركلة جزاء', 'Penalty awarded'],
   penalty_missed: ['ركلة جزاء ضائعة', 'Penalty missed'],
@@ -90,15 +92,24 @@ function normalizedEvent(event) {
 function buildPushMessage(token, title, body, options = {}) {
   const preferences = options.preferences || {};
   const event = options.event ? normalizedEvent(options.event) : null;
-  const type = event?.type || 'systemTest';
+  const canonicalType = event?.type || 'systemTest';
+  const compatibleType = event?.matchId && options.supportsExtendedAlerts === false && !LEGACY_ALERT_TYPES.has(canonicalType);
+  const type = compatibleType ? 'detailed' : canonicalType;
+  if (compatibleType) {
+    // Keep both envelopes identical so older parsers accept foreground data and
+    // background taps. Stored events, preference checks and titles stay canonical.
+    event.canonicalType = canonicalType;
+    event.type = type;
+  }
   // Keep the latest score/correction on the OS card. The inbox and payload
   // retain each distinct event ID, including a goal after a cancellation.
-  const notificationTag = event?.matchId && ['goal', 'goalCancelled', 'scoreCorrection'].includes(type)
+  const notificationTag = event?.matchId && ['goal', 'goalCancelled', 'scoreCorrection'].includes(canonicalType)
     ? `score_${createHash('sha256').update(event.matchId).digest('hex').slice(0, 40)}` : event?.eventId;
   const sound = preferences.sound !== false;
   const vibration = preferences.vibration !== false;
   const ttl = Number.isFinite(options.ttlMs) ? Math.max(1000, Math.min(5 * 60 * 1000, options.ttlMs)) : 5 * 60 * 1000;
   let data = event ? { event: JSON.stringify(event), eventId: event.eventId, type, kind: event.kind,
+    ...(compatibleType ? { canonicalType } : {}),
     ...(event.matchId ? { matchId: event.matchId } : {}), provider: event.provider, emittedAt: String(event.emittedAt),
     ...(event.lastUpdated ? { lastUpdated: event.lastUpdated } : {}),
     homeTeam: JSON.stringify(event.homeTeam), awayTeam: JSON.stringify(event.awayTeam),
@@ -116,6 +127,7 @@ function buildPushMessage(token, title, body, options = {}) {
     event.homeTeam.name = clean(event.homeTeam.name, 64);
     event.awayTeam.name = clean(event.awayTeam.name, 64);
     data = { event: JSON.stringify(event), eventId: event.eventId, type, kind: event.kind,
+      ...(compatibleType ? { canonicalType } : {}),
       ...(event.matchId ? { matchId: event.matchId } : {}), provider: event.provider, emittedAt: String(event.emittedAt),
       ...(event.lastUpdated ? { lastUpdated: event.lastUpdated } : {}),
       sound: String(sound), vibration: String(vibration) };

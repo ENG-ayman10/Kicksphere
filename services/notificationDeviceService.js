@@ -94,6 +94,10 @@ function createNotificationDeviceService(database, options = {}) {
   async function register(userId, rawDeviceId, body) {
     const deviceId = normalizeDeviceId(rawDeviceId);
     const registration = normalizeDeviceRegistration(body);
+    // The updated registry publishes structured category preferences. Older
+    // installations omit them; arbitrary capability flags from clients are
+    // ignored, and the normalized defaults alone cannot establish support.
+    const supportsExtendedAlerts = Object.hasOwn(body.preferences || {}, 'alerts');
     const key = deviceKey(userId, deviceId);
     const ref = devices.doc(key);
     const tokenRef = tokens.doc(digest(registration.token));
@@ -119,7 +123,7 @@ function createNotificationDeviceService(database, options = {}) {
       if (transferred?.exists && transferred.data().token === registration.token && transferred.data().deviceId === deviceId) {
         transaction.delete(transferredRef);
       }
-      transaction.set(ref, { ...registration, userId, deviceId, createdAt: previous?.createdAt || new Date(now()),
+      transaction.set(ref, { ...registration, supportsExtendedAlerts, userId, deviceId, createdAt: previous?.createdAt || new Date(now()),
         ...(previous?.lastTestAt ? { lastTestAt: previous.lastTestAt } : {}),
         updatedAt: new Date(now()), lastSeenAt: new Date(now()) });
       transaction.set(tokenRef, { userId, deviceId, deviceKey: key });
@@ -270,7 +274,8 @@ function createNotificationDeviceService(database, options = {}) {
     if (ttlMs !== null && ttlMs <= 0) return { sent: false, expired: true };
     const notification = buildEventNotification(event, current.language);
     const result = await send(current.token, notification.title, notification.message,
-      { event, preferences: current.preferences, language: current.language, recipientUserId: current.userId, ...(ttlMs ? { ttlMs } : {}) });
+      { event, preferences: current.preferences, language: current.language, recipientUserId: current.userId,
+        supportsExtendedAlerts: current.supportsExtendedAlerts === true, ...(ttlMs ? { ttlMs } : {}) });
     if (result?.invalidToken) {
       try { await revoke(current.userId, current.deviceId, current.token); }
       catch (error) { logger.warn('Invalid installation token cleanup failed.'); }
