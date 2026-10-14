@@ -81,6 +81,9 @@ function createLiveEventsEmitter(options = {}) {
   let running = false;
   let queuedCycle = null;
   let backgroundDetails = null;
+  const streamCycles = [];
+  const requestedDetails = new Set();
+  const streamLeaseMs = 60000;
   const nonBlockingDetails = options.nonBlockingDetails === true;
   const asynchronousDelivery = options.asynchronousDelivery === true;
 
@@ -127,7 +130,17 @@ function createLiveEventsEmitter(options = {}) {
   };
 
   async function emitLiveEvents(io, cycle = {}) {
+    if (Array.isArray(cycle.requestedDetailIds)) for (const id of cycle.requestedDetailIds.slice(0, MAX_DETAIL_REQUESTS)) {
+      if (typeof id === 'string' && /^bsd_[1-9]\d{0,14}$/.test(id) && previousMatches.has(id) &&
+          requestedDetails.size < MAX_TRACKED_MATCHES) requestedDetails.add(id);
+    }
     if (running) {
+      // Stream callbacks await their exact delta. Do not coalesce a reconnect
+      // baseline away or collapse goal -> cancellation -> new goal into one.
+      if (cycle.streamOnly === true) {
+        if (streamCycles.length >= 128) return false;
+        return new Promise(resolve => streamCycles.push({ io, cycle, resolve }));
+      }
       // A slow legacy inbox read must never discard the latest score sample.
       // Coalesce queued source snapshots while retaining every completed detail.
       const completedDetails = new Map([...(queuedCycle?.completedDetails || []), ...(cycle.completedDetails || [])]);
@@ -158,19 +171,19 @@ function createLiveEventsEmitter(options = {}) {
         if (now - time > STATE_TTL) processedEvents.delete(id);
       }
 
-      refreshFixtures(now);
-      const live = await Promise.resolve().then(() => cycle.detailsOnly === true
+      if (cycle.streamOnly !== true) refreshFixtures(now);
+      const live = await Promise.resolve().then(() => cycle.streamOnly === true ? [] : cycle.detailsOnly === true
         ? [...previousMatches.values()].map(state => state.observedMatch).filter(Boolean)
         : Object.hasOwn(cycle, 'liveSnapshot') ? cycle.liveSnapshot : provider.getLiveMatches())
         .then(value => ({ status: 'fulfilled', value }), reason => ({ status: 'rejected', reason }));
       const liveRows = live.status === 'fulfilled' ? snapshotRows(live.value) : null;
-      seedScheduledFixtures(now, new Set((liveRows || [])
+      if (cycle.streamOnly !== true) seedScheduledFixtures(now, new Set((liveRows || [])
         .filter(match => activeStatuses.has(match.status)).map(match => String(match.id))));
       const matches = new Map();
       const detailOverrides = new Set();
       const renewedOverrides = new Set();
       const uncertainBaselines = new Set();
-      for (const result of [{ status: 'fulfilled', value: fixtureSnapshot }, live]) {
+      for (const result of [{ status: 'fulfilled', value: cycle.streamOnly === true ? [] : fixtureSnapshot }, live]) {
         const snapshot = result.status === 'fulfilled' ? result.value : null;
         const rows = snapshotRows(snapshot);
         if (Array.isArray(rows)) {
@@ -193,6 +206,14 @@ function createLiveEventsEmitter(options = {}) {
             const differsFromDetail = previous?.detailOverride && priorScore &&
               (scoreValue(incomingScore?.home) !== scoreValue(priorScore.home) ||
                 scoreValue(incomingScore?.away) !== scoreValue(priorScore.away) || match.status !== previous.status);
+            const differsFromStream = previous?.streamLeaseExpiresAt && priorScore &&
+              (scoreValue(incomingScore?.home) !== scoreValue(priorScore.home) ||
+                scoreValue(incomingScore?.away) !== scoreValue(priorScore.away) || match.status !== previous.status);
+            if (differsFromStream && now < previous.streamLeaseExpiresAt && previous.observedMatch) {
+              matches.set(id, previous.observedMatch);
+              continue;
+            }
+            if (differsFromStream && now >= previous.streamLeaseExpiresAt && !newerSnapshot) uncertainBaselines.add(id);
             // A retained daily fixture is useful for scheduling, but cannot
             // roll an already observed score back while the live feed omits it.
             const incoming = { ...match,
@@ -218,7 +239,7 @@ function createLiveEventsEmitter(options = {}) {
       }
 
       const details = new Map();
-      const collectDetails = async () => {
+      const collectDetails = async onCompleted => {
         const candidates = new Set();
         let deviceMatchIds = new Set();
         const observedActive = new Map([...matches].filter(([, match]) => activeStatuses.has(match.status) || upcomingAlertCandidate(match, now)));
@@ -249,41 +270,64 @@ function createLiveEventsEmitter(options = {}) {
           if (match.status === 'FINISHED' && activeStatuses.has(previousMatches.get(id)?.status) &&
               (deviceMatchIds.has(id) || hasAlertRoom(id))) candidates.add(id);
         }
+        for (const id of requestedDetails) {
+          if (observedActive.has(id) && (deviceMatchIds.has(id) || hasAlertRoom(id))) candidates.add(id);
+          else requestedDetails.delete(id);
+        }
         const lookups = [...candidates].sort((a, b) =>
+          Number(requestedDetails.has(b)) - Number(requestedDetails.has(a)) ||
           Number(deviceMatchIds.has(b) || hasAlertRoom(b)) - Number(deviceMatchIds.has(a) || hasAlertRoom(a)) ||
           (detailChecks.get(a) || 0) - (detailChecks.get(b) || 0)).slice(0, MAX_DETAIL_REQUESTS);
         const completed = new Map();
         await mapConcurrent(lookups, 3, async id => {
+          requestedDetails.delete(id);
           detailChecks.set(id, now);
           try {
-            const detail = await readDetail(id, { includeTimeline: deviceMatchIds.has(id) || hasAlertRoom(id),
-              includeLineups: deviceMatchIds.has(id) || hasAlertRoom(id) });
-            if (detail && (!detail.id || String(detail.id) === id)) completed.set(id, detail);
-          } catch (error) { logger.warn(`Live detail unavailable for ${id}: ${error.message}`); }
+            const includeTimeline = deviceMatchIds.has(id) || hasAlertRoom(id);
+            const latest = previousMatches.get(id);
+            const detail = await readDetail(id, { includeTimeline,
+              includeLineups: includeTimeline && latest?.lineupConfirmed !== true &&
+                lineupNotificationRelevant(latest?.observedMatch || matches.get(id), clock()) });
+            if (detail && (!detail.id || String(detail.id) === id)) {
+              if (onCompleted) await onCompleted(id, detail);
+              else completed.set(id, detail);
+            }
+          } catch (_) { logger.warn(`Live detail unavailable for ${id}.`); }
         });
         return completed;
       };
       let completed = new Map(cycle.completedDetails || []);
-      if (cycle.includeDetails !== false) {
+      if (cycle.streamOnly !== true && cycle.includeDetails !== false) {
         if (!nonBlockingDetails) completed = new Map([...completed, ...await collectDetails()]);
         else if (!backgroundDetails) {
           // Network work never holds the score detector. Completions re-enter
           // its serialized source-clock guards against the newest observation.
-          backgroundDetails = Promise.resolve().then(collectDetails).then(result => {
-            if (result.size) return emitLiveEvents(io, { liveSnapshot: [...previousMatches.values()]
-              .map(state => state.observedMatch).filter(Boolean), includeDetails: false, completedDetails: result, detailsOnly: true });
-          }).catch(() => { logger.warn('Live alert detail scheduling failed.'); }).finally(() => { backgroundDetails = null; });
+          backgroundDetails = Promise.resolve().then(() => collectDetails((id, detail) =>
+            emitLiveEvents(io, { includeDetails: false, completedDetails: new Map([[id, detail]]), detailsOnly: true })))
+            .catch(() => { logger.warn('Live alert detail scheduling failed.'); }).finally(() => {
+              backgroundDetails = null;
+              if (requestedDetails.size) queueMicrotask(() => {
+                void emitLiveEvents(io, { detailsOnly: true, includeDetails: true });
+              });
+            });
         }
       }
       for (const [id, detail] of completed) {
         if (detail && (!detail.id || String(detail.id) === id)) {
             const listed = matches.get(id) || previousMatches.get(id)?.observedMatch;
+            const streamState = previousMatches.get(id);
+            const streamConflict = streamState?.streamLeaseExpiresAt > now && listed &&
+              (scoreValue(detail.score?.fullTime?.home) !== scoreValue(listed.score?.fullTime?.home) ||
+                scoreValue(detail.score?.fullTime?.away) !== scoreValue(listed.score?.fullTime?.away) || detail.status !== listed.status);
             const detailTime = sourceTime(detail.lastUpdated);
             const listedTime = sourceTime(listed?.lastUpdated);
             const olderDetail = Number.isFinite(detailTime) && Number.isFinite(listedTime) && detailTime < listedTime;
             // Missing scoreboard fields do not invalidate an independently
             // verified fresh timeline or official-lineup response.
             if (!olderDetail) details.set(id, detail);
+            // A lagging/missing summary score cannot undo the live stream, but
+            // a fresh independently verified card/lineup must not wait for it.
+            if (streamConflict) continue;
             const newerDetail = Number.isFinite(detailTime) &&
               (!Number.isFinite(listedTime) || detailTime >= listedTime);
             const detailHome = scoreValue(detail.score?.fullTime?.home);
@@ -318,6 +362,33 @@ function createLiveEventsEmitter(options = {}) {
               // A due detail read resolves ambiguity from an expired lease.
               uncertainBaselines.delete(id);
             }
+        }
+      }
+
+      const streamBaselines = new Set();
+      const acceptedStreamUpdates = new Map();
+      if (cycle.streamOnly === true && cycle.streamUpdates instanceof Map) {
+        // This is a narrow, verified fixture delta, never a replacement board.
+        matches.clear();
+        for (const [id, update] of cycle.streamUpdates) {
+          const match = update?.match;
+          if (typeof id !== 'string' || !/^bsd_[1-9]\d{0,14}$/.test(id) || match?.id !== id || match.source !== 'bsd' ||
+              match.provider !== 'bsd' || !/^bsd_t_[1-9]\d{0,14}$/.test(match.homeTeam?.id) ||
+              !/^bsd_t_[1-9]\d{0,14}$/.test(match.awayTeam?.id) || match.homeTeam.id === match.awayTeam.id ||
+              !normalizeProviderTimestamp(match.utcDate) || !Number.isSafeInteger(match.score?.fullTime?.home) ||
+              !Number.isSafeInteger(match.score?.fullTime?.away) || match.score.fullTime.home < 0 ||
+              match.score.fullTime.away < 0 || match.score.fullTime.home > 99 || match.score.fullTime.away > 99) continue;
+          const previous = previousMatches.get(id);
+          const known = previous?.observedMatch;
+          if (!known && update.baseline !== true) continue;
+          if (known && (known.homeTeam?.id !== match.homeTeam.id || known.awayTeam?.id !== match.awayTeam.id ||
+              normalizeProviderTimestamp(known.utcDate) !== normalizeProviderTimestamp(match.utcDate))) continue;
+          const incomingAt = sourceTime(match.lastUpdated), priorAt = sourceTime(known?.lastUpdated);
+          if (Number.isFinite(incomingAt) && Number.isFinite(priorAt) && incomingAt < priorAt) continue;
+          if (!Number.isFinite(update.receivedAt) || update.receivedAt > now + 1000 || now - update.receivedAt > streamLeaseMs) continue;
+          matches.set(id, match);
+          acceptedStreamUpdates.set(id, update);
+          if (update.baseline === true) streamBaselines.add(id);
         }
       }
 
@@ -362,16 +433,16 @@ function createLiveEventsEmitter(options = {}) {
             competitionCode: match.competition?.code
           } : {})
         };
-        if (reminderDue(match, now)) {
+        if (!streamBaselines.has(id) && reminderDue(match, now)) {
           record({ ...base, type: 'matchReminder', reminderMinutes: 15 }, `${id}:reminder:15:${base.utcDate}`);
         }
         const lineupUpdatedAt = sourceTime(matchLineups?.updatedAt);
         const recentlyPublished = Number.isFinite(lineupUpdatedAt) && lineupUpdatedAt <= now && now - lineupUpdatedAt <= 2 * 60 * 1000;
-        if (officialLineup === true && lineupNotificationRelevant(match, now) && (previous?.lineupConfirmed === false ||
+        if (!streamBaselines.has(id) && officialLineup === true && lineupNotificationRelevant(match, now) && (previous?.lineupConfirmed === false ||
             (previous?.lineupConfirmed === undefined && upcomingAlertCandidate(match, now) && recentlyPublished))) {
           record({ ...base, type: 'lineup', lineupConfirmed: true }, `${id}:lineup:official`);
         }
-        if (previous && !uncertainBaselines.has(id)) {
+        if (previous && !streamBaselines.has(id) && !uncertainBaselines.has(id)) {
           if (scheduledStatuses.has(previous.status) && activeStatuses.has(match.status) && kickoffNotificationFresh(match, now)) {
             record({ ...base, type: 'matchStart' }, `${id}:start`);
           }
@@ -406,10 +477,14 @@ function createLiveEventsEmitter(options = {}) {
               for (const side of ['home', 'away']) {
                 const delta = side === 'home' ? homeDelta : awayDelta;
                 if (delta === null || delta <= 0) continue;
-                const incident = Array.isArray(timeline) && delta === 1 ? timeline.find(item =>
+                const direct = acceptedStreamUpdates.get(id)?.incident;
+                const streamIncident = delta === 1 && direct?.type === 'goal' && direct.provider === 'bsd' &&
+                  direct.side === side && /^bsd_ws_[a-f0-9]{64}$/.test(direct.id || '') &&
+                  scoreValue(direct.score?.home) === home && scoreValue(direct.score?.away) === away ? direct : null;
+                const incident = streamIncident || (Array.isArray(timeline) && delta === 1 ? timeline.find(item =>
                   item.type === 'goal' && item.rescinded !== true && item.deleted !== true && item.isDeleted !== true && item.side === side &&
                   scoreValue(item.score?.home) === home && scoreValue(item.score?.away) === away &&
-                  previousIncidents.has(id) && !previousIncidents.get(id).has(incidentKey(item))) : null;
+                  previousIncidents.has(id) && !previousIncidents.get(id).has(incidentKey(item))) : null);
                 record({ ...base, ...(side === 'away' ? { team: awayTeam, against: homeTeam,
                   teamId: awayId, againstTeamId: homeId } : {}), type: 'goal', side,
                   ...(incident ? incidentFields(incident) : { player: '' }) },
@@ -420,7 +495,7 @@ function createLiveEventsEmitter(options = {}) {
         }
 
         const timeline = details.get(id)?.timeline;
-        if (Array.isArray(timeline)) {
+        if (!streamBaselines.has(id) && Array.isArray(timeline)) {
           const prior = previousIncidents.get(id);
           const seen = prior || new Set();
           for (const incident of timeline) {
@@ -453,6 +528,9 @@ function createLiveEventsEmitter(options = {}) {
           previousIncidents.set(id, seen);
         }
         previousMatches.set(id, { status: match.status, phase, scoreRevision, home, away, homeTeam, awayTeam, homeId, awayId, seenAt: now,
+          streamLeaseExpiresAt: acceptedStreamUpdates.has(id) ? now + streamLeaseMs :
+            previous?.streamLeaseExpiresAt && previous.home === home && previous.away === away && previous.status === match.status
+              ? previous.streamLeaseExpiresAt : null,
           ...(officialLineup !== null ? { lineupConfirmed: officialLineup } :
             previous?.lineupConfirmed !== undefined ? { lineupConfirmed: previous.lineupConfirmed } : {}),
           detailOverride: detailOverrides.has(id),
@@ -466,6 +544,7 @@ function createLiveEventsEmitter(options = {}) {
       }
       while (previousMatches.size > MAX_TRACKED_MATCHES) forget(previousMatches.keys().next().value);
       while (processedEvents.size > MAX_PROCESSED_EVENTS) processedEvents.delete(processedEvents.keys().next().value);
+      if (cycle.streamOnly === true && acceptedStreamUpdates.size === 0) return false;
       if (!events.length) return;
 
       const deliverEvents = async () => {
@@ -593,7 +672,10 @@ function createLiveEventsEmitter(options = {}) {
       logger.error(`Live events error: ${error.message}`);
     } finally {
       running = false;
-      if (queuedCycle) {
+      if (streamCycles.length) {
+        const pending = streamCycles.shift();
+        queueMicrotask(() => { void emitLiveEvents(pending.io, pending.cycle).then(pending.resolve, () => pending.resolve(false)); });
+      } else if (queuedCycle) {
         const pending = queuedCycle; queuedCycle = null;
         queueMicrotask(() => { void emitLiveEvents(io, pending); });
       }

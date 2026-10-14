@@ -63,10 +63,13 @@ const imageRoutes = require('./routes/imageRoutes');
 const { emitLiveMatches } = require('./services/liveService');
 const { emitLiveEvents } = require('./services/liveEventsService');
 const { createLivePollingCoordinator } = require('./services/livePollingService');
+const { createBsdStreamCoordinator } = require('./services/bsdStreamCoordinator');
+const notificationDevices = require('./services/notificationDeviceService');
 const { saveMessage } = require('./services/chatService');
 
 const app = express();
 const PORT = runtimeConfig.port;
+let bsdLiveStream = null;
 
 // Trust reverse proxy (essential for Render / Cloudflare rate-limiting by actual client IP)
 app.set('trust proxy', runtimeConfig.trustProxy);
@@ -184,6 +187,7 @@ app.get('/api/ready', (req, res) => {
     liveMatchesPollIntervalMs: runtimeConfig.liveMatchesPollIntervalMs,
     liveEventsPollIntervalMs: runtimeConfig.liveEventsPollIntervalMs,
     liveEventsShareMatchSnapshot: true,
+    bsdLiveStream: bsdLiveStream?.getStatus() || { enabled: false },
     providerReachabilityChecked: false,
     timestamp: Date.now()
   });
@@ -460,8 +464,22 @@ io.on('connection', (socket) => {
 const livePollingEnabled = runtimeConfig.livePollingEnabled;
 let liveMatchesInterval = null;
 let liveEventsInterval = null;
+bsdLiveStream = createBsdStreamCoordinator({
+  enabled: runtimeConfig.bsdLiveStreamEnabled,
+  apiToken: process.env.BSD_API_TOKEN,
+  maxSockets: runtimeConfig.bsdLiveStreamMaxSockets,
+  io, deviceService: notificationDevices,
+  emitUpdate: update => emitLiveEvents(io, { streamOnly: true,
+    streamUpdates: new Map([[update.match.id, update]]), includeDetails: false }),
+  refreshDetails: matchId => emitLiveEvents(io, { detailsOnly: true, includeDetails: true,
+    requestedDetailIds: [matchId] })
+});
 const livePolling = createLivePollingCoordinator({
-  readAndEmitMatches: () => emitLiveMatches(io),
+  readAndEmitMatches: async () => {
+    const snapshot = await emitLiveMatches(io);
+    bsdLiveStream.observeSnapshot(snapshot);
+    return snapshot;
+  },
   emitEvents: cycle => emitLiveEvents(io, cycle),
   matchesIntervalMs: runtimeConfig.liveMatchesPollIntervalMs,
   eventsIntervalMs: runtimeConfig.liveEventsPollIntervalMs,
@@ -470,6 +488,7 @@ const livePolling = createLivePollingCoordinator({
 const { pollLiveMatches, pollLiveEvents } = livePolling;
 
 if (livePollingEnabled) {
+  if (runtimeConfig.bsdLiveStreamEnabled) bsdLiveStream.start();
   // Establish the initial baseline immediately, rather than waiting a full
   // interval before new score/status changes can be detected.
   void pollLiveMatches();
@@ -493,6 +512,7 @@ const gracefulShutdown = (signal) => {
   if (liveMatchesInterval) clearInterval(liveMatchesInterval);
   if (liveEventsInterval) clearInterval(liveEventsInterval);
   livePolling.stop();
+  bsdLiveStream?.stop();
 
   io.close(() => {
     logger.info('🔌 Socket.io closed.');

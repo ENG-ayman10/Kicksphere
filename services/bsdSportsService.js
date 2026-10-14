@@ -96,7 +96,7 @@ async function fetchBsd(endpoint, params = {}, ttl = TTL.matches, timeoutMs, res
   if (!path) return null;
   const cleanParams = paramsSorted(params);
   const key = 'bsd:v2:' + path + ':' + new URLSearchParams(cleanParams);
-  const cached = getCached(key);
+  const cached = getCached(key, ttl);
   if (cached !== undefined && cached !== null) return cached;
   const timeout = integer(timeoutMs), requestTimeout = timeout !== null && timeout > 0 ? Math.min(timeout, 10000) : null;
   // A shorter budget must not join an earlier request with a longer deadline.
@@ -228,7 +228,8 @@ function normalizeBsdMatch(raw, leagues = []) {
     venueId: positiveId(raw.venue_id), venue: null, refereeId: positiveId(raw.referee_id), homeCoachId: positiveId(raw.home_coach_id), awayCoachId: positiveId(raw.away_coach_id),
     penaltyShootout: raw.penalty_shootout || null, extraTimeScore: raw.extra_time_score || null,
     xg: { liveHome: null, liveAway: null, actualHome: null, actualAway: null, homeEstimated: null, awayEstimated: null, estimated: null, source: 'bsd' },
-    lastUpdated: instant(raw.last_updated || raw.updated_at), hasXg: raw.has_xg === true, aiPreview: null,
+    lastUpdated: instant(raw.last_updated || raw.updated_at), hasXg: raw.has_xg === true,
+    liveWebsocket: raw.live_websocket === true, websocketPlus: raw.websocket_plus === true, aiPreview: null,
   });
 }
 function normalizeBsdStatistics(raw) {

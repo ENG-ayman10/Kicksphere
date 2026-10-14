@@ -38,7 +38,8 @@
     "nodemailer": "^10.0.13",
     "socket.io": "^4.8.3",
     "ssh2-sftp-client": "^12.1.1",
-    "winston": "^3.19.0"
+    "winston": "^3.19.0",
+    "ws": "8.21.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

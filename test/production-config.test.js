@@ -8,6 +8,21 @@ const production = overrides => ({ NODE_ENV: 'production', ALLOWED_ORIGINS: 'htt
   FIREBASE_PROJECT_ID: 'offline-test-project', FIREBASE_CLIENT_EMAIL: 'test@test.iam.gserviceaccount.com',
   FIREBASE_PRIVATE_KEY: 'offline-configuration-test-only', ...overrides });
 
+test('paid live stream stays opt-in and requires verified discovery, token, official origin and bounded sockets', () => {
+  const base = { NODE_ENV: 'test' };
+  assert.equal(loadRuntimeConfig(base).bsdLiveStreamEnabled, false);
+  const enabled = { ...base, ENABLE_LIVE_POLLING: 'true', ENABLE_BSD_LIVE_STREAM: 'true', BSD_API_TOKEN: 'offline-token' };
+  assert.equal(loadRuntimeConfig(enabled).bsdLiveStreamEnabled, true);
+  assert.equal(loadRuntimeConfig(enabled).bsdLiveStreamMaxSockets, 2);
+  for (const value of ['yes', '1', 'TRUE']) assert.throws(() => loadRuntimeConfig({ ...base, ENABLE_BSD_LIVE_STREAM: value }), /ENABLE_BSD_LIVE_STREAM/);
+  assert.throws(() => loadRuntimeConfig({ ...enabled, ENABLE_LIVE_POLLING: 'false' }), /ENABLE_BSD_LIVE_STREAM/);
+  assert.throws(() => loadRuntimeConfig({ ...enabled, BSD_API_TOKEN: '' }), /BSD_API_TOKEN/);
+  for (const value of ['http://sports.bzzoiro.com', 'https://other.example.com', 'https://sports.bzzoiro.com/path']) {
+    assert.throws(() => loadRuntimeConfig({ ...enabled, BSD_BASE_URL: value }), /BSD_BASE_URL/);
+  }
+  for (const value of ['0','5','-1','2.5','NaN','01']) assert.throws(() => loadRuntimeConfig({ ...base, BSD_LIVE_STREAM_MAX_SOCKETS: value }), /BSD_LIVE_STREAM_MAX_SOCKETS/);
+});
+
 test('production refuses absent/wildcard or malformed browser origins before starting', () => {
   for (const origins of ['', '*', 'https://app.example.com,*', 'https://app.example.com,',
     'http://app.example.com', 'https://localhost', 'https://app.example.com/path',

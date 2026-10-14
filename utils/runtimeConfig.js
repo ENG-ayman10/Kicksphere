@@ -70,7 +70,7 @@ function loadRuntimeConfig(env = process.env) {
   const publicOrigin = publicBaseUrl ? normalizeOrigin(publicBaseUrl, 'PUBLIC_BASE_URL', production) : null;
   const port = Number(env.PORT || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) invalid('PORT', 'must be an integer from 1 to 65535');
-  for (const name of ['ENABLE_LIVE_POLLING', 'ENABLE_RAPIDAPI_PROXY', 'ENABLE_SOFASCORE_PROXY']) {
+  for (const name of ['ENABLE_LIVE_POLLING', 'ENABLE_BSD_LIVE_STREAM', 'ENABLE_RAPIDAPI_PROXY', 'ENABLE_SOFASCORE_PROXY']) {
     if (env[name] && !['true', 'false'].includes(env[name])) invalid(name, 'must be true or false');
   }
   if (production) {
@@ -89,6 +89,18 @@ function loadRuntimeConfig(env = process.env) {
     }
   }
   const trustProxy = parseTrustProxy(env.TRUST_PROXY, production);
+  const bsdLiveStreamEnabled = env.ENABLE_BSD_LIVE_STREAM === 'true';
+  const bsdLiveStreamMaxSockets = Number(env.BSD_LIVE_STREAM_MAX_SOCKETS || 2);
+  if (!/^[1-4]$/.test(String(env.BSD_LIVE_STREAM_MAX_SOCKETS || 2))) {
+    invalid('BSD_LIVE_STREAM_MAX_SOCKETS', 'must be an integer from 1 to 4');
+  }
+  if (bsdLiveStreamEnabled) {
+    if (env.ENABLE_LIVE_POLLING !== 'true') invalid('ENABLE_BSD_LIVE_STREAM', 'requires ENABLE_LIVE_POLLING=true for verified fixture discovery');
+    if (!String(env.BSD_API_TOKEN || '').trim()) invalid('BSD_API_TOKEN', 'is required for the opted-in live stream');
+    if (String(env.BSD_BASE_URL || 'https://sports.bzzoiro.com').replace(/\/+$/, '') !== 'https://sports.bzzoiro.com') {
+      invalid('BSD_BASE_URL', 'must use the official BSD origin for live streaming');
+    }
+  }
   const pollingInterval = (name, fallback) => {
     const raw = env[name];
     if (raw === undefined || raw === '') return fallback;
@@ -100,6 +112,7 @@ function loadRuntimeConfig(env = process.env) {
   };
   return Object.freeze({ environment, production, allowedOrigins, allowAllOrigins, publicBaseUrl: publicOrigin,
     trustProxy, port, livePollingEnabled: env.ENABLE_LIVE_POLLING === 'true',
+    bsdLiveStreamEnabled, bsdLiveStreamMaxSockets,
     // Provider reads remain coalesced behind their 15-second source cache;
     // frequent observation picks up a completed read without another minute.
     liveMatchesPollIntervalMs: pollingInterval('LIVE_MATCHES_POLL_INTERVAL_MS', 5000),
