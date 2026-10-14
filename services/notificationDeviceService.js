@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const { createLiveRecipientPolicy } = require('../utils/liveDeliveryScope');
 const { matchIdentityIds, teamIdentityIds } = require('../utils/matchProviderIdentities');
 const { createPushDeliveryLedger } = require('../utils/pushDeliveryLedger');
+const { isEventAllowed, isMatchAllowed } = require('../utils/competitionScope');
 const { MAX_DEVICES_PER_USER, DEVICE_TTL_MS, validationError, normalizeDeviceId,
   normalizeDeviceRegistration, eventMatchesPreferences } = require('../utils/notificationContracts');
 const PAGE_SIZE = 200;
@@ -75,6 +76,7 @@ function createNotificationDeviceService(database, options = {}) {
   }
   async function enqueue(device, event, result) {
     const key = retryKey(device, event);
+    if (!isEventAllowed(event)) { await removeQueued(key); return; }
     if (!key || retryQueue.has(key) || accepted.has(key)) return;
     const observedAt = timestampMs(event.createdAt || event.emittedAt);
     const expiresAt = Number.isFinite(observedAt) && observedAt > 0
@@ -86,6 +88,7 @@ function createNotificationDeviceService(database, options = {}) {
       await removeQueued(retryQueue.keys().next().value);
       logger.warn('Push retry queue reached its bounded capacity.');
     }
+    if (!isEventAllowed(event)) { await removeQueued(key); return; }
     const entry = { device: { userId: device.userId, deviceId: device.deviceId }, event, retryIndex: 0, nextAt, expiresAt };
     retryQueue.set(key, entry);
     await persist(() => ledger.queued(key, entry));
@@ -163,6 +166,7 @@ function createNotificationDeviceService(database, options = {}) {
       indexedEvents.set(key, filter);
     };
     for (const event of events) {
+      if (!isEventAllowed(event)) continue;
       for (const id of matchIdentityIds(event)) addFilter('preferences.matchIds', id, event);
       if (!event.isDetailed) {
         for (const id of teamIdentityIds(event)) addFilter('preferences.teamIds', id, event);
@@ -173,16 +177,18 @@ function createNotificationDeviceService(database, options = {}) {
     await Promise.all(Array.from({ length: Math.min(3, filters.length) }, async () => {
       while (cursor < filters.length) {
         const filter = filters[cursor++];
+        if (![...filter.events.values()].some(isEventAllowed)) continue;
         const query = devices.where(filter.field, 'array-contains', filter.value).orderBy('__name__').limit(PAGE_SIZE);
         let page = query;
         while (true) {
+          if (![...filter.events.values()].some(isEventAllowed)) break;
           const snapshot = await page.get();
           for (const document of snapshot.docs) {
             const device = document.data();
             if (!device.userId || !recipientAllowed(device.userId) || !device.token || !isFresh(device, now())) continue;
             const recipient = recipients.get(document.id) || { ...device, key: document.id, events: new Map() };
             for (const event of filter.events.values()) {
-              if (eventMatchesPreferences(event, device.preferences)) recipient.events.set(event.eventId, event);
+              if (isEventAllowed(event) && eventMatchesPreferences(event, device.preferences)) recipient.events.set(event.eventId, event);
             }
             if (recipient.events.size) recipients.set(document.id, recipient);
           }
@@ -222,7 +228,7 @@ function createNotificationDeviceService(database, options = {}) {
   }
 
   async function getAlertMatchIds(matches) {
-    const rows = (Array.isArray(matches) ? matches : []).filter(match => match?.id).slice(0, 500);
+    const rows = (Array.isArray(matches) ? matches : []).filter(match => match?.id && isMatchAllowed(match)).slice(0, 500);
     const identityRows = rows.map(match => ({ id: String(match.id), matchIds: matchIdentityIds(match), teamIds: teamIdentityIds(match) }));
     const signature = JSON.stringify(identityRows);
     if (alertAudienceCache?.signature === signature && now() - alertAudienceCache.at < 20000) {
@@ -259,6 +265,7 @@ function createNotificationDeviceService(database, options = {}) {
   }
 
   async function attemptDelivery(device, event, expiresAt) {
+    if (!isEventAllowed(event)) return { sent: false, suppressed: true, excluded: true };
     if (!recipientAllowed(device.userId)) return { sent: false, suppressed: true };
     if (event.type === 'lineup' && event.lineupConfirmed === false) return { sent: false, suppressed: true };
     const kickoff = event.type === 'matchReminder' ? timestampMs(event.utcDate) : null;
@@ -266,6 +273,7 @@ function createNotificationDeviceService(database, options = {}) {
       return { sent: false, expired: true };
     }
     const snapshot = await devices.doc(deviceKey(device.userId, device.deviceId)).get();
+    if (!isEventAllowed(event)) return { sent: false, suppressed: true, excluded: true };
     if (!snapshot.exists) return { sent: false, revoked: true };
     const current = snapshot.data();
     if (!recipientAllowed(current.userId) || current.userId !== device.userId || current.deviceId !== device.deviceId || !isFresh(current, now()) ||
@@ -284,6 +292,10 @@ function createNotificationDeviceService(database, options = {}) {
   }
 
   async function deliver(device, event) {
+    if (!isEventAllowed(event)) {
+      await removeQueued(retryKey(device, event));
+      return { sent: false, suppressed: true, excluded: true };
+    }
     if (!recipientAllowed(device.userId)) return { sent: false, suppressed: true };
     const key = retryKey(device, event);
     if (key && accepted.has(key)) return { sent: true, duplicate: true };
@@ -296,10 +308,18 @@ function createNotificationDeviceService(database, options = {}) {
       if (key) inFlight.delete(key);
     }
     async function attempt() {
+      if (!isEventAllowed(event)) {
+        await removeQueued(key);
+        return { sent: false, suppressed: true, excluded: true };
+      }
       if (key) {
         let claim;
         try { claim = await ledgerWork(() => ledger.claim(key, device, event, now() + RETRY_TTL)); }
         catch (_) { logger.warn('Push delivery ledger is temporarily unavailable.'); }
+        if (!isEventAllowed(event) || claim?.status === 'excluded') {
+          await removeQueued(key);
+          return { sent: false, suppressed: true, excluded: true };
+        }
         if (claim?.status === 'accepted') {
           accepted.set(key, now()); retryQueue.delete(key);
           return { sent: true, duplicate: true };
@@ -330,6 +350,7 @@ function createNotificationDeviceService(database, options = {}) {
       // records. Accepted receipt recovery writes do not retransmit to FCM.
       try {
         for (const [key, entry] of await ledgerWork(() => ledger.restore(retryKey))) {
+          if (!isEventAllowed(entry.event)) { await removeQueued(key); continue; }
           if (!retryQueue.has(key) && !accepted.has(key) && retryQueue.size < retryLimit) retryQueue.set(key, entry);
         }
       } catch (_) { logger.warn('Persisted push retries could not be restored yet.'); }
@@ -337,7 +358,7 @@ function createNotificationDeviceService(database, options = {}) {
         if (await persist(() => ledger.accepted(key, device))) acceptedReceipts.delete(key);
       }));
       for (const [key, recordedAt] of accepted) if (time - recordedAt > RETRY_TTL) accepted.delete(key);
-      for (const [key, entry] of retryQueue) if (time >= entry.expiresAt) await removeQueued(key);
+      for (const [key, entry] of retryQueue) if (!isEventAllowed(entry.event) || time >= entry.expiresAt) await removeQueued(key);
       const due = [...retryQueue].filter(([, entry]) => entry.nextAt <= time).slice(0, 100);
       let cursor = 0;
       await Promise.all(Array.from({ length: Math.min(4, due.length) }, async () => {
@@ -348,9 +369,11 @@ function createNotificationDeviceService(database, options = {}) {
           inFlight.add(key); attempted++;
           try {
             await orderedScoreSubmission(entry.device, entry.event, async () => {
+              if (!isEventAllowed(entry.event)) { await removeQueued(key); return; }
               let claim;
               try { claim = await ledgerWork(() => ledger.claim(key, entry.device, entry.event, entry.expiresAt)); }
               catch (_) { logger.warn('Push delivery ledger is temporarily unavailable.'); }
+              if (!isEventAllowed(entry.event) || claim?.status === 'excluded') { await removeQueued(key); return; }
               if (claim?.status === 'accepted') {
                 accepted.set(key, now()); retryQueue.delete(key); return;
               }
@@ -364,7 +387,7 @@ function createNotificationDeviceService(database, options = {}) {
                 await removeQueued(key); return;
               }
               entry.nextAt = now() + RETRY_DELAYS[entry.retryIndex];
-              if (entry.nextAt >= entry.expiresAt) await removeQueued(key);
+              if (!isEventAllowed(entry.event) || entry.nextAt >= entry.expiresAt) await removeQueued(key);
               else await persist(() => ledger.queued(key, entry));
             });
           } finally { inFlight.delete(key); }

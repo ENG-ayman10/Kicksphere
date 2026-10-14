@@ -3,6 +3,7 @@
 const { createBsdLiveStreamService } = require('./bsdLiveStreamService');
 const { createBsdStreamProjection } = require('../utils/bsdStreamProjection');
 const { matchIdentityIds, teamIdentityIds } = require('../utils/matchProviderIdentities');
+const { isMatchAllowed } = require('../utils/competitionScope');
 
 const ACTIVE_STATUSES = new Set(['IN_PLAY', 'PAUSED']);
 const REFRESH_HINTS = new Set(['timeline', 'lineups', 'match_status', 'score_reconciliation']);
@@ -71,7 +72,7 @@ function createBsdStreamCoordinator(options = {}) {
     if (meta.subscriptionGeneration !== undefined && (!Number.isSafeInteger(meta.subscriptionGeneration)
       || meta.subscriptionGeneration < 1)) return null;
     const entry = entries.get(`bsd_${meta.eventId}`);
-    return entry && selected.has(entry.match.id) ? entry : null;
+    return entry && isMatchAllowed(entry.match) && selected.has(entry.match.id) ? entry : null;
   }
 
   function hasAlertRoom(match) {
@@ -81,11 +82,21 @@ function createBsdStreamCoordinator(options = {}) {
   }
 
   function hasAudience(match) {
-    return matchIdentityIds(match).some((id) => audienceIds.has(id)) || hasAlertRoom(match);
+    return isMatchAllowed(match) && (matchIdentityIds(match).some((id) => audienceIds.has(id)) || hasAlertRoom(match));
+  }
+
+  function pruneCompetitionScope() {
+    for (const [id, entry] of entries) if (!isMatchAllowed(entry.match)) {
+      entries.delete(id);
+      selected.delete(id);
+      pendingRefresh.delete(id);
+      lastRefreshAt.delete(id);
+    }
   }
 
   function applySelection() {
     if (!running || !transport) return;
+    pruneCompetitionScope();
     for (const id of selected) {
       if (!entries.has(id) || !hasAudience(entries.get(id).match)) {
         if (entries.has(id)) entries.get(id).baselineReady = false;
@@ -107,6 +118,7 @@ function createBsdStreamCoordinator(options = {}) {
   }
 
   function discoverAudience() {
+    pruneCompetitionScope();
     if (!running || !entries.size || typeof options.deviceService?.getAlertMatchIds !== 'function') return;
     const signature = audienceSignature();
     if (audienceInFlight) {
@@ -122,7 +134,10 @@ function createBsdStreamCoordinator(options = {}) {
     const operation = { signature, promise: null };
     audienceInFlight = operation;
     counters.audienceQueries += 1;
-    operation.promise = Promise.resolve().then(() => options.deviceService.getAlertMatchIds(rows))
+    operation.promise = Promise.resolve().then(() => {
+      const permitted = rows.filter(isMatchAllowed);
+      return permitted.length ? options.deviceService.getAlertMatchIds(permitted) : new Set();
+    })
       .then((ids) => {
         if (!running || generation !== ownGeneration) return;
         audienceIds = new Set((ids instanceof Set || Array.isArray(ids) ? [...ids] : [])
@@ -162,7 +177,7 @@ function createBsdStreamCoordinator(options = {}) {
         const trustedEntry = entries.get(id);
         Promise.resolve().then(() => {
           if (running && generation === ownGeneration && entries.get(id) === trustedEntry
-            && selected.has(id)) return refreshDetails(id, operation.hints);
+            && selected.has(id) && isMatchAllowed(trustedEntry.match)) return refreshDetails(id, operation.hints);
         }).catch(() => {
           if (running && generation === ownGeneration) counters.refreshErrors += 1;
         }).finally(() => {
@@ -181,7 +196,7 @@ function createBsdStreamCoordinator(options = {}) {
   }
 
   function requestRefresh(entry, hints) {
-    if (!refreshDetails || !Array.isArray(hints) || !running || !selected.has(entry.match.id)) return;
+    if (!refreshDetails || !Array.isArray(hints) || !running || !isMatchAllowed(entry.match) || !selected.has(entry.match.id)) return;
     const valid = hints.filter((hint) => REFRESH_HINTS.has(hint));
     if (!valid.length) return;
     const id = entry.match.id;
@@ -196,6 +211,7 @@ function createBsdStreamCoordinator(options = {}) {
   }
 
   async function deliverProjection(entry, projection, meta, baseline) {
+    if (!isMatchAllowed(entry.match) || !isMatchAllowed(projection.match)) return false;
     requestRefresh(entry, projection.refreshHints);
     if (!projection.accepted || !projection.match || (!baseline && !projection.changed && !projection.incident)) return false;
     const ownGeneration = generation;
@@ -214,7 +230,7 @@ function createBsdStreamCoordinator(options = {}) {
     counters.acceptedUpdates += 1;
     if (onBoardUpdate) Promise.resolve().then(() => {
       if (running && generation === ownGeneration && entries.get(entry.match.id) === entry) {
-        return onBoardUpdate(structuredClone(projection.match));
+        if (isMatchAllowed(projection.match)) return onBoardUpdate(structuredClone(projection.match));
       }
     }).catch(() => {
       if (running && generation === ownGeneration) counters.boardErrors += 1;
@@ -274,7 +290,7 @@ function createBsdStreamCoordinator(options = {}) {
     const retained = new Set();
     for (const match of rows.slice(0, MAX_TRUSTED_MATCHES * 3)) {
       const eventId = eventIdOf(match);
-      if (!eventId || !ACTIVE_STATUSES.has(match.status) || match.liveWebsocket !== true
+      if (!eventId || !isMatchAllowed(match) || !ACTIVE_STATUSES.has(match.status) || match.liveWebsocket !== true
         || match.liveSnapshotStale === true || match.stale === true
         || !['bsd'].includes(match.provider || match.source)) {
         counters.rejectedMatches += 1;

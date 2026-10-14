@@ -184,6 +184,7 @@ app.get('/api/ready', (req, res) => {
     status: shuttingDown ? 'draining' : 'ready',
     checks: { configuration: true, firebaseInitialized: true, http: !shuttingDown },
     livePollingEnabled: runtimeConfig.livePollingEnabled,
+    competitionScope: runtimeConfig.competitionScope,
     liveMatchesPollIntervalMs: runtimeConfig.liveMatchesPollIntervalMs,
     liveEventsPollIntervalMs: runtimeConfig.liveEventsPollIntervalMs,
     liveEventsShareMatchSnapshot: true,

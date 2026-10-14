@@ -11,6 +11,7 @@ const logger = require('../utils/logger');
 const { parseMatchInterval, selectMatchesInInterval } = require('../utils/matchCalendar');
 const { createLiveSnapshotReader } = require('./liveSnapshotReader');
 const { mergeProviderFixtures, findVerifiedCanonicalFixture } = require('../utils/providerFixtureIdentity');
+const { competitionScopeEnabled, isCompetitionAllowed, isMatchAllowed, scopeCoverage, filterMatchesToScope } = require('../utils/competitionScope');
 const readLiveSnapshots = createLiveSnapshotReader();
 
 // From old footballApi for getSupportedCompetitions
@@ -56,7 +57,7 @@ const queryCoverage = (matches, provider, competition = null) => {
     complete: available && coverage?.possiblyTruncated === false &&
       coverage?.complete !== false && coverage?.partial !== true,
     ...(coverage?.pages !== undefined ? { pages: coverage.pages } : {}),
-    ...Object.fromEntries(['upstreamReturned', 'accepted', 'recovered', 'invalidRecords',
+    ...Object.fromEntries(['upstreamReturned', 'accepted', 'recovered', 'invalidRecords', 'excludedByScope',
       'outsideDate', 'outsideCompetition', 'outsideStatus', 'invalidRows', 'rejectedRows',
       'sourceConflictRows', 'locallyDiscarded'].filter(key => Number.isFinite(coverage?.[key]))
       .map(key => [key, coverage[key]])),
@@ -80,9 +81,24 @@ async function boundedSettled(values, work, concurrency = 3) {
 }
 
 async function readBsdMatches(params) {
-  try { return await bsdSportsService.getMatches(params); }
+  try { return await bsdSportsService.getMatches({ ...params, applyCompetitionScope: true }); }
   catch (error) { logger.warn(`BSD fixtures unavailable: ${error.message}`); return null; }
 }
+
+async function competitionIncluded(code) {
+  if (!competitionScopeEnabled()) return true;
+  const known = COMPETITIONS[code] || sportscoreService.COMPETITION_SLUGS?.[code];
+  if (known) return isCompetitionAllowed({ ...known, code });
+  if (isCompetitionAllowed({ code })) return true;
+  // One shared cached catalog supplies identity/country, without starting a
+  // standings, fixture or scorer request for an excluded competition.
+  const catalog = bsdConfigured() ? await bsdSportsService.getLeagues() : null;
+  const league = catalog?.find(value => value.code === code || value.id === code);
+  return Boolean(league && isCompetitionAllowed(league));
+}
+const excludedCompetition = () => ({ success: false, statusCode: 404, source: 'competition-scope',
+  message: 'Competition is outside the selected coverage', data: [],
+  coverage: { available: true, complete: true, partial: false, competitionScope: 'focused', reason: 'competition_outside_scope' } });
 
 async function canReadBsdCompetition(code) {
   if (!bsdConfigured()) return false;
@@ -132,9 +148,10 @@ exports.getMatchesByDate = async (date) => {
   const complete = available && scAvailable && queries.every(query => query.complete) &&
     !possiblyTruncated && invalidRecords === 0 && outsideDate === 0;
   const sources = [bsdAvailable ? 'bsd' : null, scAvailable ? 'sportscore' : null].filter(Boolean);
-  return { success: true, source: sources.join('+') || 'unavailable', data: selected.data,
-    coverage: { available, complete, partial: !complete, possiblyTruncated,
-      limit: queries[0].limit, returned: selected.data.length, invalidRecords, outsideDate, queries } };
+  const data = filterMatchesToScope(selected.data);
+  return { success: true, source: sources.join('+') || 'unavailable', data,
+    coverage: scopeCoverage({ available, complete, partial: !complete, possiblyTruncated,
+      limit: queries[0].limit, returned: selected.data.length, invalidRecords, outsideDate, queries }, selected.data.length, data.length) };
 };
 
 exports.getMatchesInInterval = async (from, to) => {
@@ -196,25 +213,26 @@ exports.getLiveMatches = async () => {
   const rows = snapshot => (snapshot.data || []).map(match => ({ ...match,
     liveSnapshotStale: snapshot.stale, liveSnapshotAgeMs: snapshot.ageMs,
     liveSnapshotFetchedAt: snapshot.fetchedAt }));
-  const data = mergeProviderFixtures(rows(usable[0] || { data: [] }), usable.slice(1).flatMap(rows));
+  const merged = mergeProviderFixtures(rows(usable[0] || { data: [] }), usable.slice(1).flatMap(rows));
+  const data = filterMatchesToScope(merged);
   if (!available) return { success: false, statusCode: 503, source: 'unavailable', message: 'Live provider unavailable',
     coverage: { available: false, complete: false, partial: true,
       possiblyTruncated: queries.some(query => query.possiblyTruncated), queries }, data: [] };
   const complete = queries.every(query => query.complete);
   return { success: true, source: sources.join('+'), data,
-    coverage: { available, complete, partial: !complete,
-      possiblyTruncated: queries.some(query => query.possiblyTruncated), queries } };
+    coverage: scopeCoverage({ available, complete, partial: !complete,
+      possiblyTruncated: queries.some(query => query.possiblyTruncated), queries }, merged.length, data.length) };
 };
 exports.getMatchDetails = async (matchId) => {
   const id = String(matchId || '').trim();
   if (/^bsd_\d+$/.test(id)) {
     const summary = typeof bsdSportsService.getMatchSummary === 'function'
-      ? await bsdSportsService.getMatchSummary(id) : null;
+      ? await bsdSportsService.getMatchSummary(id, { respectCompetitionScope: true }) : null;
     const details = typeof bsdSportsService.getMatchSummary === 'function'
       ? summary ? { matchInfo: summary, coverage: { source: 'bsd', available: true, complete: false,
         partial: true, scope: 'summary' } } : null
       : await bsdSportsService.getMatchDetails(id);
-    return details?.matchInfo && String(details.matchInfo.id) === id ? { success: true, source: 'bsd', coverage: details.coverage,
+    return details?.matchInfo && isMatchAllowed(details.matchInfo) && String(details.matchInfo.id) === id ? { success: true, source: 'bsd', coverage: details.coverage,
       data: { ...details.matchInfo, venue: typeof details.matchInfo.venue === 'object'
         ? details.matchInfo.venue?.name || null : details.matchInfo.venue,
       venueInfo: details.venue || null, head2head: details.h2h || details.matchInfo.head2head || null } } :
@@ -223,12 +241,12 @@ exports.getMatchDetails = async (matchId) => {
   if (id.startsWith('bsd_')) return { success: false, source: 'unavailable', data: null };
   if (/^ko_\d+$/.test(id)) {
     const details = await kickoffApiService.getMatchDetails(id);
-    return details ? { success: true, source: 'kickoffapi', data: details } : { success: false, source: 'unavailable', data: null };
+    return details && isMatchAllowed(details) ? { success: true, source: 'kickoffapi', data: details } : { success: false, source: 'unavailable', data: null };
   }
   // SportScore match routes are opaque slugs, not football-data numeric IDs.
   if (!/^\d+$/.test(id)) {
     const details = await sportscoreService.getMatchDetails(id);
-    if (details) {
+    if (details && isMatchAllowed(details)) {
       const started = Date.now();
       const verified = await resolveVerifiedBsdFixture(details);
       // Calendar batches certify identity, not the current live score. Read a
@@ -256,6 +274,8 @@ exports.getCompetitionMatches = async (competitionCode, dateFrom, dateTo) => {
   if (!league) {
     return { success: false, statusCode: 400, message: 'Unsupported league code' };
   }
+
+  if (!await competitionIncluded(league)) return excludedCompetition();
 
   const from = normalizeRangeDate(dateFrom);
   const to = normalizeRangeDate(dateTo);
@@ -367,6 +387,8 @@ exports.getStandings = async (competitionCode) => {
     return { success: false, statusCode: 400, message: 'Unsupported league code' };
   }
 
+  if (!await competitionIncluded(league)) return excludedCompetition();
+
   if (await canReadBsdCompetition(league)) {
     try {
       const rows = await bsdSportsService.getStandings(league);
@@ -400,6 +422,8 @@ exports.getTopScorers = async (competitionCode, limit, stat = 'goals') => {
   if (!league) {
     return { success: false, statusCode: 400, message: 'Unsupported league code' };
   }
+
+  if (!await competitionIncluded(league)) return excludedCompetition();
 
   if (await canReadBsdCompetition(league)) {
     try {
@@ -459,14 +483,15 @@ exports.getCompetitionCatalog = async () => {
         flag: league.flag || COMPETITIONS[code]?.flag || '', logo: league.logo || league.emblem || '',
         name: league.name || code, country: league.country || '', source: 'bsd' };
     }).filter(Boolean);
+    const included = preferred.filter(isCompetitionAllowed);
     const seen = new Set(preferred.map(league => league.code));
     const supplemental = fallback.filter(league => !seen.has(league.code));
-    const combined = [...preferred, ...supplemental];
+    const combined = [...included, ...supplemental.filter(isCompetitionAllowed)];
     Object.defineProperties(combined, {
       source: { value: supplemental.length ? 'bsd+supported-contract' : 'bsd' },
-      coverage: { value: { ...(catalog.coverage || {}), source: 'bsd', available: true,
+      coverage: { value: scopeCoverage({ ...(catalog.coverage || {}), source: 'bsd', available: true,
         complete: catalog.coverage?.complete === true, partial: catalog.coverage?.complete !== true,
-        providerCount: preferred.length, supplementalCount: supplemental.length } }
+        providerCount: included.length, supplementalCount: supplemental.length }, preferred.length + supplemental.length, combined.length) }
     });
     return combined;
   } catch (error) { logger.warn(`BSD catalog unavailable: ${error.message}`); return fallback; }

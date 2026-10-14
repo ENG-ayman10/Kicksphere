@@ -12,6 +12,7 @@ const { teamIdentityIds } = require('../utils/matchProviderIdentities');
 const kickoffApiService = require('../services/kickoffApiService');
 const bsdSportsService = require('../services/bsdSportsService');
 const sportsDataService = require('../services/sportsDataService');
+const { isMatchAllowed } = require('../utils/competitionScope');
 
 // ==========================================
 // 🔥 HOME API
@@ -143,7 +144,7 @@ exports.getHome = async (req, res) => {
           // Deduplicate by ID and merge with existing recommended
           const existingIds = new Set(recommended.map(m => m.id));
           for (const m of fetchedMatches) {
-            if (m?.id && !existingIds.has(m.id)) {
+            if (m?.id && isMatchAllowed(m) && !existingIds.has(m.id)) {
               recommended.push(m);
               existingIds.add(m.id);
             }

@@ -1,5 +1,6 @@
 const { createHash, randomUUID } = require('node:crypto');
 const { validatedProviderIdentities } = require('./matchProviderIdentities');
+const { isEventAllowed } = require('./competitionScope');
 
 const timestampMs = value => value?.toMillis ? value.toMillis() : new Date(value || 0).getTime();
 const recordKey = key => createHash('sha256').update(key).digest('hex');
@@ -16,7 +17,7 @@ function storedEvent(event) {
     'homeTeam', 'awayTeam', 'homeTeamId', 'awayTeamId', 'team', 'against', 'teamId',
     'againstTeamId', 'side', 'score', 'scoreValues', 'previousScore', 'player',
     'assist', 'playerOut', 'penaltyType', 'minute', 'cardType', 'tournament', 'createdAt', 'emittedAt',
-    'lastUpdated', 'providerIdentities', 'utcDate', 'competitionCode',
+    'lastUpdated', 'providerIdentities', 'utcDate', 'competitionCode', 'competition',
     'reminderMinutes', 'phase', 'lineupConfirmed', 'incidentId', 'isDetailed',
     'title', 'message']) {
     if (event[field] !== undefined) safe[field] = event[field];
@@ -35,10 +36,25 @@ function storedEvent(event) {
       away: ['number', 'string'].includes(typeof value.away) ? value.away : null,
     };
   }
+  if (safe.competition && typeof safe.competition === 'object') {
+    const competition = {};
+    for (const field of ['id', 'code', 'name', 'nameEn', 'nameAr', 'slug', 'countryCode', 'country_code']) {
+      if (typeof safe.competition[field] === 'string' || typeof safe.competition[field] === 'number') {
+        competition[field] = safe.competition[field];
+      }
+    }
+    const country = safe.competition.country;
+    if (typeof country === 'string') competition.country = country;
+    else if (country && typeof country === 'object') {
+      competition.country = {};
+      for (const field of ['name', 'code']) if (typeof country[field] === 'string') competition.country[field] = country[field];
+    }
+    safe.competition = competition;
+  }
   for (const [field, value] of Object.entries(safe)) {
     if (value && typeof value === 'object' && !(value instanceof Date) &&
         !value.toMillis && !['homeTeam', 'awayTeam', 'team', 'against', 'score',
-          'scoreValues', 'previousScore', 'providerIdentities'].includes(field)) delete safe[field];
+          'scoreValues', 'previousScore', 'providerIdentities', 'competition'].includes(field)) delete safe[field];
   }
   if (safe.providerIdentities) {
     const identities = validatedProviderIdentities(event);
@@ -65,6 +81,7 @@ function createPushDeliveryLedger(database, { now = Date.now, recipientAllowed =
   let restoredAt = null;
 
   async function claim(key, device, event, expiresAt) {
+    if (!isEventAllowed(event)) return { status: 'excluded' };
     const publicEvent = storedEvent(event);
     if (!publicEvent) return { status: 'unavailable' };
     const ref = collection.doc(recordKey(key));
@@ -77,6 +94,7 @@ function createPushDeliveryLedger(database, { now = Date.now, recipientAllowed =
         transaction.get(ref), headRef ? transaction.get(headRef) : null,
       ]);
       const record = snapshot.exists ? snapshot.data() : null;
+      if (!isEventAllowed(event)) return { status: 'excluded' };
       const head = headSnapshot?.exists ? headSnapshot.data() : null;
       const time = now();
       if (record?.status === 'accepted' && timestampMs(record.expiresAt) > time) {
@@ -124,6 +142,7 @@ function createPushDeliveryLedger(database, { now = Date.now, recipientAllowed =
   }
 
   async function queued(key, entry) {
+    if (!isEventAllowed(entry.event)) { await remove(key); return; }
     const publicEvent = storedEvent(entry.event);
     if (!publicEvent) return;
     const ref = collection.doc(recordKey(key));
@@ -132,6 +151,7 @@ function createPushDeliveryLedger(database, { now = Date.now, recipientAllowed =
       const current = snapshot.exists ? snapshot.data() : null;
       if (current?.status === 'accepted' && timestampMs(current.expiresAt) > now()) return;
       if (current?.leaseOwner && current.leaseOwner !== owner && timestampMs(current.leaseUntil) > now()) return;
+      if (!isEventAllowed(entry.event)) { transaction.delete(ref); return; }
       transaction.set(ref, {
         status: 'pending', device: entry.device, event: publicEvent,
         retryIndex: entry.retryIndex, nextAt: new Date(entry.nextAt),
@@ -166,6 +186,12 @@ function createPushDeliveryLedger(database, { now = Date.now, recipientAllowed =
       const key = value.device?.deviceId && value.event?.eventId
         ? keyFor(value.device, value.event) : null;
       const expiresAt = timestampMs(value.expiresAt);
+      if (!isEventAllowed(value.event)) {
+        if (key && recordKey(key) === doc.id) {
+          try { await remove(key); } catch (_) { /* Retry excluded queue cleanup on the next restore. */ }
+        }
+        continue;
+      }
       if (!key || recordKey(key) !== doc.id || !Number.isFinite(expiresAt) || expiresAt <= time) {
         try { await doc.ref.delete(); } catch (_) { /* Retry cleanup on the next restore. */ }
         continue;
@@ -194,7 +220,7 @@ function createPushDeliveryLedger(database, { now = Date.now, recipientAllowed =
       // Cleanup is independent of delivery: a cleanup write outage must not
       // throw away already-restored, otherwise valid pending retries.
     }
-    return entries;
+    return entries.filter(([, entry]) => isEventAllowed(entry.event));
   }
 
   return { claim, accepted, queued, remove, restore };

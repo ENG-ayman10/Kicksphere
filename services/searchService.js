@@ -10,6 +10,7 @@ const { COMPETITION_SLUGS } = require('./sportscoreService');
 const { normalizeCompetitionCode } = require('../utils/sportsContracts');
 const { scopedTeamId } = require('../utils/teamIdentity');
 const { normalizeTerm, searchQuery, sortByRelevance } = require('../utils/searchQueries');
+const { competitionScopeEnabled, isCompetitionAllowed } = require('../utils/competitionScope');
 
 const toText = (value, fallback = '') => {
   if (value === undefined || value === null) return fallback;
@@ -424,7 +425,7 @@ async function executeSearch(query, options = {}) {
   // when no provider returned an entity in that category.
   const teamCandidates = provider.teams.length ? provider.teams : fallback.teams;
   const playerCandidates = provider.players.length ? provider.players : fallback.players;
-  const leagueCandidates = mergeUnique(provider.leagues || [], fallback.leagues, ['id']);
+  const leagueCandidates = mergeUnique(provider.leagues || [], fallback.leagues, ['id']).filter(isCompetitionAllowed);
   const teams = sortByRelevance(teamCandidates, q, 'teams').slice(0, 10);
   const players = sortByRelevance(playerCandidates, q, 'players').slice(0, 10);
   const leagues = sortByRelevance(leagueCandidates, q, 'leagues').slice(0, 8);
@@ -447,7 +448,8 @@ async function executeSearch(query, options = {}) {
 const searches = new Map(), pendingSearches = new Map();
 exports.searchAll = async (query, options = {}) => {
   const canonical = searchQuery(query);
-  const key = (options.useProvider === false ? 'local:' : 'provider:') + canonical.key;
+  const key = (competitionScopeEnabled() ? 'focused:' : 'all:') +
+    (options.useProvider === false ? 'local:' : 'provider:') + canonical.key;
   const cached = searches.get(key);
   if (cached && Date.now() - cached.at < 120000) return cached.value;
   searches.delete(key);

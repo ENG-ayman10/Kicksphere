@@ -89,6 +89,8 @@ function loadRuntimeConfig(env = process.env) {
     }
   }
   const trustProxy = parseTrustProxy(env.TRUST_PROXY, production);
+  const competitionScope = String(env.SPORTS_COMPETITION_SCOPE || 'all');
+  if (!['all', 'focused'].includes(competitionScope)) invalid('SPORTS_COMPETITION_SCOPE', 'must be all or focused');
   const bsdLiveStreamEnabled = env.ENABLE_BSD_LIVE_STREAM === 'true';
   const bsdLiveStreamMaxSockets = Number(env.BSD_LIVE_STREAM_MAX_SOCKETS || 2);
   if (!/^[1-4]$/.test(String(env.BSD_LIVE_STREAM_MAX_SOCKETS || 2))) {
@@ -111,7 +113,7 @@ function loadRuntimeConfig(env = process.env) {
     return value;
   };
   return Object.freeze({ environment, production, allowedOrigins, allowAllOrigins, publicBaseUrl: publicOrigin,
-    trustProxy, port, livePollingEnabled: env.ENABLE_LIVE_POLLING === 'true',
+    trustProxy, port, competitionScope, livePollingEnabled: env.ENABLE_LIVE_POLLING === 'true',
     bsdLiveStreamEnabled, bsdLiveStreamMaxSockets,
     // Provider reads remain coalesced behind their 15-second source cache;
     // frequent observation picks up a completed read without another minute.

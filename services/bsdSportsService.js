@@ -11,6 +11,7 @@ const { validateLineupIntegrity } = require('../utils/lineupIntegrity');
 const { deduplicateRosterFacts } = require('../utils/lineupPlayerMetrics');
 const { selectBsdPlayerScope, aggregateBsdPlayerStatistics } = require('../utils/playerStatisticsScope');
 const { recoverBsdMatchSquad, buildBsdTeamFixtureNumbers, buildBsdTeamStandingNumbers } = require('./teamTabCoverageService');
+const { competitionScopeEnabled, isCompetitionAllowed, isMatchAllowed, filterMatchesToScope } = require('../utils/competitionScope');
 const API_TOKEN = String(process.env.BSD_API_TOKEN || '').trim();
 const BASE_URL = String(process.env.BSD_BASE_URL || 'https://sports.bzzoiro.com').replace(/\/+$/, '');
 const isConfigured = () => Boolean(API_TOKEN);
@@ -223,7 +224,7 @@ function normalizeBsdMatch(raw, leagues = []) {
     statusText: ['IN_PLAY', 'PAUSED'].includes(status) ? (raw.current_minute != null ? raw.current_minute + "'" : (raw.period || 'Live')) : status === 'FINISHED' ? 'Finished' : status === 'TIMED' ? 'Upcoming' : status,
     minute: integer(raw.current_minute), period: raw.period || '', ...timing, homeTeam: home, awayTeam: away,
     score: { fullTime: { home: integer(raw.home_score), away: integer(raw.away_score) }, halfTime: timing.halfTimeConfirmed ? { home: integer(raw.home_score_ht), away: integer(raw.away_score_ht) } : null },
-    competition: { id: code, code, rawId: competitionId, providerId: String(competitionId), provider: 'bsd', name: raw.league_name || raw.league?.name || catalog?.name || '', country: catalog?.country || raw.league?.country || '', emblem: catalog?.logo || imageUrl('league', competitionId), logo: catalog?.logo || imageUrl('league', competitionId), season },
+    competition: { id: code, code, rawId: competitionId, providerId: String(competitionId), provider: 'bsd', name: raw.league_name || raw.league?.name || catalog?.name || '', country: catalog?.country || raw.league?.country || '', countryCode: catalog?.countryCode || raw.league?.country_code || '', emblem: catalog?.logo || imageUrl('league', competitionId), logo: catalog?.logo || imageUrl('league', competitionId), season },
     seasonId, round: integer(raw.round_number), roundLabel: raw.round_label || raw.round_name || '', group: raw.group_name || '', stage: raw.stage || '', stageName: raw.stage_name || '',
     venueId: positiveId(raw.venue_id), venue: null, refereeId: positiveId(raw.referee_id), homeCoachId: positiveId(raw.home_coach_id), awayCoachId: positiveId(raw.away_coach_id),
     penaltyShootout: raw.penalty_shootout || null, extraTimeScore: raw.extra_time_score || null,
@@ -374,14 +375,17 @@ exports.getMatches = async (input = {}, options = {}) => {
   if (!raw) return null;
   const normalized = raw.map(value => normalizeBsdMatch(value, leagues || [])).filter(Boolean);
   const rows = normalized.filter(value => matchesFilters(value, params)).sort((a, b) => a.utcDate.localeCompare(b.utcDate));
-  return withCoverage(rows, fixtureCoverage(raw, normalized, normalized.length - rows.length));
+  const result = withCoverage(rows, fixtureCoverage(raw, normalized, normalized.length - rows.length));
+  // Profile/history readers keep the complete source history. Product calendars
+  // explicitly opt in so narrowing the matchday cannot falsify career totals.
+  return input.applyCompetitionScope === true ? filterMatchesToScope(result) : result;
 };
 exports.getLiveMatches = async () => {
   const [raw, leagues] = await Promise.all([fetchList('/api/v2/events/live/', {}, TTL.live, ['events', 'results']), exports.getLeagues()]);
   if (!raw) return null;
   const normalized = raw.map(value => normalizeBsdMatch(value, leagues || [])).filter(Boolean);
   // The feed retains recently finished games; only active canonical states qualify as live.
-  return withCoverage(normalized.filter(value => ['IN_PLAY', 'PAUSED'].includes(value.status)), fixtureCoverage(raw, normalized));
+  return filterMatchesToScope(withCoverage(normalized.filter(value => ['IN_PLAY', 'PAUSED'].includes(value.status)), fixtureCoverage(raw, normalized)));
 };
 exports.getMatchSummary = async (matchId, options = {}) => {
   const id = scopedId(matchId, 'bsd_'); if (!id) return null;
@@ -389,11 +393,13 @@ exports.getMatchSummary = async (matchId, options = {}) => {
   const timeout = remainingRequestTimeout(options);
   if (timeout === 0) return null;
   const [raw, leagues] = await Promise.all([fetchBsd('/api/v2/events/' + id + '/', {}, TTL.live, timeout), exports.getLeagues(options)]);
-  return positiveId(raw?.id) === id ? normalizeBsdMatch(raw, leagues || []) : null;
+  const match = positiveId(raw?.id) === id ? normalizeBsdMatch(raw, leagues || []) : null;
+  return options.respectCompetitionScope === true && match && !isMatchAllowed(match) ? null : match;
 };
 exports.getMatchTimeline = async matchId => {
   const id = scopedId(matchId, 'bsd_'); if (!id) return null;
-  if (requiresFixtureSourceReview('bsd', matchId) && !await exports.getMatchSummary(matchId)) return null;
+  if ((competitionScopeEnabled() || requiresFixtureSourceReview('bsd', matchId)) &&
+      !await exports.getMatchSummary(matchId, { respectCompetitionScope: true })) return null;
   const raw = resource(await fetchBsd('/api/v2/events/' + id + '/incidents/', {}, TTL.live), id);
   if (!raw || !Array.isArray(raw.incidents)) return null;
   const rows = raw.incidents.map(normalizeIncident).filter(Boolean);
@@ -404,7 +410,7 @@ exports.getMatchTimeline = async matchId => {
 exports.getMatchAlertDetails = async (matchId, options = {}) => {
   const id = scopedId(matchId, 'bsd_'); if (!id) return null;
   const budget = requestBudget({ ...options, timeoutMs: options.timeoutMs ?? 5000 });
-  const match = await exports.getMatchSummary(matchId, budget);
+  const match = await exports.getMatchSummary(matchId, { ...budget, respectCompetitionScope: true });
   if (!match) return null;
   const timeout = remainingRequestTimeout(budget);
   if (timeout === 0) return match;
@@ -430,10 +436,13 @@ function normalizeH2h(raw, match) {
   return { numberOfMatches: integer(raw.total_matches), totalMatches: integer(raw.total_matches), homeWins: integer(raw.home_wins), draws: integer(raw.draws), awayWins: integer(raw.away_wins), homeTeam: { id: match.homeTeam.id, wins: integer(raw.home_wins), draws: integer(raw.draws) }, awayTeam: { id: match.awayTeam.id, wins: integer(raw.away_wins), draws: integer(raw.draws) }, recentMatches: rows, source: 'bsd', orientation: { homeTeamId: match.homeTeam.id, awayTeamId: match.awayTeam.id } };
 }
 exports.getMatchDetails = async (matchId, options = {}) => {
-  if (options.summaryOnly) return exports.getMatchSummary(matchId, options);
+  if (options.summaryOnly) return exports.getMatchSummary(matchId, { ...options, respectCompetitionScope: true });
   const id = scopedId(matchId, 'bsd_'); if (!id) return null;
-  const [raw, leagues, availableRaw] = await Promise.all([fetchBsd('/api/v2/events/' + id + '/', {}, TTL.live), exports.getLeagues(), fetchBsd('/api/v2/events/' + id + '/availability/', {}, TTL.live)]);
-  const match = positiveId(raw?.id) === id ? normalizeBsdMatch(raw, leagues || []) : null; if (!match) return null;
+  const [raw, leagues, initialAvailability] = await Promise.all([fetchBsd('/api/v2/events/' + id + '/', {}, TTL.live), exports.getLeagues(),
+    competitionScopeEnabled() ? null : fetchBsd('/api/v2/events/' + id + '/availability/', {}, TTL.live)]);
+  const match = positiveId(raw?.id) === id ? normalizeBsdMatch(raw, leagues || []) : null;
+  if (!match || !isMatchAllowed(match)) return null;
+  const availableRaw = competitionScopeEnabled() ? await fetchBsd('/api/v2/events/' + id + '/availability/', {}, TTL.live) : initialAvailability;
   const available = resource(availableRaw, id), shouldFetch = name => !available || available.available?.[name] !== false;
   // The lineup route needs exact event identity, its XI and measured match
   // ratings. Unrelated incidents/stats/venue outages must not hold that
@@ -483,7 +492,8 @@ exports.getMatchDetails = async (matchId, options = {}) => {
 };
 exports.getStandings = async (code, seasonId) => {
   const id = leagueId(code); if (!id) return null;
-  const league = await exports.getLeagueDetails(id), selectedSeason = positiveId(seasonId ?? league?.currentSeason?.id); if (!selectedSeason) return null;
+  const league = await exports.getLeagueDetails(id), selectedSeason = positiveId(seasonId ?? league?.currentSeason?.id);
+  if (!selectedSeason) return null;
   const raw = await fetchBsd('/api/v2/leagues/' + id + '/standings/', { season_id: selectedSeason }, TTL.matches);
   if (!raw || Number(raw.league_id) !== id || Number(raw.season?.id) !== selectedSeason) return null;
   let list = Array.isArray(raw.standings) ? raw.standings : null;
@@ -497,7 +507,8 @@ exports.getStandings = async (code, seasonId) => {
 };
 exports.getTopScorers = async (code, limit = 20, stat = 'goals', seasonId) => {
   const id = leagueId(code); if (!id) return null;
-  const league = await exports.getLeagueDetails(id), selectedSeason = positiveId(seasonId ?? league?.currentSeason?.id); if (!selectedSeason) return null;
+  const league = await exports.getLeagueDetails(id), selectedSeason = positiveId(seasonId ?? league?.currentSeason?.id);
+  if (!selectedSeason) return null;
   const mode = stat === 'assists' ? 'assists' : 'scorers';
   const raw = await fetchBsd('/api/v2/leagues/' + id + '/top/' + mode + '/', { season_id: selectedSeason, limit: bounded(limit, 20, 1, 50) }, TTL.details);
   if (!raw || Number(raw.league_id) !== id || Number(raw.season?.id) !== selectedSeason || !Array.isArray(raw.leaders)) return null;
@@ -713,7 +724,7 @@ exports.searchEntities = async (query, limit = 15) => {
     }
   }));
   const complete = Boolean(teams?.coverage.complete && (!variant || alternative?.coverage.complete) && players?.coverage.complete && leagues?.coverage.complete);
-  const competitions = sortByRelevance((leagues || []).filter(row => normalizeTerm(row.name).includes(normalizeTerm(name))), name, 'leagues');
+  const competitions = sortByRelevance((leagues || []).filter(row => isCompetitionAllowed(row) && normalizeTerm(row.name).includes(normalizeTerm(name))), name, 'leagues');
   const resultLimit = combined.length > cap || competitions.length > cap || players?.coverage.resultLimit === true;
   return { teams: combined.slice(0, cap), players: players || [], competitions: competitions.slice(0, cap), coverage: { source: 'bsd', available: Boolean(teams || alternative || players || leagues), complete: complete && !resultLimit, partial: !complete || resultLimit, resultLimit }, source: 'bsd' };
 };

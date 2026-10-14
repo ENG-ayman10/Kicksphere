@@ -21,6 +21,7 @@ const { validatedProviderIdentities, matchIdentityIds, teamIdentityIds } = requi
 const { reminderDue, upcomingAlertCandidate, kickoffNotificationFresh, lineupNotificationRelevant, matchPhase, PHASE_EVENTS, PHASE_ORDER,
   lineupState, incidentKey, incidentAlert, incidentFields } = require('../utils/notificationEventTransitions');
 const { eventCategoryEnabled } = require('../utils/notificationContracts');
+const { isMatchAllowed, competitionScopeEnabled } = require('../utils/competitionScope');
 
 const MAX_TRACKED_MATCHES = 500;
 const MAX_PROCESSED_EVENTS = 10000;
@@ -83,6 +84,8 @@ function createLiveEventsEmitter(options = {}) {
   let backgroundDetails = null;
   const streamCycles = [];
   const requestedDetails = new Set();
+  const pendingDetailScopes = new Map();
+  const completedDetailScopes = new WeakMap();
   const streamLeaseMs = 60000;
   const nonBlockingDetails = options.nonBlockingDetails === true;
   const asynchronousDelivery = options.asynchronousDelivery === true;
@@ -94,13 +97,13 @@ function createLiveEventsEmitter(options = {}) {
   const seedScheduledFixtures = (now, newlyObservedActive = new Set()) => {
     for (const match of fixtureSnapshot) {
       const id = match?.id && String(match.id);
-      if (!id || !scheduledStatuses.has(match.status) ||
+      if (!id || !isMatchAllowed(match) || !scheduledStatuses.has(match.status) ||
           (previousMatches.has(id) && !scheduledStatuses.has(previousMatches.get(id).status))) continue;
       if (!previousMatches.has(id) && newlyObservedActive.has(id)) continue;
       if (!previousMatches.has(id) && previousMatches.size >= MAX_TRACKED_MATCHES) continue;
       previousMatches.set(id, { ...previousMatches.get(id), status: match.status,
         home: scoreValue(match.score?.fullTime?.home), away: scoreValue(match.score?.fullTime?.away),
-        seenAt: now });
+        seenAt: now, competition: match.competition });
     }
   };
 
@@ -117,7 +120,8 @@ function createLiveEventsEmitter(options = {}) {
     fixtureRead = Promise.resolve().then(() => Promise.allSettled(days.map(date => provider.getMatchesByDate(date)))).then(snapshots => {
       const rows = snapshots.flatMap(snapshot => snapshot.status === 'fulfilled' ? snapshotRows(snapshot.value) || [] : []);
       if (snapshots.some(snapshot => snapshot.status === 'fulfilled' && snapshotRows(snapshot.value)) && fixtureDay === day) {
-        fixtureSnapshot = [...new Map(rows.filter(match => match?.id).map(match => [String(match.id), match])).values()];
+        fixtureSnapshot = [...new Map(rows.filter(match => match?.id && isMatchAllowed(match))
+          .map(match => [String(match.id), match])).values()];
         if (!running) seedScheduledFixtures(clock());
       }
     }).catch(() => { logger.warn('Scheduled fixture snapshot unavailable.'); }).finally(() => { fixtureRead = null; });
@@ -127,9 +131,28 @@ function createLiveEventsEmitter(options = {}) {
     previousMatches.delete(id);
     previousIncidents.delete(id);
     detailChecks.delete(id);
+    requestedDetails.delete(id);
+  };
+
+  const excludeMatch = id => {
+    const pending = pendingDetailScopes.get(id);
+    if (pending) pending.allowed = false;
+    forget(id);
+  };
+
+  const pruneCompetitionScope = () => {
+    if (!competitionScopeEnabled()) return;
+    for (const [id, state] of previousMatches) {
+      if (!isMatchAllowed(state.observedMatch || { competition: state.competition })) excludeMatch(id);
+    }
+    for (const [id, pending] of pendingDetailScopes) {
+      if (!isMatchAllowed(pending.match)) excludeMatch(id);
+    }
+    fixtureSnapshot = fixtureSnapshot.filter(isMatchAllowed);
   };
 
   async function emitLiveEvents(io, cycle = {}) {
+    pruneCompetitionScope();
     if (Array.isArray(cycle.requestedDetailIds)) for (const id of cycle.requestedDetailIds.slice(0, MAX_DETAIL_REQUESTS)) {
       if (typeof id === 'string' && /^bsd_[1-9]\d{0,14}$/.test(id) && previousMatches.has(id) &&
           requestedDetails.size < MAX_TRACKED_MATCHES) requestedDetails.add(id);
@@ -189,6 +212,7 @@ function createLiveEventsEmitter(options = {}) {
         if (Array.isArray(rows)) {
           for (const match of rows) if (match?.id) {
             const id = String(match.id);
+            if (!isMatchAllowed(match)) { excludeMatch(id); matches.delete(id); continue; }
             const previous = previousMatches.get(id);
             if (match.liveSnapshotStale === true) {
               if (previous?.observedMatch) matches.set(id, previous.observedMatch);
@@ -242,9 +266,11 @@ function createLiveEventsEmitter(options = {}) {
       const collectDetails = async onCompleted => {
         const candidates = new Set();
         let deviceMatchIds = new Set();
-        const observedActive = new Map([...matches].filter(([, match]) => activeStatuses.has(match.status) || upcomingAlertCandidate(match, now)));
+        const observedActive = new Map([...matches].filter(([, match]) => isMatchAllowed(match) &&
+          (activeStatuses.has(match.status) || upcomingAlertCandidate(match, now))));
         for (const [id, state] of previousMatches) if (activeStatuses.has(state.status) && !observedActive.has(id)) {
-          observedActive.set(id, state.observedMatch || { id });
+          const match = state.observedMatch || { id, competition: state.competition };
+          if (isMatchAllowed(match)) observedActive.set(id, match);
         }
         try {
           if (typeof deviceService.getAlertMatchIds === 'function') {
@@ -274,12 +300,16 @@ function createLiveEventsEmitter(options = {}) {
           if (observedActive.has(id) && (deviceMatchIds.has(id) || hasAlertRoom(id))) candidates.add(id);
           else requestedDetails.delete(id);
         }
-        const lookups = [...candidates].sort((a, b) =>
+        const lookups = [...candidates].filter(id => isMatchAllowed(matches.get(id) ||
+          previousMatches.get(id)?.observedMatch || observedActive.get(id))).sort((a, b) =>
           Number(requestedDetails.has(b)) - Number(requestedDetails.has(a)) ||
           Number(deviceMatchIds.has(b) || hasAlertRoom(b)) - Number(deviceMatchIds.has(a) || hasAlertRoom(a)) ||
           (detailChecks.get(a) || 0) - (detailChecks.get(b) || 0)).slice(0, MAX_DETAIL_REQUESTS);
         const completed = new Map();
         await mapConcurrent(lookups, 3, async id => {
+          const scope = { allowed: true, match: matches.get(id) || previousMatches.get(id)?.observedMatch || observedActive.get(id) };
+          if (!isMatchAllowed(scope.match)) return;
+          pendingDetailScopes.set(id, scope);
           requestedDetails.delete(id);
           detailChecks.set(id, now);
           try {
@@ -288,11 +318,18 @@ function createLiveEventsEmitter(options = {}) {
             const detail = await readDetail(id, { includeTimeline,
               includeLineups: includeTimeline && latest?.lineupConfirmed !== true &&
                 lineupNotificationRelevant(latest?.observedMatch || matches.get(id), clock()) });
-            if (detail && (!detail.id || String(detail.id) === id)) {
+            if (detail && (!detail.id || String(detail.id) === id) && scope.allowed &&
+                isMatchAllowed(scope.match) && isMatchAllowed({ ...scope.match, ...detail,
+                  competition: detail.competition || scope.match?.competition })) {
+              completedDetailScopes.set(detail, scope);
+              scope.completed = true;
               if (onCompleted) await onCompleted(id, detail);
               else completed.set(id, detail);
             }
           } catch (_) { logger.warn(`Live detail unavailable for ${id}.`); }
+          finally {
+            if (!scope.completed && pendingDetailScopes.get(id) === scope) pendingDetailScopes.delete(id);
+          }
         });
         return completed;
       };
@@ -315,6 +352,12 @@ function createLiveEventsEmitter(options = {}) {
       for (const [id, detail] of completed) {
         if (detail && (!detail.id || String(detail.id) === id)) {
             const listed = matches.get(id) || previousMatches.get(id)?.observedMatch;
+            const scope = completedDetailScopes.get(detail);
+            const superseded = scope && pendingDetailScopes.get(id) !== scope;
+            if (scope && !superseded) pendingDetailScopes.delete(id);
+            if (scope?.allowed === false || !isMatchAllowed({ ...scope?.match, ...listed, ...detail,
+                competition: detail.competition || listed?.competition || scope?.match?.competition }) ||
+                (competitionScopeEnabled() && superseded)) continue;
             const streamState = previousMatches.get(id);
             const streamConflict = streamState?.streamLeaseExpiresAt > now && listed &&
               (scoreValue(detail.score?.fullTime?.home) !== scoreValue(listed.score?.fullTime?.home) ||
@@ -372,6 +415,7 @@ function createLiveEventsEmitter(options = {}) {
         matches.clear();
         for (const [id, update] of cycle.streamUpdates) {
           const match = update?.match;
+          if (!isMatchAllowed(match)) { excludeMatch(id); continue; }
           if (typeof id !== 'string' || !/^bsd_[1-9]\d{0,14}$/.test(id) || match?.id !== id || match.source !== 'bsd' ||
               match.provider !== 'bsd' || !/^bsd_t_[1-9]\d{0,14}$/.test(match.homeTeam?.id) ||
               !/^bsd_t_[1-9]\d{0,14}$/.test(match.awayTeam?.id) || match.homeTeam.id === match.awayTeam.id ||
@@ -400,6 +444,7 @@ function createLiveEventsEmitter(options = {}) {
       };
 
       for (const [id, match] of matches) {
+        if (!isMatchAllowed(match)) { excludeMatch(id); continue; }
         const previous = previousMatches.get(id);
         // A stale scheduled fixture cannot erase the baseline of an observed live game.
         if (previous && activeStatuses.has(previous.status) && scheduledStatuses.has(match.status)) continue;
@@ -428,6 +473,10 @@ function createLiveEventsEmitter(options = {}) {
           ...(normalizeProviderTimestamp(match.utcDate) ? { utcDate: normalizeProviderTimestamp(match.utcDate) } : {}),
           ...(lastUpdated ? { lastUpdated } : {}),
           tournament: match.competition?.name || '', minute: match.minute ?? null,
+          ...(competitionScopeEnabled() && match.competition ? {
+            competition: match.competition,
+            ...(typeof match.competition.code === 'string' ? { competitionCode: match.competition.code } : {}),
+          } : {}),
           ...(validatedProviderIdentities(match).length ? {
             providerIdentities: validatedProviderIdentities(match), utcDate: match.utcDate,
             competitionCode: match.competition?.code

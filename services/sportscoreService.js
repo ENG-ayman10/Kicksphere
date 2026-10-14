@@ -16,6 +16,7 @@ const { normalizePlayerHonours, playerHonourInput, firstPlayerImage } = require(
 const { validateLineupIntegrity } = require('../utils/lineupIntegrity');
 const { playerFacts } = require('../utils/lineupPlayerMetrics');
 const { sportscoreMatchLocator, sameSportscoreFixture, sportscoreMatchLookupCandidate } = require('../utils/sportscoreMatchLocator');
+const { isCompetitionAllowed, isMatchAllowed, competitionScopeEnabled, scopeCoverage } = require('../utils/competitionScope');
 
 const BASE_URL = 'https://sportscore.com';
 const SPORT = 'football';
@@ -187,7 +188,7 @@ function rememberedFixtureLocator(id) {
   return entry;
 }
 
-const summaryOnly = known => known ? { ...known, detailsAvailable: false,
+const summaryOnly = known => known && isMatchAllowed(known) ? { ...known, detailsAvailable: false,
   timeline: [], lineups: null, providerStatistics: [] } : null;
 
 function mergeDuplicateTeamIdentities(chosen, other) {
@@ -392,6 +393,12 @@ function inspectFixtureBatch(raw, { date, competition = null, status = null, inc
       report.outsideStatus++;
       continue;
     }
+    // An intentional competition scope is distinct from malformed provider
+    // records. Apply it before any optional standings/club identity read.
+    if (!isMatchAllowed(match)) {
+      report.excludedByScope = (report.excludedByScope || 0) + 1;
+      continue;
+    }
     records.push(match);
   }
   const start = Date.parse(`${date}T00:00:00Z`);
@@ -411,7 +418,7 @@ function fixtureCoverage(primary, partitions, matches) {
   const possiblyTruncated = reports.some(report => report.possiblyTruncated);
   const complete = reports.every(report => report.available) && !possiblyTruncated &&
     Object.values(sums).every(count => count === 0);
-  return { available: true, limit: FIXTURE_LIMIT, returned: matches.length,
+  const coverage = { available: true, limit: FIXTURE_LIMIT, returned: matches.length,
     upstreamReturned: reports.reduce((sum, report) => sum + report.returned, 0),
     accepted: matches.length, recovered: Math.max(0, matches.length - deduplicateMatches(primary.matches).length),
     complete, partial: !complete, possiblyTruncated,
@@ -420,6 +427,8 @@ function fixtureCoverage(primary, partitions, matches) {
       possiblyTruncated ? { reason: 'provider_result_limit' } :
       reports.some(report => !report.available) ? { reason: 'partition_unavailable' } :
       !complete ? { reason: 'rejected_provider_records' } : {}) };
+  const excluded = reports.reduce((sum, report) => sum + (report.excludedByScope || 0), 0);
+  return scopeCoverage(coverage, matches.length + excluded, matches.length);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -458,6 +467,15 @@ exports.getMatchesByDate = async (dateStr, { competition } = {}) => {
     if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
         !Number.isFinite(Date.parse(`${date}T00:00:00Z`)) ||
         new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) throw new Error('Invalid fixture date');
+    if (competitionScopeEnabled() && competition && !isCompetitionAllowed({
+      code: competition, ...(COMPETITION_SLUGS[competition] || {}),
+    })) {
+      const matches = [];
+      Object.defineProperty(matches, 'coverage', { value: scopeCoverage({ available: true,
+        complete: true, partial: false, possiblyTruncated: false, limit: FIXTURE_LIMIT,
+        returned: 0, upstreamReturned: 0, accepted: 0, competition }, 0, 0) });
+      return matches;
+    }
     const params = { date, limit: FIXTURE_LIMIT };
     if (competition) params.competition = resolveCompetitionSlug(competition);
     const raw = await fetchSportScore('/api/v1/fixtures/', params, TTL.DAILY_MATCHES);
@@ -494,6 +512,7 @@ exports.getMatchDetails = async (matchSlugOrId) => {
     if (inputLocator) id = inputLocator.id;
 
     known = getCached('sportscore:fixture:' + id);
+    if (known && !isMatchAllowed(known)) return null;
     const remembered = rememberedFixtureLocator(id);
     const locator = inputLocator || sportscoreMatchLocator(known?.matchLocator?.url) || remembered?.locator ||
       sportscoreMatchLookupCandidate(id);
@@ -508,6 +527,7 @@ exports.getMatchDetails = async (matchSlugOrId) => {
       logger.warn('[SportScore] Ignored detail for another fixture URL');
       return summaryOnly(known);
     }
+    if (!isMatchAllowed(normalizeSportScoreMatch(raw.match))) return null;
     let details = normalizeSportScoreMatchDetail(raw.match, slug);
     if (details.id !== id) return summaryOnly(known);
     if (known || remembered) {
@@ -800,7 +820,7 @@ exports.searchEntities = async (query, limit = 15) => {
       provider: 'sportscore'
     }));
 
-    const competitions = (raw?.competitions || []).map(c => ({
+    const allCompetitions = (raw?.competitions || []).map(c => ({
       id: c.slug || c.id || null,
       name: c.name,
       logo: c.logo || '',
@@ -811,6 +831,7 @@ exports.searchEntities = async (query, limit = 15) => {
       type: 'league',
       provider: 'sportscore'
     }));
+    const competitions = allCompetitions.filter(isCompetitionAllowed);
 
     const players = [...new Map(batches.flatMap(batch => (batch?.players || []).map(p => ({
       id: p.slug || p.id || null, name: p.name, fullName: p.full_name || p.name, shortName: p.short_name || p.name,
@@ -823,10 +844,11 @@ exports.searchEntities = async (query, limit = 15) => {
       teams: sortByRelevance(teams, q, 'teams').slice(0, cap),
       competitions: sortByRelevance(competitions, q, 'leagues').slice(0, cap),
       players: sortByRelevance(players, q, 'players').slice(0, cap),
-      coverage: { available: true, complete: false, partial: true, limit: 20,
+      coverage: scopeCoverage({ available: true, complete: false, partial: true, limit: 20,
         resultLimit: teams.length > cap || competitions.length > cap || players.length > cap,
         possiblyTruncated: batches.some(batch => ['teams', 'competitions', 'players'].some(key => batch?.[key]?.length >= 20)),
-        queries: terms.map((term, index) => ({ term, available: Boolean(batches[index]) })) }
+        queries: terms.map((term, index) => ({ term, available: Boolean(batches[index]) })) },
+      allCompetitions.length, competitions.length)
     };
   } catch (e) {
     logger.error(`[SportScore] searchEntities error: ${e.message}`);
@@ -983,6 +1005,11 @@ function normalizeSportScoreMatch(m) {
   // Four-letter prefixes merged unrelated leagues (e.g. every UEFA competition).
   const compCode = knownComp ? knownComp.code : `SC:${String(competitionSlug || m.competition || 'unknown').trim().toLowerCase()}`;
   const compName = knownComp ? knownComp.name : (m.competition || 'Football Competition');
+  // Only competition-specific source metadata can establish the league's
+  // country. A participating club's location or a player's nationality cannot.
+  const countryText = value => typeof value === 'string' ? value.trim() : '';
+  const sourceCompetitionCountry = countryText(m.competition_country) || countryText(m.competition_country?.name);
+  const sourceCompetitionCountryCode = countryText(m.competition_country_code) || countryText(m.competition_country?.code);
 
   return {
     id: matchId,
@@ -1014,7 +1041,8 @@ function normalizeSportScoreMatch(m) {
       name: compName,
       code: compCode,
       ...(competitionSlug ? { slug: competitionSlug } : {}),
-      country: knownComp ? knownComp.country : '',
+      country: sourceCompetitionCountry || (knownComp ? knownComp.country : ''),
+      ...(sourceCompetitionCountryCode ? { countryCode: sourceCompetitionCountryCode } : {}),
       emblem: m.competition_logo || '',
       logo: m.competition_logo || ''
     },
