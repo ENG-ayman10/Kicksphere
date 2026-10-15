@@ -1,6 +1,7 @@
 const { normalizeCompetitionCode } = require('./sportsContracts');
 const { matchTeamId } = require('./teamIdentity');
 const { validatedProviderIdentities } = require('./matchProviderIdentities');
+const VERIFIED_CHAMPIONS_LEAGUE_CLUBS = require('./verifiedChampionsLeagueClubs');
 
 // Provider feeds frequently differ only by accents (for example Curaçao /
 // Curacao). Fold combining marks for the exact same competition/date/fixture
@@ -220,9 +221,12 @@ function compatibleScopes(first, second) {
     ['homeTeam', 'awayTeam'].every(side => sameCountry(first[side]?.countryCode || first[side]?.country, second[side]?.countryCode || second[side]?.country));
 }
 
+function verifiedClubCatalog(competitionCode) {
+  return competitionCode === 'CL' ? VERIFIED_CHAMPIONS_LEAGUE_CLUBS : VERIFIED_CLUB_TEAMS;
+}
 function verifiedClub(team, provider, competitionCode) {
   const id = matchTeamId(team, provider);
-  const verified = VERIFIED_CLUB_TEAMS[id];
+  const verified = verifiedClubCatalog(competitionCode)[id];
   if (!verified || verified.provider !== provider || verified.competition !== competitionCode ||
       normalized(team?.name) !== normalized(verified.name) ||
       !sameCountry(team.countryCode || team.country, verified.country) ||
@@ -237,7 +241,7 @@ function verifiedBsdTeamIdForSportScoreTeam(team, competitionCode) {
       !['first', 'first team', 'senior'].includes(reserves(team)) || !['team', 'club'].includes(teamType(team))) return null;
   const catalog = verifiedClub(team, 'sportscore', code);
   if (!catalog) return null;
-  return Object.entries(VERIFIED_CLUB_TEAMS).find(([, entry]) => entry.provider === 'bsd' &&
+  return Object.entries(verifiedClubCatalog(code)).find(([, entry]) => entry.provider === 'bsd' &&
     entry.club === catalog.club && entry.competition === code && entry.country === catalog.country)?.[0] || null;
 }
 function seniorClubContext(match, identity) {

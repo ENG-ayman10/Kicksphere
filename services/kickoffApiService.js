@@ -947,7 +947,11 @@ exports.getMatchDetails = async (fixtureId) => {
   if (!raw) return null;
 
   const formatted = normalizeKickoffFixture(raw);
-  if (formatted) setCache(cacheKey, formatted, TTL.FIXTURES_DAY);
+  // An opened live fixture must not keep a five-minute daily-fixture score.
+  // Reuse the provider's existing one-minute live policy on demand; stable
+  // scheduled and terminal summaries retain the ordinary quota-saving cache.
+  const ttl = ['IN_PLAY', 'PAUSED', 'SUSPENDED'].includes(formatted?.status) ? TTL.LIVE : TTL.FIXTURES_DAY;
+  if (formatted) setCache(cacheKey, formatted, ttl);
   return formatted;
 };
 

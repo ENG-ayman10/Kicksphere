@@ -1,0 +1,1839 @@
+{
+  "verifiedAt": "2026-10-15",
+  "evidence": {
+    "bsdTeams": "/api/v2/teams/?league_id=7&is_women=false&in_competition=true&limit=200",
+    "bsdReportedTotal": 36,
+    "bsdComplete": true,
+    "sportscoreTeams": "/api/widget/standings/?slug=uefa-champions-league",
+    "sportscoreReportedTotal": 36,
+    "note": "Independent senior Champions League catalogs. Exact source IDs and catalog names retained; club countries are distinct from competition region Europe. Catalog membership does not authorize other competitions, any kickoff drift, unknown IDs, women/youth/reserve joins or tactical/rating guesses."
+  },
+  "catalogs": [
+    {
+      "competition": "CL",
+      "club": "lask",
+      "country": "Austria",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_1404",
+        "name": "LASK",
+        "provider": "bsd",
+        "country": "Austria"
+      },
+      "sportscore": {
+        "id": "sc_t_lask-linz",
+        "name": "LASK Linz",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "sabah",
+      "country": "Azerbaijan",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_412",
+        "name": "Sabah FK",
+        "provider": "bsd",
+        "country": "Azerbaijan"
+      },
+      "sportscore": {
+        "id": "sc_t_sabah-baku",
+        "name": "Sabah Baku",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "club-brugge",
+      "country": "Belgium",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_123",
+        "name": "Club Brugge KV",
+        "provider": "bsd",
+        "country": "Belgium"
+      },
+      "sportscore": {
+        "id": "sc_t_club-brugge",
+        "name": "Club Brugge",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "slavia-praha",
+      "country": "Czechia",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_120",
+        "name": "SK Slavia Praha",
+        "provider": "bsd",
+        "country": "Czechia"
+      },
+      "sportscore": {
+        "id": "sc_t_sk-slavia-praha",
+        "name": "SK Slavia Praha",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "arsenal",
+      "country": "England",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_18",
+        "name": "Arsenal",
+        "provider": "bsd",
+        "country": "England"
+      },
+      "sportscore": {
+        "id": "sc_t_arsenal",
+        "name": "Arsenal",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "aston-villa",
+      "country": "England",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_3",
+        "name": "Aston Villa",
+        "provider": "bsd",
+        "country": "England"
+      },
+      "sportscore": {
+        "id": "sc_t_aston-villa",
+        "name": "Aston Villa",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "liverpool",
+      "country": "England",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_1",
+        "name": "Liverpool FC",
+        "provider": "bsd",
+        "country": "England"
+      },
+      "sportscore": {
+        "id": "sc_t_liverpool",
+        "name": "Liverpool",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "manchester-city",
+      "country": "England",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_12",
+        "name": "Manchester City",
+        "provider": "bsd",
+        "country": "England"
+      },
+      "sportscore": {
+        "id": "sc_t_manchester-city",
+        "name": "Manchester City",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "manchester-united",
+      "country": "England",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_17",
+        "name": "Manchester United",
+        "provider": "bsd",
+        "country": "England"
+      },
+      "sportscore": {
+        "id": "sc_t_manchester-united",
+        "name": "Manchester United",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "lille",
+      "country": "France",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_106",
+        "name": "Lille",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_losc-lille",
+        "name": "LOSC Lille",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "psg",
+      "country": "France",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_114",
+        "name": "Paris Saint-Germain",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_paris-saint-germain",
+        "name": "Paris Saint Germain",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "lens",
+      "country": "France",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_99",
+        "name": "RC Lens",
+        "provider": "bsd",
+        "country": "France"
+      },
+      "sportscore": {
+        "id": "sc_t_rc-lens",
+        "name": "RC Lens",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "dortmund",
+      "country": "Germany",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_92",
+        "name": "Borussia Dortmund",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_borussia-dortmund",
+        "name": "Borussia Dortmund",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "bayern",
+      "country": "Germany",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_79",
+        "name": "FC Bayern München",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_fc-bayern-munich",
+        "name": "FC Bayern Munich",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "leipzig",
+      "country": "Germany",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_80",
+        "name": "RB Leipzig",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_rb-leipzig",
+        "name": "RB Leipzig",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "stuttgart",
+      "country": "Germany",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_84",
+        "name": "VfB Stuttgart",
+        "provider": "bsd",
+        "country": "Germany"
+      },
+      "sportscore": {
+        "id": "sc_t_vfb-stuttgart",
+        "name": "VfB Stuttgart",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "aek-athens",
+      "country": "Greece",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_329",
+        "name": "AEK Athens",
+        "provider": "bsd",
+        "country": "Greece"
+      },
+      "sportscore": {
+        "id": "sc_t_aek-athens",
+        "name": "AEK Athens",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "roma",
+      "country": "Italy",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_65",
+        "name": "AS Roma",
+        "provider": "bsd",
+        "country": "Italy"
+      },
+      "sportscore": {
+        "id": "sc_t_as-roma",
+        "name": "AS Roma",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "como",
+      "country": "Italy",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_69",
+        "name": "Como",
+        "provider": "bsd",
+        "country": "Italy"
+      },
+      "sportscore": {
+        "id": "sc_t_como",
+        "name": "Como",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "inter",
+      "country": "Italy",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_77",
+        "name": "Inter",
+        "provider": "bsd",
+        "country": "Italy"
+      },
+      "sportscore": {
+        "id": "sc_t_inter-milan",
+        "name": "Inter Milan",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "napoli",
+      "country": "Italy",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_62",
+        "name": "SSC Napoli",
+        "provider": "bsd",
+        "country": "Italy"
+      },
+      "sportscore": {
+        "id": "sc_t_napoli",
+        "name": "Napoli",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "feyenoord",
+      "country": "Netherlands",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_138",
+        "name": "Feyenoord",
+        "provider": "bsd",
+        "country": "Netherlands"
+      },
+      "sportscore": {
+        "id": "sc_t_feyenoord",
+        "name": "Feyenoord",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "psv",
+      "country": "Netherlands",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_115",
+        "name": "PSV Eindhoven",
+        "provider": "bsd",
+        "country": "Netherlands"
+      },
+      "sportscore": {
+        "id": "sc_t_psv-eindhoven",
+        "name": "PSV Eindhoven",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "bodo-glimt",
+      "country": "Norway",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_121",
+        "name": "Bodø/Glimt",
+        "provider": "bsd",
+        "country": "Norway"
+      },
+      "sportscore": {
+        "id": "sc_t_fk-bodoglimt",
+        "name": "FK Bodo/Glimt",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "viking",
+      "country": "Norway",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_2076",
+        "name": "Viking FK",
+        "provider": "bsd",
+        "country": "Norway"
+      },
+      "sportscore": {
+        "id": "sc_t_viking",
+        "name": "Viking",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "porto",
+      "country": "Portugal",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_35",
+        "name": "FC Porto",
+        "provider": "bsd",
+        "country": "Portugal"
+      },
+      "sportscore": {
+        "id": "sc_t_fc-porto",
+        "name": "FC Porto",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "sporting",
+      "country": "Portugal",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_22",
+        "name": "Sporting CP",
+        "provider": "bsd",
+        "country": "Portugal"
+      },
+      "sportscore": {
+        "id": "sc_t_sporting-cp",
+        "name": "Sporting CP",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "slovan-bratislava",
+      "country": "Slovakia",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_374",
+        "name": "ŠK Slovan Bratislava",
+        "provider": "bsd",
+        "country": "Slovakia"
+      },
+      "sportscore": {
+        "id": "sc_t_slovan-bratislava",
+        "name": "Slovan Bratislava",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "atletico-madrid",
+      "country": "Spain",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_54",
+        "name": "Atlético Madrid",
+        "provider": "bsd",
+        "country": "Spain"
+      },
+      "sportscore": {
+        "id": "sc_t_atletico-madrid",
+        "name": "Atletico Madrid",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "barcelona",
+      "country": "Spain",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_44",
+        "name": "FC Barcelona",
+        "provider": "bsd",
+        "country": "Spain"
+      },
+      "sportscore": {
+        "id": "sc_t_fc-barcelona",
+        "name": "FC Barcelona",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "real-betis",
+      "country": "Spain",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_56",
+        "name": "Real Betis",
+        "provider": "bsd",
+        "country": "Spain"
+      },
+      "sportscore": {
+        "id": "sc_t_real-betis",
+        "name": "Real Betis",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "real-madrid",
+      "country": "Spain",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_57",
+        "name": "Real Madrid",
+        "provider": "bsd",
+        "country": "Spain"
+      },
+      "sportscore": {
+        "id": "sc_t_real-madrid",
+        "name": "Real Madrid",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "villarreal",
+      "country": "Spain",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_41",
+        "name": "Villarreal",
+        "provider": "bsd",
+        "country": "Spain"
+      },
+      "sportscore": {
+        "id": "sc_t_villarreal-cf",
+        "name": "Villarreal CF",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "fenerbahce",
+      "country": "Türkiye",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_134",
+        "name": "Fenerbahçe",
+        "provider": "bsd",
+        "country": "Türkiye"
+      },
+      "sportscore": {
+        "id": "sc_t_fenerbahce",
+        "name": "Fenerbahce",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "galatasaray",
+      "country": "Türkiye",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_125",
+        "name": "Galatasaray",
+        "provider": "bsd",
+        "country": "Türkiye"
+      },
+      "sportscore": {
+        "id": "sc_t_galatasaray",
+        "name": "Galatasaray",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    },
+    {
+      "competition": "CL",
+      "club": "shakhtar-donetsk",
+      "country": "Ukraine",
+      "competitionCountry": "Europe",
+      "bsd": {
+        "id": "bsd_t_402",
+        "name": "Shakhtar Donetsk",
+        "provider": "bsd",
+        "country": "Ukraine"
+      },
+      "sportscore": {
+        "id": "sc_t_fc-shakhtar-donetsk",
+        "name": "FC Shakhtar Donetsk",
+        "provider": "sportscore",
+        "identityCompetitionCode": "CL"
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "preferred": {
+        "id": "bsd_601101",
+        "rawId": 601101,
+        "slug": "bsd_601101",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-10-14T16:45:00.000Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 90,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_1404",
+          "rawId": 1404,
+          "providerId": "1404",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "LASK",
+          "shortName": "LASK",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/1404/",
+          "logo": "https://sports.bzzoiro.com/img/team/1404/",
+          "slug": "bsd_t_1404",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_1",
+          "rawId": 1,
+          "providerId": "1",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Liverpool FC",
+          "shortName": "Liverpool FC",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/1/",
+          "logo": "https://sports.bzzoiro.com/img/team/1/",
+          "slug": "bsd_t_1",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 3,
+            "away": 6
+          },
+          "halfTime": {
+            "home": 0,
+            "away": 3
+          }
+        },
+        "competition": {
+          "id": "CL",
+          "code": "CL",
+          "rawId": 7,
+          "providerId": "7",
+          "provider": "bsd",
+          "name": "Champions League",
+          "country": "Europe",
+          "countryCode": "",
+          "emblem": "https://sports.bzzoiro.com/img/league/7/",
+          "logo": "https://sports.bzzoiro.com/img/league/7/",
+          "season": {
+            "id": 1112,
+            "name": "UEFA Champions League 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "qualification-round-1",
+                "stage_name": "Qualification Round 1",
+                "matches": 28,
+                "rounds": 1,
+                "start_date": "2026-07-07",
+                "end_date": "2026-07-15"
+              },
+              {
+                "stage": "qualification-round-2",
+                "stage_name": "Qualification Round 2",
+                "matches": 30,
+                "rounds": 1,
+                "start_date": "2026-07-21",
+                "end_date": "2026-07-29"
+              },
+              {
+                "stage": "qualification-round-3",
+                "stage_name": "Qualification Round 3",
+                "matches": 21,
+                "rounds": 1,
+                "start_date": "2026-08-04",
+                "end_date": "2026-08-11"
+              },
+              {
+                "stage": "playoff-round",
+                "stage_name": "Playoff round",
+                "matches": 14,
+                "rounds": 1,
+                "start_date": "2026-08-18",
+                "end_date": "2026-08-26"
+              },
+              {
+                "stage": "league-phase",
+                "stage_name": "League phase",
+                "matches": 144,
+                "rounds": 8,
+                "start_date": "2026-09-08",
+                "end_date": "2027-01-27"
+              }
+            ]
+          }
+        },
+        "seasonId": 1112,
+        "round": 2,
+        "roundLabel": "League phase · Matchday 2",
+        "group": "",
+        "stage": "league-phase",
+        "stageName": "League phase",
+        "venueId": 856,
+        "venue": null,
+        "refereeId": 2196,
+        "homeCoachId": 842,
+        "awayCoachId": 547,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": true,
+        "liveWebsocket": true,
+        "websocketPlus": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "lask-linz-vs-liverpool318q66hx9y63qo9",
+        "slug": "lask-linz-vs-liverpool318q66hx9y63qo9",
+        "matchLocator": {
+          "id": "lask-linz-vs-liverpool318q66hx9y63qo9",
+          "slug": "lask-linz-vs-liverpool",
+          "token": "318q66hx9y63qo9",
+          "url": "/football/match/lask-linz-vs-liverpool/318q66hx9y63qo9/"
+        },
+        "utcDate": "2026-10-14T16:45:00+00:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_lask-linz",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "LASK Linz",
+          "shortName": "LASK Linz",
+          "crest": "https://img.thesports.com/football/team/5d33f831f779428858138d28c9dd4480.png",
+          "logo": "https://img.thesports.com/football/team/5d33f831f779428858138d28c9dd4480.png",
+          "identityCompetitionCode": "CL",
+          "identityCompetitionSlug": "uefa-champions-league"
+        },
+        "awayTeam": {
+          "id": "sc_t_liverpool",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Liverpool",
+          "shortName": "Liverpool",
+          "crest": "https://img.thesports.com/football/team/1cb3d08adac0e2dc1c4f10429d055bfe.png",
+          "logo": "https://img.thesports.com/football/team/1cb3d08adac0e2dc1c4f10429d055bfe.png",
+          "identityCompetitionCode": "CL",
+          "identityCompetitionSlug": "uefa-champions-league"
+        },
+        "score": {
+          "fullTime": {
+            "home": 3,
+            "away": 6
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "CL",
+          "name": "UEFA Champions League",
+          "code": "CL",
+          "country": "Europe",
+          "emblem": "https://img.thesports.com/football/competition/ac05535bde17129cb598311242b3afba.png",
+          "logo": "https://img.thesports.com/football/competition/ac05535bde17129cb598311242b3afba.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_601166",
+        "rawId": 601166,
+        "slug": "bsd_601166",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-10-14T19:00:00.000Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 90,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_374",
+          "rawId": 374,
+          "providerId": "374",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "ŠK Slovan Bratislava",
+          "shortName": "ŠK Slovan Bratislava",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/374/",
+          "logo": "https://sports.bzzoiro.com/img/team/374/",
+          "slug": "bsd_t_374",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_84",
+          "rawId": 84,
+          "providerId": "84",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "VfB Stuttgart",
+          "shortName": "VfB Stuttgart",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/84/",
+          "logo": "https://sports.bzzoiro.com/img/team/84/",
+          "slug": "bsd_t_84",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 0,
+            "away": 3
+          },
+          "halfTime": {
+            "home": 0,
+            "away": 1
+          }
+        },
+        "competition": {
+          "id": "CL",
+          "code": "CL",
+          "rawId": 7,
+          "providerId": "7",
+          "provider": "bsd",
+          "name": "Champions League",
+          "country": "Europe",
+          "countryCode": "",
+          "emblem": "https://sports.bzzoiro.com/img/league/7/",
+          "logo": "https://sports.bzzoiro.com/img/league/7/",
+          "season": {
+            "id": 1112,
+            "name": "UEFA Champions League 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "qualification-round-1",
+                "stage_name": "Qualification Round 1",
+                "matches": 28,
+                "rounds": 1,
+                "start_date": "2026-07-07",
+                "end_date": "2026-07-15"
+              },
+              {
+                "stage": "qualification-round-2",
+                "stage_name": "Qualification Round 2",
+                "matches": 30,
+                "rounds": 1,
+                "start_date": "2026-07-21",
+                "end_date": "2026-07-29"
+              },
+              {
+                "stage": "qualification-round-3",
+                "stage_name": "Qualification Round 3",
+                "matches": 21,
+                "rounds": 1,
+                "start_date": "2026-08-04",
+                "end_date": "2026-08-11"
+              },
+              {
+                "stage": "playoff-round",
+                "stage_name": "Playoff round",
+                "matches": 14,
+                "rounds": 1,
+                "start_date": "2026-08-18",
+                "end_date": "2026-08-26"
+              },
+              {
+                "stage": "league-phase",
+                "stage_name": "League phase",
+                "matches": 144,
+                "rounds": 8,
+                "start_date": "2026-09-08",
+                "end_date": "2027-01-27"
+              }
+            ]
+          }
+        },
+        "seasonId": 1112,
+        "round": 2,
+        "roundLabel": "League phase · Matchday 2",
+        "group": "",
+        "stage": "league-phase",
+        "stageName": "League phase",
+        "venueId": 354,
+        "venue": null,
+        "refereeId": 2138,
+        "homeCoachId": 2941,
+        "awayCoachId": 283,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": false,
+        "liveWebsocket": true,
+        "websocketPlus": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "slovan-bratislava-vs-vfb-stuttgart1l4rjnh98onlm7v",
+        "slug": "slovan-bratislava-vs-vfb-stuttgart1l4rjnh98onlm7v",
+        "matchLocator": {
+          "id": "slovan-bratislava-vs-vfb-stuttgart1l4rjnh98onlm7v",
+          "slug": "slovan-bratislava-vs-vfb-stuttgart",
+          "token": "1l4rjnh98onlm7v",
+          "url": "/football/match/slovan-bratislava-vs-vfb-stuttgart/1l4rjnh98onlm7v/"
+        },
+        "utcDate": "2026-10-14T19:00:00+00:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_slovan-bratislava",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Slovan Bratislava",
+          "shortName": "Slovan Bratislava",
+          "crest": "https://img.thesports.com/football/team/8e220a74791be9e0eb13507f0ce444db.png",
+          "logo": "https://img.thesports.com/football/team/8e220a74791be9e0eb13507f0ce444db.png",
+          "identityCompetitionCode": "CL",
+          "identityCompetitionSlug": "uefa-champions-league"
+        },
+        "awayTeam": {
+          "id": "sc_t_vfb-stuttgart",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "VfB Stuttgart",
+          "shortName": "VfB Stuttgart",
+          "crest": "https://img.thesports.com/football/team/bfdd500484330d63a723cbc396df762c.png",
+          "logo": "https://img.thesports.com/football/team/bfdd500484330d63a723cbc396df762c.png",
+          "identityCompetitionCode": "CL",
+          "identityCompetitionSlug": "uefa-champions-league"
+        },
+        "score": {
+          "fullTime": {
+            "home": 0,
+            "away": 3
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "CL",
+          "name": "UEFA Champions League",
+          "code": "CL",
+          "country": "Europe",
+          "emblem": "https://img.thesports.com/football/competition/ac05535bde17129cb598311242b3afba.png",
+          "logo": "https://img.thesports.com/football/competition/ac05535bde17129cb598311242b3afba.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_601114",
+        "rawId": 601114,
+        "slug": "bsd_601114",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-10-14T19:00:00.000Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 90,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_121",
+          "rawId": 121,
+          "providerId": "121",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Bodø/Glimt",
+          "shortName": "Bodø/Glimt",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/121/",
+          "logo": "https://sports.bzzoiro.com/img/team/121/",
+          "slug": "bsd_t_121",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_92",
+          "rawId": 92,
+          "providerId": "92",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Borussia Dortmund",
+          "shortName": "Borussia Dortmund",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/92/",
+          "logo": "https://sports.bzzoiro.com/img/team/92/",
+          "slug": "bsd_t_92",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 0
+          },
+          "halfTime": {
+            "home": 0,
+            "away": 0
+          }
+        },
+        "competition": {
+          "id": "CL",
+          "code": "CL",
+          "rawId": 7,
+          "providerId": "7",
+          "provider": "bsd",
+          "name": "Champions League",
+          "country": "Europe",
+          "countryCode": "",
+          "emblem": "https://sports.bzzoiro.com/img/league/7/",
+          "logo": "https://sports.bzzoiro.com/img/league/7/",
+          "season": {
+            "id": 1112,
+            "name": "UEFA Champions League 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "qualification-round-1",
+                "stage_name": "Qualification Round 1",
+                "matches": 28,
+                "rounds": 1,
+                "start_date": "2026-07-07",
+                "end_date": "2026-07-15"
+              },
+              {
+                "stage": "qualification-round-2",
+                "stage_name": "Qualification Round 2",
+                "matches": 30,
+                "rounds": 1,
+                "start_date": "2026-07-21",
+                "end_date": "2026-07-29"
+              },
+              {
+                "stage": "qualification-round-3",
+                "stage_name": "Qualification Round 3",
+                "matches": 21,
+                "rounds": 1,
+                "start_date": "2026-08-04",
+                "end_date": "2026-08-11"
+              },
+              {
+                "stage": "playoff-round",
+                "stage_name": "Playoff round",
+                "matches": 14,
+                "rounds": 1,
+                "start_date": "2026-08-18",
+                "end_date": "2026-08-26"
+              },
+              {
+                "stage": "league-phase",
+                "stage_name": "League phase",
+                "matches": 144,
+                "rounds": 8,
+                "start_date": "2026-09-08",
+                "end_date": "2027-01-27"
+              }
+            ]
+          }
+        },
+        "seasonId": 1112,
+        "round": 2,
+        "roundLabel": "League phase · Matchday 2",
+        "group": "",
+        "stage": "league-phase",
+        "stageName": "League phase",
+        "venueId": 119,
+        "venue": null,
+        "refereeId": 1870,
+        "homeCoachId": 653,
+        "awayCoachId": 284,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": false,
+        "liveWebsocket": true,
+        "websocketPlus": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "borussia-dortmund-vs-bodo-glimt1l4rjnh98olkm7v",
+        "slug": "borussia-dortmund-vs-bodo-glimt1l4rjnh98olkm7v",
+        "matchLocator": {
+          "id": "borussia-dortmund-vs-bodo-glimt1l4rjnh98olkm7v",
+          "slug": "borussia-dortmund-vs-bodo-glimt",
+          "token": "1l4rjnh98olkm7v",
+          "url": "/football/match/borussia-dortmund-vs-bodo-glimt/1l4rjnh98olkm7v/"
+        },
+        "utcDate": "2026-10-14T19:00:00+00:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_fk-bodoglimt",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "FK Bodo/Glimt",
+          "shortName": "FK Bodo/Glimt",
+          "crest": "https://img.thesports.com/football/team/98854ab97eadf3d2c7c6d657ad99df96.png",
+          "logo": "https://img.thesports.com/football/team/98854ab97eadf3d2c7c6d657ad99df96.png",
+          "identityCompetitionCode": "CL",
+          "identityCompetitionSlug": "uefa-champions-league"
+        },
+        "awayTeam": {
+          "id": "sc_t_borussia-dortmund",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "Borussia Dortmund",
+          "shortName": "Borussia Dortmund",
+          "crest": "https://img.thesports.com/football/team/bbfacbdbe67705172c6414d7e9c21b58.png",
+          "logo": "https://img.thesports.com/football/team/bbfacbdbe67705172c6414d7e9c21b58.png",
+          "identityCompetitionCode": "CL",
+          "identityCompetitionSlug": "uefa-champions-league"
+        },
+        "score": {
+          "fullTime": {
+            "home": 1,
+            "away": 0
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "CL",
+          "name": "UEFA Champions League",
+          "code": "CL",
+          "country": "Europe",
+          "emblem": "https://img.thesports.com/football/competition/ac05535bde17129cb598311242b3afba.png",
+          "logo": "https://img.thesports.com/football/competition/ac05535bde17129cb598311242b3afba.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    },
+    {
+      "preferred": {
+        "id": "bsd_601107",
+        "rawId": 601107,
+        "slug": "bsd_601107",
+        "provider": "bsd",
+        "source": "bsd",
+        "utcDate": "2026-10-14T19:00:00.000Z",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "minute": 90,
+        "period": "FT",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "bsd_t_402",
+          "rawId": 402,
+          "providerId": "402",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "Shakhtar Donetsk",
+          "shortName": "Shakhtar Donetsk",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/402/",
+          "logo": "https://sports.bzzoiro.com/img/team/402/",
+          "slug": "bsd_t_402",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "awayTeam": {
+          "id": "bsd_t_329",
+          "rawId": 329,
+          "providerId": "329",
+          "provider": "bsd",
+          "source": "bsd",
+          "name": "AEK Athens",
+          "shortName": "AEK Athens",
+          "country": "",
+          "countryCode": "",
+          "crest": "https://sports.bzzoiro.com/img/team/329/",
+          "logo": "https://sports.bzzoiro.com/img/team/329/",
+          "slug": "bsd_t_329",
+          "type": "team",
+          "venueId": null,
+          "coach": "",
+          "founded": null
+        },
+        "score": {
+          "fullTime": {
+            "home": 3,
+            "away": 1
+          },
+          "halfTime": {
+            "home": 1,
+            "away": 1
+          }
+        },
+        "competition": {
+          "id": "CL",
+          "code": "CL",
+          "rawId": 7,
+          "providerId": "7",
+          "provider": "bsd",
+          "name": "Champions League",
+          "country": "Europe",
+          "countryCode": "",
+          "emblem": "https://sports.bzzoiro.com/img/league/7/",
+          "logo": "https://sports.bzzoiro.com/img/league/7/",
+          "season": {
+            "id": 1112,
+            "name": "UEFA Champions League 26/27",
+            "year": 2026,
+            "start_date": "2026-07-01",
+            "end_date": "2027-06-30",
+            "is_current": true,
+            "stages": [
+              {
+                "stage": "qualification-round-1",
+                "stage_name": "Qualification Round 1",
+                "matches": 28,
+                "rounds": 1,
+                "start_date": "2026-07-07",
+                "end_date": "2026-07-15"
+              },
+              {
+                "stage": "qualification-round-2",
+                "stage_name": "Qualification Round 2",
+                "matches": 30,
+                "rounds": 1,
+                "start_date": "2026-07-21",
+                "end_date": "2026-07-29"
+              },
+              {
+                "stage": "qualification-round-3",
+                "stage_name": "Qualification Round 3",
+                "matches": 21,
+                "rounds": 1,
+                "start_date": "2026-08-04",
+                "end_date": "2026-08-11"
+              },
+              {
+                "stage": "playoff-round",
+                "stage_name": "Playoff round",
+                "matches": 14,
+                "rounds": 1,
+                "start_date": "2026-08-18",
+                "end_date": "2026-08-26"
+              },
+              {
+                "stage": "league-phase",
+                "stage_name": "League phase",
+                "matches": 144,
+                "rounds": 8,
+                "start_date": "2026-09-08",
+                "end_date": "2027-01-27"
+              }
+            ]
+          }
+        },
+        "seasonId": 1112,
+        "round": 2,
+        "roundLabel": "League phase · Matchday 2",
+        "group": "",
+        "stage": "league-phase",
+        "stageName": "League phase",
+        "venueId": 13,
+        "venue": null,
+        "refereeId": 1755,
+        "homeCoachId": 633,
+        "awayCoachId": 436,
+        "penaltyShootout": null,
+        "extraTimeScore": null,
+        "xg": {
+          "liveHome": null,
+          "liveAway": null,
+          "actualHome": null,
+          "actualAway": null,
+          "homeEstimated": null,
+          "awayEstimated": null,
+          "estimated": null,
+          "source": "bsd"
+        },
+        "lastUpdated": null,
+        "hasXg": false,
+        "liveWebsocket": true,
+        "websocketPlus": true,
+        "aiPreview": null
+      },
+      "supplement": {
+        "id": "fc-shakhtar-donetsk-vs-aek-athenspxwrxlhy68l1ryk",
+        "slug": "fc-shakhtar-donetsk-vs-aek-athenspxwrxlhy68l1ryk",
+        "matchLocator": {
+          "id": "fc-shakhtar-donetsk-vs-aek-athenspxwrxlhy68l1ryk",
+          "slug": "fc-shakhtar-donetsk-vs-aek-athens",
+          "token": "pxwrxlhy68l1ryk",
+          "url": "/football/match/fc-shakhtar-donetsk-vs-aek-athens/pxwrxlhy68l1ryk/"
+        },
+        "utcDate": "2026-10-14T19:00:00+00:00",
+        "status": "FINISHED",
+        "statusText": "Finished",
+        "sourceStatus": "finished",
+        "minute": null,
+        "period": "",
+        "matchPhase": "FULL_TIME",
+        "halfTimeConfirmed": true,
+        "homeTeam": {
+          "id": "sc_t_fc-shakhtar-donetsk",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "FC Shakhtar Donetsk",
+          "shortName": "FC Shakhtar Donetsk",
+          "crest": "https://img.thesports.com/football/team/141bcf6ab6d0bc7b8c67dc5eeb9f347d.png",
+          "logo": "https://img.thesports.com/football/team/141bcf6ab6d0bc7b8c67dc5eeb9f347d.png",
+          "identityCompetitionCode": "CL",
+          "identityCompetitionSlug": "uefa-champions-league"
+        },
+        "awayTeam": {
+          "id": "sc_t_aek-athens",
+          "identityBasis": "competition_standings",
+          "provider": "sportscore",
+          "name": "AEK Athens",
+          "shortName": "AEK Athens",
+          "crest": "https://img.thesports.com/football/team/12dcc69bef67aa2a93107e940ee89144.png",
+          "logo": "https://img.thesports.com/football/team/12dcc69bef67aa2a93107e940ee89144.png",
+          "identityCompetitionCode": "CL",
+          "identityCompetitionSlug": "uefa-champions-league"
+        },
+        "score": {
+          "fullTime": {
+            "home": 3,
+            "away": 1
+          },
+          "halfTime": {
+            "home": null,
+            "away": null
+          }
+        },
+        "competition": {
+          "id": "CL",
+          "name": "UEFA Champions League",
+          "code": "CL",
+          "country": "Europe",
+          "emblem": "https://img.thesports.com/football/competition/ac05535bde17129cb598311242b3afba.png",
+          "logo": "https://img.thesports.com/football/competition/ac05535bde17129cb598311242b3afba.png"
+        },
+        "source": "sportscore",
+        "provider": "sportscore"
+      }
+    }
+  ],
+  "lineupEvidence": {
+    "matchId": "bsd_601101",
+    "source": "bsd",
+    "homeTeamId": "bsd_t_1404",
+    "awayTeamId": "bsd_t_1",
+    "confirmed": true,
+    "lineupStatus": "confirmed",
+    "homeFormation": "5-4-1",
+    "awayFormation": "4-2-3-1",
+    "homeLayout": {
+      "mode": "position_groups",
+      "reason": "exact_positions_unavailable",
+      "rows": [
+        [
+          "bsd_p_30984"
+        ],
+        [
+          "bsd_p_30987",
+          "bsd_p_5417",
+          "bsd_p_30986",
+          "bsd_p_16746",
+          "bsd_p_56901"
+        ],
+        [
+          "bsd_p_31182",
+          "bsd_p_30990",
+          "bsd_p_12758",
+          "bsd_p_30993"
+        ],
+        [
+          "bsd_p_30992"
+        ]
+      ]
+    },
+    "awayLayout": {
+      "mode": "position_groups",
+      "reason": "exact_positions_unavailable",
+      "rows": [
+        [
+          "bsd_p_322"
+        ],
+        [
+          "bsd_p_4429",
+          "bsd_p_3661",
+          "bsd_p_2803",
+          "bsd_p_1077"
+        ],
+        [
+          "bsd_p_327",
+          "bsd_p_340",
+          "bsd_p_341",
+          "bsd_p_330",
+          "bsd_p_2261"
+        ],
+        [
+          "bsd_p_6098"
+        ]
+      ]
+    },
+    "home": [
+      {
+        "id": "bsd_p_30984",
+        "rawId": 30984,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Lukas Jungwirth",
+        "playerName": "Lukas Jungwirth",
+        "position": "G",
+        "rating": 4.7,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_30987",
+        "rawId": 30987,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Kasper Jørgensen",
+        "playerName": "Kasper Jørgensen",
+        "position": "D",
+        "rating": 5.9,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_5417",
+        "rawId": 5417,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Xavier Mbuyamba",
+        "playerName": "Xavier Mbuyamba",
+        "position": "D",
+        "rating": 5.2,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_30986",
+        "rawId": 30986,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Alemão",
+        "playerName": "Alemão",
+        "position": "D",
+        "rating": 6.9,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_16746",
+        "rawId": 16746,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Andrés Andrade",
+        "playerName": "Andrés Andrade",
+        "position": "D",
+        "rating": 5.9,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_56901",
+        "rawId": 56901,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Yvan Dibango",
+        "playerName": "Yvan Dibango",
+        "position": "D",
+        "rating": 7.1,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_31182",
+        "rawId": 31182,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Krystof Daněk",
+        "playerName": "Krystof Daněk",
+        "position": "M",
+        "rating": 6.5,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_30990",
+        "rawId": 30990,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Melayro Bogarde",
+        "playerName": "Melayro Bogarde",
+        "position": "M",
+        "rating": 6.6,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_12758",
+        "rawId": 12758,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Alessandro Schöpf",
+        "playerName": "Alessandro Schöpf",
+        "position": "M",
+        "rating": 6.3,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_30993",
+        "rawId": 30993,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Christoph Lang",
+        "playerName": "Christoph Lang",
+        "position": "M",
+        "rating": 6.1,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_30992",
+        "rawId": 30992,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Samuel Adeniran",
+        "playerName": "Samuel Adeniran",
+        "position": "F",
+        "rating": 6.5,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      }
+    ],
+    "away": [
+      {
+        "id": "bsd_p_322",
+        "rawId": 322,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Alisson",
+        "playerName": "Alisson",
+        "position": "G",
+        "rating": 6,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_4429",
+        "rawId": 4429,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Jeremie Frimpong",
+        "playerName": "Jeremie Frimpong",
+        "position": "D",
+        "rating": 9.2,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_3661",
+        "rawId": 3661,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Ronald Araújo",
+        "playerName": "Ronald Araújo",
+        "position": "D",
+        "rating": 8.4,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_2803",
+        "rawId": 2803,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Jérémy Jacquet",
+        "playerName": "Jérémy Jacquet",
+        "position": "D",
+        "rating": 7.1,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_1077",
+        "rawId": 1077,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Kostas Tsimikas",
+        "playerName": "Kostas Tsimikas",
+        "position": "D",
+        "rating": 8.2,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_327",
+        "rawId": 327,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Ryan Gravenberch",
+        "playerName": "Ryan Gravenberch",
+        "position": "M",
+        "rating": 6.6,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_340",
+        "rawId": 340,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Trey Nyoni",
+        "playerName": "Trey Nyoni",
+        "position": "M",
+        "rating": 7,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_341",
+        "rawId": 341,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Rio Ngumoha",
+        "playerName": "Rio Ngumoha",
+        "position": "M",
+        "rating": 7.8,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_330",
+        "rawId": 330,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Florian Wirtz",
+        "playerName": "Florian Wirtz",
+        "position": "M",
+        "rating": 7.3,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_2261",
+        "rawId": 2261,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Bradley Barcola",
+        "playerName": "Bradley Barcola",
+        "position": "M",
+        "rating": 10,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      },
+      {
+        "id": "bsd_p_6098",
+        "rawId": 6098,
+        "provider": "bsd",
+        "source": "bsd",
+        "name": "Lewis Koumas",
+        "playerName": "Lewis Koumas",
+        "position": "F",
+        "rating": 7.8,
+        "ratingScope": "match",
+        "ratingEventId": "bsd_601101"
+      }
+    ]
+  }
+}
