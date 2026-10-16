@@ -19,6 +19,7 @@ const { canonicalMatchStatus } = require('../utils/matchStatus');
 const { compactPlayerInfo, compactTeamProfile } = require('../utils/profilePayload');
 const { enrichLineupMetrics, playerFacts } = require('../utils/lineupPlayerMetrics');
 const { projectLineupPayload } = require('../utils/compactLineupPayload');
+const { projectMatchStatsPayload } = require('../utils/compactMatchStatsPayload');
 const { getVerifiedBsdDetails } = require('../services/verifiedMatchDetailsService');
 const { verifiedBsdTeamIdForSportScoreTeam } = require('../utils/providerFixtureIdentity');
 
@@ -828,6 +829,7 @@ exports.getAllCompetitions = async (req, res) => {
 exports.getMatchDeepStats = async (req, res) => {
   try {
     const matchId = req.params.id;
+    const presentStats = data => projectMatchStatsPayload(data, req.query?.format);
 
     // A scoped BSD ID selects only that fixture at that provider.
     if (/^bsd_[1-9]\d*$/.test(String(matchId))) {
@@ -836,7 +838,7 @@ exports.getMatchDeepStats = async (req, res) => {
       const prediction = canPreviewMatch(details.matchInfo)
         ? await callProvider('BSD match prediction', () => bsdSportsService.getPredictionForMatch(matchId)) : null;
       return res.json({ success: true, source: 'bsd', coverage: details.coverage,
-        data: buildBsdDeepMatch(details, prediction) });
+        data: presentStats(buildBsdDeepMatch(details, prediction)) });
     }
     if (String(matchId).startsWith('bsd_')) return res.status(404).json({ success: false, message: 'Match details not found' });
     // 1. Try SportScore
@@ -845,7 +847,7 @@ exports.getMatchDeepStats = async (req, res) => {
       if (scMatch) {
         const recovered = await getVerifiedBsdDetails(scMatch);
         if (recovered && (hasItems(recovered.statistics) || !hasItems(scMatch.providerStatistics))) return res.json({ success: true, source: 'bsd', coverage: recovered.coverage,
-          data: buildBsdDeepMatch(recovered, null) });
+          data: presentStats(buildBsdDeepMatch(recovered, null)) });
         const timeline = hydrateTimelineTeams(scMatch.timeline || [], scMatch);
         const goals = timeline
           .filter(event => event.type === 'goal')
@@ -896,7 +898,7 @@ exports.getMatchDeepStats = async (req, res) => {
         return res.json({
           success: true,
           source: prediction ? 'sportscore+bsd' : 'sportscore',
-          data: {
+          data: presentStats({
             matchInfo: scMatch,
             timeline,
             goals,
@@ -908,7 +910,7 @@ exports.getMatchDeepStats = async (req, res) => {
             tracker: scMatch.tracker || null,
             head2head: null,
             prediction
-          }
+          })
         });
       }
     } catch (_) {}
@@ -932,7 +934,7 @@ exports.getMatchDeepStats = async (req, res) => {
         return res.json({
           success: true,
           source: 'kickoffapi',
-          data: {
+          data: presentStats({
             matchInfo: koMatch,
             timeline: [],
             goals: [],
@@ -944,7 +946,7 @@ exports.getMatchDeepStats = async (req, res) => {
             tracker: null,
             head2head: null,
             prediction
-          }
+          })
         });
       }
     } catch (_) {}
