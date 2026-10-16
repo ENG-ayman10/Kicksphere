@@ -8,7 +8,7 @@ const sportsDataService = require('../services/sportsDataService');
 const kickoffApiService = require('../services/kickoffApiService');
 const bsdSportsService = require('../services/bsdSportsService');
 const { enrichMissingPlayerHonours } = require('../services/playerHonoursEnrichment');
-const { resolveLocalTeam, resolveProviderTeamLookup, getTeamMatchesService } = require('../services/teamService');
+const { resolveLocalTeam, resolveProviderTeamLookup, getTeamMatchesService, sameVerifiedTeam } = require('../services/teamService');
 const { getCached, setCache } = require('../services/cacheService');
 const logger = require('../utils/logger');
 const { scopedTeamId } = require('../utils/teamIdentity');
@@ -564,6 +564,13 @@ exports.getDeepTeamDetails = async (req, res) => {
     const returnedScSources = [scTeam?.provider, scTeam?.source, scTeam?.info?.provider, scTeam?.info?.source].filter(isPresent);
     const exactSportScoreTeam = scopedSportScore && returnedScIds.length > 0 &&
       returnedScIds.every(id => id === teamId) && returnedScSources.every(source => source === 'sportscore');
+    // A widget/search fallback may resolve a different club. Its profile must
+    // never be relabelled with the requested favourite ID or authorize a
+    // secondary roster lookup, even when richer BSD recovery is unavailable.
+    if (scopedSportScore && scTeam?.info && !exactSportScoreTeam) return res.status(404).json({
+      success: false, source: 'unavailable', data: null, message: 'Team details not found',
+      coverage: { available: false, complete: false, partial: true, reason: 'provider_identity_mismatch' },
+    });
     if (exactSportScoreTeam && typeof verifiedBsdTeamIdForSportScoreTeam === 'function') {
       // Keep returned source and cohort metadata. Replacing a search fallback's
       // slug with the requested ID would falsely certify a namesake's roster.
@@ -593,15 +600,15 @@ exports.getDeepTeamDetails = async (req, res) => {
     }
     const koCandidate = scopedSportScore && !scTeam?.info ? null
       : await callProvider('KickOff team details', () => kickoffApiService.getTeamDetails(scTeam?.info?.name || lookup));
-    const normalizeName = value => String(value || '').normalize('NFKD')
-      .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[-\s]+/g, ' ').trim();
     // A generic name search can resolve a different club (Barcelona in Chile
     // versus FC Barcelona). Resolve the secondary provider's team first, then
-    // verify identity before requesting its roster or fixtures by scoped ID.
+    // verify explicit club/national, gender and age scope before requesting its
+    // roster or fixtures. Equal names/countries cannot certify an unknown cohort.
     const identitiesMatch = !scTeam?.info || (
-      normalizeName(scTeam.info.name) === normalizeName(koCandidate?.name) &&
-      normalizeName(scTeam.info.country) && normalizeName(koCandidate?.country) &&
-      normalizeName(scTeam.info.country) === normalizeName(koCandidate.country)
+      /^ko_t_[1-9]\d*$/.test(String(koCandidate?.id || '')) &&
+      [koCandidate?.provider, koCandidate?.source].filter(isPresent).every(source => source === 'kickoffapi') &&
+      (!isPresent(koCandidate?.providerId) || scopedTeamId(koCandidate.providerId, 'kickoffapi') === koCandidate.id) &&
+      typeof sameVerifiedTeam === 'function' && sameVerifiedTeam(scTeam.info, koCandidate)
     );
     const koInfo = identitiesMatch ? koCandidate : null;
 

@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Module = require('node:module');
+const { sameVerifiedTeam } = require('../services/teamService');
 
 const logger = { info() {}, warn() {}, error() {} };
 function load(file, mocks = {}) {
@@ -23,7 +24,7 @@ function statsController(mocks = {}) {
     '../utils/logger': logger,
     '../services/sportscoreService': {}, '../services/kickoffApiService': {},
     '../services/sportsDataService': {}, '../services/bsdSportsService': {},
-    '../services/teamService': { resolveLocalTeam: () => null },
+    '../services/teamService': { resolveLocalTeam: () => null, sameVerifiedTeam },
     '../services/cacheService': cacheMock(), ...mocks,
   });
 }
@@ -426,11 +427,14 @@ test('verified secondary club identity joins only via its scoped ID and preserve
   const requested = [];
   const controller = statsController({
     '../services/sportscoreService': { getTeamDetails: async () => ({
-      info: { id: 'real-madrid', name: 'Real Madrid', country: 'Spain' },
+      info: { id: 'real-madrid', name: 'Real Madrid', country: 'Spain',
+        national: false, gender: 'male', ageGroup: 'senior', isReserve: false },
       matches: { recent: [], upcoming: [] },
     }) },
     '../services/kickoffApiService': {
-      getTeamDetails: async () => ({ id: 'ko_t_541', name: 'Real Madrid', country: 'Spain', venue: 'Provider Stadium' }),
+      getTeamDetails: async () => ({ id: 'ko_t_541', provider: 'kickoffapi', providerId: '541',
+        name: 'Real Madrid', country: 'Spain', venue: 'Provider Stadium',
+        national: false, gender: 'male', ageGroup: 'senior', isReserve: false }),
       getTeamSquad: async id => { requested.push(id); return [{ id: 'ko_p_1', name: 'Actual Player' }]; },
       getTeamFixtures: async id => { requested.push(id); return { recent: [], upcoming: [] }; },
     },

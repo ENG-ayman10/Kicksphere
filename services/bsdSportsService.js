@@ -28,6 +28,7 @@ const BSD_ID_TO_LEAGUE_CODE = Object.freeze(Object.fromEntries(Object.entries(LE
 const PRIMARY_LEAGUE_IDS = new Set([1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 17, 18, 85]);
 const origin = (() => { try { return new URL(BASE_URL).origin; } catch (_) { return null; } })();
 const inflight = new Map();
+const UNAVAILABLE_CACHE = Symbol.for('kicksphere.bsd.unavailable');
 const bsdClient = axios.create({
   baseURL: BASE_URL, headers: { Authorization: 'Token ' + API_TOKEN, Accept: 'application/json', 'User-Agent': 'KickSphereApp/2.0 (BSD Integration)' },
   timeout: 10000, maxRedirects: 0, maxContentLength: 8 * 1024 * 1024,
@@ -91,6 +92,14 @@ function safeRequest(path, expectedPath) {
     return url.pathname + url.search;
   } catch (_) { return null; }
 }
+function errorEnvelope(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  const nonEmpty = value => value !== undefined && value !== null && value !== false && value !== 0 && value !== '' &&
+    (typeof value !== 'object' || Object.keys(value).length > 0);
+  return body.success === false || nonEmpty(body.error) || nonEmpty(body.errors) ||
+    (typeof body.detail === 'string' && body.detail.trim().length > 0 &&
+      Object.keys(body).every(key => ['detail', 'code', 'status', 'message'].includes(key)));
+}
 async function fetchBsd(endpoint, params = {}, ttl = TTL.matches, timeoutMs, responseTtl) {
   if (!isConfigured()) return null;
   const path = safeRequest(endpoint);
@@ -98,6 +107,7 @@ async function fetchBsd(endpoint, params = {}, ttl = TTL.matches, timeoutMs, res
   const cleanParams = paramsSorted(params);
   const key = 'bsd:v2:' + path + ':' + new URLSearchParams(cleanParams);
   const cached = getCached(key, ttl);
+  if (cached === UNAVAILABLE_CACHE) return null;
   if (cached !== undefined && cached !== null) return cached;
   const timeout = integer(timeoutMs), requestTimeout = timeout !== null && timeout > 0 ? Math.min(timeout, 10000) : null;
   // A shorter budget must not join an earlier request with a longer deadline.
@@ -108,6 +118,13 @@ async function fetchBsd(endpoint, params = {}, ttl = TTL.matches, timeoutMs, res
       const response = await bsdClient.get(path, { params: cleanParams, maxRedirects: 0,
         ...(requestTimeout === null ? {} : { timeout: requestTimeout, signal: AbortSignal.timeout(requestTimeout) }) });
       if (response.data !== undefined && response.data !== null && typeof response.data === 'object') {
+        // Some failures arrive as HTTP 200. They are unavailable resources,
+        // never successful one-hour catalogs or five-minute player profiles.
+        // Keep only a short negative cache to avoid retry bursts during outage.
+        if (errorEnvelope(response.data)) {
+          setCache(key, UNAVAILABLE_CACHE, Math.min(ttl, TTL.live));
+          return null;
+        }
         const requestedTtl = typeof responseTtl === 'function' ? integer(responseTtl(response.data)) : null;
         setCache(key, response.data, requestedTtl !== null && requestedTtl > 0 ? Math.min(ttl, requestedTtl) : ttl);
         return response.data;

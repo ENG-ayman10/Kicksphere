@@ -315,7 +315,7 @@ test('a different returned SportScore slug, provider or cohort cannot borrow the
     { info: { id: 'valencia-cf', ageGroup: 'u21' } },
     { info: { id: 'valencia-cf', squadType: 'reserves' } },
   ];
-  for (const invalid of invalidProfiles) {
+  for (const [index, invalid] of invalidProfiles.entries()) {
     const requested = [];
     const scTeam = { source: 'sportscore', matches: { upcoming: [{ competition: { code: 'PD' } }] },
       ...invalid, info: { name: 'Valencia CF', country: 'Spain', ...invalid.info } };
@@ -332,6 +332,13 @@ test('a different returned SportScore slug, provider or cohort cannot borrow the
     const res = response(); await controller.getDeepTeamDetails({ params: { id: 'sc_t_valencia-cf' }, query: {} }, res);
     assert.deepEqual(requested, [], JSON.stringify(invalid));
     assert.notEqual(res.body.source, 'sportscore+bsd');
+    if (index < 6) {
+      assert.equal(res.statusCode, 404);
+      assert.equal(res.body.data, null);
+      assert.equal(res.body.coverage.reason, 'provider_identity_mismatch');
+      continue;
+    }
+    assert.equal(res.statusCode, 200);
     assert.equal(res.body.data.canonicalTeamId, undefined);
     assert.deepEqual(res.body.data.squad, []);
   }

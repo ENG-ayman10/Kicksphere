@@ -608,9 +608,9 @@ exports.getTeamDetails = async (teamIdOrName) => {
     shortName: team.name || '',
     logo: team.logo || (team.id ? `https://images.kickoffapi.com/images/logos/${team.id}.png` : ''),
     country: team.countryName || team.country || '',
-    ...Object.fromEntries(['national', 'is_national', 'isNational', 'is_women', 'isWomen']
+    ...Object.fromEntries(['national', 'is_national', 'isNational', 'is_women', 'isWomen', 'isReserve', 'is_reserve', 'isReserves']
       .filter(key => typeof team[key] === 'boolean').map(key => [key, team[key]])),
-    ...Object.fromEntries(['type', 'gender', 'category', 'ageGroup', 'age_group']
+    ...Object.fromEntries(['type', 'gender', 'category', 'ageGroup', 'age_group', 'squadType', 'squad_type']
       .filter(key => typeof team[key] === 'string' && team[key].trim().length > 0 && team[key].trim().length <= 100)
       .map(key => [key, team[key].trim()])),
     founded: team.founded || null,

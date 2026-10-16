@@ -81,8 +81,15 @@ function teamCategory(info) {
     .map(value => ['male', 'men', 'boys'].includes(value) ? 'male' : ['female', 'women', 'girls'].includes(value) ? 'female' : value);
   for (const key of ['isWomen', 'is_women']) if (typeof info?.[key] === 'boolean') gender.push(info[key] ? 'female' : 'male');
   const category = ['category', 'ageGroup', 'age_group'].map(key => identityText(info?.[key])).filter(Boolean);
+  const reserves = ['isReserve', 'is_reserve', 'isReserves'].filter(key => typeof info?.[key] === 'boolean')
+    .map(key => info[key] ? 'reserves' : 'first');
+  for (const key of ['squadType', 'squad_type']) {
+    const value = identityText(info?.[key]);
+    if (value) reserves.push(['first', 'first team', 'senior'].includes(value) ? 'first'
+      : ['reserve', 'reserves', 'reserve team', 'second', 'second team', 'ii'].includes(value) ? 'reserves' : value);
+  }
   const distinct = values => [...new Set(values)];
-  return { national: distinct(national), gender: distinct(gender), category: distinct(category) };
+  return { national: distinct(national), gender: distinct(gender), category: distinct(category), reserves: distinct(reserves) };
 }
 function sameVerifiedTeam(primary, secondary) {
   const name = identityText(primary?.name), country = identityText(primary?.country);
@@ -92,7 +99,7 @@ function sameVerifiedTeam(primary, secondary) {
   // gender or age category must also be confirmed by the secondary provider.
   if (left.national.length !== 1 || right.national.length !== 1 || left.national[0] !== right.national[0] ||
       left.gender.length !== 1 || right.gender.length !== 1 || !['male', 'female'].includes(left.gender[0])) return false;
-  return ['gender', 'category'].every(key => left[key].length <= 1 && right[key].length <= 1 &&
+  return ['gender', 'category', 'reserves'].every(key => left[key].length <= 1 && right[key].length <= 1 &&
     left[key].length === right[key].length && left[key][0] === right[key][0]);
 }
 
@@ -345,3 +352,4 @@ exports.getTeamSquadService = async (idOrName) => {
 
 exports.resolveLocalTeam = resolveLocalTeam;
 exports.resolveProviderTeamLookup = resolveProviderTeamLookup;
+exports.sameVerifiedTeam = sameVerifiedTeam;
