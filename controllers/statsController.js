@@ -303,6 +303,11 @@ exports.getLeaguesStandings = async (req, res) => {
 exports.getMatchTimeline = async (req, res) => {
   try {
     const { id } = req.params;
+    const incidentCoverage = details => {
+      const coverage = details.coverage?.incidents || details.coverage;
+      return coverage ? { ...coverage, matchId: id,
+        ...(coverage.matchId && coverage.matchId !== id ? { canonicalMatchId: coverage.matchId } : {}) } : coverage;
+    };
 
     if (/^bsd_[1-9]\d*$/.test(String(id))) {
       const details = await callProvider('BSD match timeline', () => bsdSportsService.getMatchDetails(id));
@@ -311,7 +316,7 @@ exports.getMatchTimeline = async (req, res) => {
         return res.json({ success: true, source: 'unavailable', data: [],
           coverage: { available: false, complete: false, partial: true, reason: 'incidents_unavailable' } });
       }
-      return res.json({ success: true, source: 'bsd', coverage: details.coverage,
+      return res.json({ success: true, source: 'bsd', coverage: incidentCoverage(details),
         data: hydrateTimelineTeams(details.timeline || details.incidents || [], details.matchInfo) });
     }
     if (String(id).startsWith('bsd_')) return res.status(404).json({ success: false, message: 'Match not found' });
@@ -321,7 +326,7 @@ exports.getMatchTimeline = async (req, res) => {
       const scMatch = await sportscoreService.getMatchDetails(id);
       const recovered = scMatch ? await getVerifiedBsdDetails(scMatch) : null;
       if (recovered?.coverage?.fields?.incidents === true) return res.json({
-        success: true, source: 'bsd', coverage: recovered.coverage,
+        success: true, source: 'bsd', coverage: incidentCoverage(recovered),
         data: hydrateTimelineTeams(recovered.timeline || recovered.incidents || [], recovered.matchInfo)
       });
       if (scMatch?.detailsAvailable !== false && Array.isArray(scMatch?.timeline) &&

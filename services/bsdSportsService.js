@@ -296,7 +296,7 @@ function normalizeBsdLineups(raw, match) {
   return validateLineupIntegrity({ matchId: match?.id, homeTeamId: match?.homeTeam?.id, awayTeamId: match?.awayTeam?.id, confirmed: status === 'confirmed', predicted: status === 'predicted', lineupStatus: status, beta: raw.beta === true, home: home.players, away: away.players, homeBench: home.bench, awayBench: away.bench, homeBenchComplete: home.benchComplete === true, awayBenchComplete: away.benchComplete === true, homeFormation: home.formation, awayFormation: away.formation, homeCoach: null, awayCoach: null, confidence: { home: home.confidence, away: away.confidence }, confidenceRaw: { home: home.confidenceRaw ?? null, away: away.confidenceRaw ?? null }, confidenceScale: 100, updatedAt: instant(raw.updated_at), unavailablePlayers: { home: (raw.unavailable_players?.home || []).map(normalizeMissing).filter(Boolean), away: (raw.unavailable_players?.away || []).map(normalizeMissing).filter(Boolean) }, source: 'bsd' }, { homeTeamId: match?.homeTeam?.id, awayTeamId: match?.awayTeam?.id, provider: 'bsd' });
 }
 function normalizeIncident(raw) {
-  if (!raw || typeof raw.type !== 'string') return null;
+  if (!raw || typeof raw.type !== 'string' || !raw.type.trim()) return null;
   const card = String(raw.card_type || '').toLowerCase(), type = raw.type === 'card' ? (card.includes('red') ? 'red_card' : card === 'yellow' ? 'yellow_card' : 'card') : raw.type;
   const playerId = positiveId(raw.player_id ?? raw.player_in_id ?? raw.player?.id);
   const nestedPlayerId = positiveId(raw.player?.id);
@@ -322,6 +322,18 @@ function normalizeXg(raw) {
 }
 function normalizeVenue(raw) { return raw ? { id: positiveId(raw.id), name: raw.name || '', city: raw.city || '', country: raw.country || '', capacity: integer(raw.capacity), latitude: numeric(raw.latitude), longitude: numeric(raw.longitude), source: 'bsd' } : null; }
 function resource(raw, id, key = 'event_id') { return raw && Number(raw[key]) === id ? raw : null; }
+function incidentRows(raw, id) {
+  const supplied = Array.isArray(raw?.incidents);
+  const rows = supplied ? raw.incidents.map(row => row?.event_id !== undefined && positiveId(row.event_id) !== id
+    ? null : normalizeIncident(row)).filter(Boolean) : [];
+  const invalidRows = supplied ? raw.incidents.length - rows.length : 0;
+  const explicitlyPartial = raw?.complete === false || raw?.partial === true ||
+    raw?.coverage?.complete === false || raw?.coverage?.partial === true || raw?.coverage?.possiblyTruncated === true;
+  const complete = supplied && invalidRows === 0 && !explicitlyPartial;
+  return withCoverage(rows, { scope: 'match_incidents', matchId: 'bsd_' + id, available: supplied,
+    complete, partial: !complete, possiblyTruncated: raw?.coverage?.possiblyTruncated === true, invalidRows,
+    ...(!supplied ? { reason: 'incidents_unavailable' } : invalidRows ? { reason: 'invalid_incident_rows' } : {}) });
+}
 exports.getLeagues = async (options = {}) => {
   const raw = await fetchList('/api/v2/leagues/', { limit: 200 }, TTL.catalog, ['results'], options);
   if (!raw) return null;
@@ -419,8 +431,7 @@ exports.getMatchTimeline = async matchId => {
       !await exports.getMatchSummary(matchId, { respectCompetitionScope: true })) return null;
   const raw = resource(await fetchBsd('/api/v2/events/' + id + '/incidents/', {}, TTL.live), id);
   if (!raw || !Array.isArray(raw.incidents)) return null;
-  const rows = raw.incidents.map(normalizeIncident).filter(Boolean);
-  return withCoverage(rows, { available: true, complete: rows.length === raw.incidents.length, partial: rows.length !== raw.incidents.length, possiblyTruncated: false });
+  return incidentRows(raw, id);
 };
 // Alert detection reads only authoritative event/incident/XI data. Player
 // profiles, valuations and statistics cannot delay a time-sensitive alert.
@@ -476,7 +487,7 @@ exports.getMatchDetails = async (matchId, options = {}) => {
   ]);
   const stats = resource(statsRaw, id), lineup = resource(lineupRaw, id), incidentData = resource(incidentsRaw, id), playerData = resource(playersRaw, id);
   const statistics = normalizeBsdStatistics(stats), lineups = normalizeBsdLineups(lineup, match);
-  const incidents = (incidentData?.incidents || []).map(normalizeIncident).filter(Boolean);
+  const incidents = incidentRows(incidentData, id);
   const byPlayer = new Map((lineups ? [...lineups.home, ...lineups.away, ...lineups.homeBench, ...lineups.awayBench] : []).map(player => [player.rawId, player]));
   const playerStatistics = (playerData?.player_stats || []).filter(row => positiveId(row.player_id) && Number(row.event_id) === id && [match.homeTeam.rawId, match.awayTeam.rawId].includes(Number(row.team_id))).map(row => ({ ...row, id: 'bsd_p_' + row.player_id, playerId: 'bsd_p_' + row.player_id, teamId: 'bsd_t_' + row.team_id, eventId: match.id, name: byPlayer.get(Number(row.player_id))?.name || '', image: imageUrl('player', row.player_id), provider: 'bsd', source: 'bsd' }));
   if (lineups) for (const side of ['home', 'away']) {
@@ -501,7 +512,9 @@ exports.getMatchDetails = async (matchId, options = {}) => {
   const venue = match.venueId && positiveId(venueRaw?.id) === match.venueId ? normalizeVenue(venueRaw) : null;
   Object.assign(match, { venue, providerStatistics: statistics, lineups, timeline: incidents, detailsAvailable: true, xg: normalizeXg(stats) });
   const requestedSections = fullDetails ? ['stats', 'lineups', 'incidents', 'player_stats'] : ['lineups', 'player_stats'];
-  const coverage = { source: 'bsd', available: true, scope: fullDetails ? 'match_details' : 'match_lineups', complete: Boolean(available) && requestedSections.every(name => available.available?.[name] === false || ({ stats, lineups: lineup, incidents: incidentData, player_stats: playerData })[name]), fields: { stats: Boolean(stats), lineups: Boolean(lineup), incidents: Boolean(incidentData), playerStatistics: Boolean(playerData) } };
+  const coverage = { source: 'bsd', available: true, scope: fullDetails ? 'match_details' : 'match_lineups', complete: Boolean(available) && requestedSections.every(name => available.available?.[name] === false || ({ stats, lineups: lineup, incidents: incidentData, player_stats: playerData })[name]), fields: { stats: Boolean(stats), lineups: Boolean(lineup), incidents: incidents.coverage.available, playerStatistics: Boolean(playerData) } };
+  coverage.incidents = incidents.coverage;
+  if (fullDetails && shouldFetch('incidents') && !incidents.coverage.complete) coverage.complete = false;
   coverage.lineups = { available: Boolean(lineups), complete: lineups?.integrity?.complete === true, partial: lineups?.integrity?.complete !== true, integrity: lineups?.integrity || null };
   if (lineups?.integrity?.partial) coverage.complete = false;
   coverage.partial = !coverage.complete;
