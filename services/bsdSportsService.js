@@ -472,18 +472,19 @@ exports.getMatchDetails = async (matchId, options = {}) => {
   if (!match || !isMatchAllowed(match)) return null;
   const availableRaw = competitionScopeEnabled() ? await fetchBsd('/api/v2/events/' + id + '/availability/', {}, TTL.live) : initialAvailability;
   const available = resource(availableRaw, id), shouldFetch = name => !available || available.available?.[name] !== false;
-  // The lineup route needs exact event identity, its XI and measured match
-  // ratings. Unrelated incidents/stats/venue outages must not hold that
-  // screen for their full timeout or multiply requests on each lineup refresh.
-  const fullDetails = options.lineupsOnly !== true;
+  // Section readers still verify the exact fixture and availability. Only
+  // fetch that section's resources, so an incident refresh cannot repeat XI,
+  // statistics, venue or manager work (or wait for their unrelated outages).
+  const timelineOnly = options.timelineOnly === true;
+  const fullDetails = options.lineupsOnly !== true && !timelineOnly;
   const [statsRaw, lineupRaw, incidentsRaw, playersRaw, venueRaw, homeCoach, awayCoach] = await Promise.all([
     fullDetails && shouldFetch('stats') ? fetchBsd('/api/v2/events/' + id + '/stats/', {}, TTL.live) : null,
-    shouldFetch('lineups') ? fetchBsd('/api/v2/events/' + id + '/lineups/', {}, TTL.live) : null,
-    fullDetails && shouldFetch('incidents') ? fetchBsd('/api/v2/events/' + id + '/incidents/', {}, TTL.live) : null,
-    shouldFetch('player_stats') ? fetchBsd('/api/v2/events/' + id + '/player-stats/', {}, TTL.live) : null,
+    !timelineOnly && shouldFetch('lineups') ? fetchBsd('/api/v2/events/' + id + '/lineups/', {}, TTL.live) : null,
+    (fullDetails || timelineOnly) && shouldFetch('incidents') ? fetchBsd('/api/v2/events/' + id + '/incidents/', {}, TTL.live) : null,
+    !timelineOnly && shouldFetch('player_stats') ? fetchBsd('/api/v2/events/' + id + '/player-stats/', {}, TTL.live) : null,
     fullDetails && match.venueId ? fetchBsd('/api/v2/venues/' + match.venueId + '/', {}, TTL.catalog) : null,
-    match.homeCoachId ? fetchBsd('/api/v2/managers/' + match.homeCoachId + '/', {}, TTL.catalog) : null,
-    match.awayCoachId ? fetchBsd('/api/v2/managers/' + match.awayCoachId + '/', {}, TTL.catalog) : null,
+    !timelineOnly && match.homeCoachId ? fetchBsd('/api/v2/managers/' + match.homeCoachId + '/', {}, TTL.catalog) : null,
+    !timelineOnly && match.awayCoachId ? fetchBsd('/api/v2/managers/' + match.awayCoachId + '/', {}, TTL.catalog) : null,
   ]);
   const stats = resource(statsRaw, id), lineup = resource(lineupRaw, id), incidentData = resource(incidentsRaw, id), playerData = resource(playersRaw, id);
   const statistics = normalizeBsdStatistics(stats), lineups = normalizeBsdLineups(lineup, match);
@@ -511,10 +512,10 @@ exports.getMatchDetails = async (matchId, options = {}) => {
   }
   const venue = match.venueId && positiveId(venueRaw?.id) === match.venueId ? normalizeVenue(venueRaw) : null;
   Object.assign(match, { venue, providerStatistics: statistics, lineups, timeline: incidents, detailsAvailable: true, xg: normalizeXg(stats) });
-  const requestedSections = fullDetails ? ['stats', 'lineups', 'incidents', 'player_stats'] : ['lineups', 'player_stats'];
-  const coverage = { source: 'bsd', available: true, scope: fullDetails ? 'match_details' : 'match_lineups', complete: Boolean(available) && requestedSections.every(name => available.available?.[name] === false || ({ stats, lineups: lineup, incidents: incidentData, player_stats: playerData })[name]), fields: { stats: Boolean(stats), lineups: Boolean(lineup), incidents: incidents.coverage.available, playerStatistics: Boolean(playerData) } };
+  const requestedSections = timelineOnly ? ['incidents'] : fullDetails ? ['stats', 'lineups', 'incidents', 'player_stats'] : ['lineups', 'player_stats'];
+  const coverage = { source: 'bsd', available: true, scope: timelineOnly ? 'match_timeline' : fullDetails ? 'match_details' : 'match_lineups', complete: Boolean(available) && requestedSections.every(name => available.available?.[name] === false || ({ stats, lineups: lineup, incidents: incidentData, player_stats: playerData })[name]), fields: { stats: Boolean(stats), lineups: Boolean(lineup), incidents: incidents.coverage.available, playerStatistics: Boolean(playerData) } };
   coverage.incidents = incidents.coverage;
-  if (fullDetails && shouldFetch('incidents') && !incidents.coverage.complete) coverage.complete = false;
+  if ((fullDetails || timelineOnly) && shouldFetch('incidents') && !incidents.coverage.complete) coverage.complete = false;
   coverage.lineups = { available: Boolean(lineups), complete: lineups?.integrity?.complete === true, partial: lineups?.integrity?.complete !== true, integrity: lineups?.integrity || null };
   if (lineups?.integrity?.partial) coverage.complete = false;
   coverage.partial = !coverage.complete;

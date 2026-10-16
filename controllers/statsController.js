@@ -18,6 +18,7 @@ const { validateLineupIntegrity } = require('../utils/lineupIntegrity');
 const { canonicalMatchStatus } = require('../utils/matchStatus');
 const { compactPlayerInfo, compactTeamProfile } = require('../utils/profilePayload');
 const { enrichLineupMetrics, playerFacts } = require('../utils/lineupPlayerMetrics');
+const { projectLineupPayload } = require('../utils/compactLineupPayload');
 const { getVerifiedBsdDetails } = require('../services/verifiedMatchDetailsService');
 const { verifiedBsdTeamIdForSportScoreTeam } = require('../utils/providerFixtureIdentity');
 
@@ -310,7 +311,7 @@ exports.getMatchTimeline = async (req, res) => {
     };
 
     if (/^bsd_[1-9]\d*$/.test(String(id))) {
-      const details = await callProvider('BSD match timeline', () => bsdSportsService.getMatchDetails(id));
+      const details = await callProvider('BSD match timeline', () => bsdSportsService.getMatchDetails(id, { timelineOnly: true }));
       if (!details?.matchInfo) return res.status(404).json({ success: false, message: 'Match not found' });
       if (details.coverage?.fields?.incidents === false) {
         return res.json({ success: true, source: 'unavailable', data: [],
@@ -324,7 +325,7 @@ exports.getMatchTimeline = async (req, res) => {
     // 1. Try SportScore
     try {
       const scMatch = await sportscoreService.getMatchDetails(id);
-      const recovered = scMatch ? await getVerifiedBsdDetails(scMatch) : null;
+      const recovered = scMatch ? await getVerifiedBsdDetails(scMatch, { timelineOnly: true }) : null;
       if (recovered?.coverage?.fields?.incidents === true) return res.json({
         success: true, source: 'bsd', coverage: incidentCoverage(recovered),
         data: hydrateTimelineTeams(recovered.timeline || recovered.incidents || [], recovered.matchInfo)
@@ -457,20 +458,22 @@ async function resolveMatchLineups(id) {
 exports.getMatchLineups = async (req, res) => {
   try {
     const { id } = req.params;
-    const { home, away, date } = req.query;
+    const { format } = req.query;
 
-    const cacheKey = `lineups:${id}:${date || ''}`;
+    // Hints cannot change the exact fixture identity. Cache the full contract
+    // once, then project only the negotiated response without mutating it.
+    const cacheKey = `lineups:${id}`;
     const cached = getCached(cacheKey);
     if (cached) {
       return res.json({
         success: true,
         source: `${cached.source}_cached`,
         coverage: cached.coverage,
-        data: cached.lineups
+        data: projectLineupPayload(cached.lineups, format)
       });
     }
 
-    const result = await resolveMatchLineups(id, home, away, date);
+    const result = await resolveMatchLineups(id);
     if (result && result.lineups && (result.lineups.home?.length > 0 || result.lineups.away?.length > 0)) {
       const teamIds = { home: result.lineups.homeTeamId, away: result.lineups.awayTeamId };
       const rosterProvider = result.source === 'bsd' ? bsdSportsService.getTeamLineupSquad
@@ -500,7 +503,7 @@ exports.getMatchLineups = async (req, res) => {
         success: true,
         source: result.source,
         coverage: result.coverage,
-        data: result.lineups
+        data: projectLineupPayload(result.lineups, format)
       });
     }
 

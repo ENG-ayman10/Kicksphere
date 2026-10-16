@@ -52,11 +52,12 @@ function publicFixture(fixture, publicId) {
     sourceMatchId: fixture.id, providerIdentities: validatedProviderIdentities(fixture) };
 }
 
-async function getVerifiedBsdDetails(match) {
+async function getVerifiedBsdDetails(match, options = {}) {
   const fixture = await resolveVerifiedBsdFixture(match);
   if (!fixture || !bsd.getMatchDetails) return null;
   try {
-    const details = await bsd.getMatchDetails(fixture.id);
+    const details = await bsd.getMatchDetails(fixture.id,
+      options.timelineOnly === true ? { timelineOnly: true } : undefined);
     // Revalidate the provider detail against the original URL and oriented
     // participants. The calendar record alone cannot bless a changed fixture.
     const checked = details?.matchInfo && findVerifiedCanonicalFixture(match.id, [details.matchInfo], [match]);
