@@ -19,7 +19,7 @@ function fixture(status, home = null, away = null) {
 
 function harness({ usersByTeam, fixtureRead, subscribedMatchIds = [], deviceRecipients,
   recipientAllowed, restrictSocketAlerts, retryRead, now, fixtureRefreshIntervalMs, detailRead,
-  nonBlockingDetails, asynchronousDelivery, saveRead, legacyQueryRead, getAlertMatchIds, persistRead } = {}) {
+  nonBlockingDetails, asynchronousDelivery, saveRead, legacyQueryRead, getAlertMatchIds, persistRead, deliverRead } = {}) {
   const state = { fixtures: [], fixtureReads: 0, fixtureDays: [], live: [], detail: null, detailsRead: 0,
     delivered: [], retryFlushes: 0, queriedMatchIds: [], timelineRequests: [],
     reads: [], liveReads: 0, detailIds: [], activeReads: 0, peakReads: 0, activeNotifications: 0, peakNotifications: 0 };
@@ -60,8 +60,11 @@ function harness({ usersByTeam, fixtureRead, subscribedMatchIds = [], deviceReci
       state.queriedMatchIds.push(ids); return new Set(subscribedMatchIds);
     },
       flushRetries: async () => { state.retryFlushes++; return retryRead ? retryRead() : {}; },
-      findRecipients: async events => deviceRecipients ? deviceRecipients(events) : new Map(),
-      deliver: async (device, event) => { state.delivered.push({ userId: device.userId, event }); } },
+      findRecipients: async (events, options) => deviceRecipients ? deviceRecipients(events, options) : new Map(),
+      deliver: async (device, event) => {
+        if (deliverRead) await deliverRead(device, event);
+        state.delivered.push({ userId: device.userId, event });
+      } },
     './sportscoreService': { getMatchesByDate: async date => {
       state.fixtureReads++; state.fixtureDays.push(date); return fixtureRead ? fixtureRead(state, date) : state.fixtures;
     }, getLiveMatches: async () => { state.liveReads++; return state.live; },
@@ -93,6 +96,7 @@ test('a genuine new goal after cancellation uses a different durable event ID ev
   }
   assert.deepEqual(h.persisted.map(event => event.type), ['goal', 'goalCancelled', 'goal']);
   assert.equal(new Set(h.persisted.map(event => event.eventId)).size, 3);
+  assert.deepEqual(h.persisted.map(event => event.scoreRevision), [1, 2, 3]);
   assert.deepEqual(h.persisted[1].previousScore, { home: 1, away: 0 });
 });
 
@@ -295,6 +299,71 @@ test('a device push starts before blocked legacy audience pagination or inbox pe
     await h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 2, 0)], includeDetails: false }); await flushTasks();
     assert.equal(h.state.delivered.length, 2, 'A blocked inbox cannot prevent the next score event');
   } finally { unblock(); await flushTasks(); await flushTasks(); }
+});
+
+test('first audience page sends before the next page resolves and final-map reconciliation never duplicates a pair', async () => {
+  let unblockPage;
+  const pageHeld = new Promise(resolve => { unblockPage = resolve; });
+  let secondPageStarted = false;
+  const h = harness({ deviceRecipients: async (events, { onRecipients }) => {
+    const recipient = (userId, deviceId) => ({ userId, deviceId,
+      events: new Map(events.map(event => [event.eventId, event])) });
+    const first = recipient('first-fan', 'first-installation');
+    await onRecipients(new Map([['first', first]]));
+    // Simulate the same document being found by an overlapping match/team query.
+    await onRecipients(new Map([['first-alias', first]]));
+    secondPageStarted = true;
+    await pageHeld;
+    const second = recipient('second-fan', 'second-installation');
+    await onRecipients(new Map([['second', second]]));
+    return new Map([['first', first], ['second', second]]);
+  } });
+  await h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 0, 0)], includeDetails: false });
+  const delivery = h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 1, 0)], includeDetails: false });
+  try {
+    for (let i = 0; i < 10 && !secondPageStarted; i++) await flushTasks();
+    assert.equal(secondPageStarted, true);
+    assert.deepEqual(h.state.delivered.map(row => row.userId), ['first-fan']);
+  } finally { unblockPage(); await delivery; }
+  assert.deepEqual(h.state.delivered.map(row => row.userId), ['first-fan', 'second-fan']);
+});
+
+test('overlapping asynchronous score cycles share eight dispatch slots and preserve installation event order after a failure', async () => {
+  let unblock;
+  const held = new Promise(resolve => { unblock = resolve; });
+  let active = 0;
+  let peak = 0;
+  const submissions = [];
+  const h = harness({ asynchronousDelivery: true,
+    deviceRecipients: events => new Map(Array.from({ length: 12 }, (_, i) => [`install-${i}`, {
+      userId: `fan-${i}`, deviceId: `device-${i}`, events: new Map(events.map(event => [event.eventId, event]))
+    }])),
+    deliverRead: async (device, event) => {
+      submissions.push({ key: device.deviceId, revision: event.scoreRevision });
+      peak = Math.max(peak, ++active);
+      try {
+        await held;
+        if (device.deviceId === 'device-0' && event.scoreRevision === 1) throw new Error('One FCM submission failed');
+      } finally { active--; }
+    }
+  });
+  try {
+    await h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 0, 0)], includeDetails: false });
+    await h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 1, 0)], includeDetails: false });
+    await flushTasks();
+    assert.equal(active, 8);
+    await h.poll(h.io, { liveSnapshot: [fixture('IN_PLAY', 2, 0)], includeDetails: false });
+    await flushTasks();
+    assert.equal(active, 8, 'The next score cycle cannot create eight additional dispatch slots');
+    assert.deepEqual(h.persisted.map(event => event.scoreRevision), [1, 2], 'FCM backpressure cannot block score observation');
+  } finally { unblock(); }
+  for (let i = 0; i < 30 && h.state.delivered.length < 23; i++) await flushTasks();
+  assert.equal(peak, 8);
+  assert.equal(submissions.length, 24, 'A failed job must not drop or stall another installation or its next event');
+  assert.equal(h.state.delivered.length, 23);
+  for (let i = 0; i < 12; i++) {
+    assert.deepEqual(submissions.filter(row => row.key === `device-${i}`).map(row => row.revision), [1, 2]);
+  }
 });
 
 test('favorite club audiences are eligible for bounded timeline/lineup lookup without requiring a direct match bell', async () => {

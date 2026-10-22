@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const { normalizeProviderTimestamp } = require('../utils/providerTimestamp');
 const { validatedProviderIdentities } = require('../utils/matchProviderIdentities');
 const { eventCategoryEnabled } = require('../utils/notificationContracts');
+const { notificationObservedAt, notificationExpiresAt } = require('../utils/notificationExpiry');
 const clean = (value, limit = 160) => typeof value === 'string' ? value.slice(0, limit) : '';
 const finiteScore = value => Number.isFinite(Number(value)) && value !== null && value !== '' && value !== undefined ? Number(value) : null;
 const LEGACY_ALERT_TYPES = new Set(['goal', 'matchStart', 'matchEnd', 'card', 'lineup',
@@ -62,7 +63,7 @@ function normalizedEvent(event) {
   const legacyScore = typeof event.score === 'string' ? event.score.split(/\s*-\s*/) : [];
   const score = { home: finiteScore(event.score?.home ?? event.scoreValues?.home ?? legacyScore[0]),
     away: finiteScore(event.score?.away ?? event.scoreValues?.away ?? legacyScore[1]) };
-  const createdAt = event.createdAt?.toMillis ? event.createdAt.toMillis() : new Date(event.createdAt || Date.now()).getTime();
+  const createdAt = notificationObservedAt(event);
   const lastUpdated = normalizeProviderTimestamp(event.lastUpdated);
   const providerIdentities = validatedProviderIdentities(event);
   return { eventId: clean(event.eventId, 128), ...(event.matchId ? { matchId: clean(event.matchId, 120) } : {}),
@@ -83,6 +84,8 @@ function normalizedEvent(event) {
     ...(normalizeProviderTimestamp(event.utcDate) ? { utcDate: normalizeProviderTimestamp(event.utcDate) } : {}),
     ...(event.previousScore ? { previousScore: {
       home: finiteScore(event.previousScore.home), away: finiteScore(event.previousScore.away) } } : {}),
+    ...(Number.isSafeInteger(event.scoreRevision) && event.scoreRevision >= 0
+      ? { scoreRevision: event.scoreRevision } : {}),
     ...(event.reminderMinutes === 15 ? { reminderMinutes: 15 } : {}),
     ...(event.lineupConfirmed === true ? { lineupConfirmed: true } : {}),
     ...(event.phase ? { phase: clean(event.phase, 32) } : {}),
@@ -107,7 +110,11 @@ function buildPushMessage(token, title, body, options = {}) {
     ? `score_${createHash('sha256').update(event.matchId).digest('hex').slice(0, 40)}` : event?.eventId;
   const sound = preferences.sound !== false;
   const vibration = preferences.vibration !== false;
-  const ttl = Number.isFinite(options.ttlMs) ? Math.max(1000, Math.min(5 * 60 * 1000, options.ttlMs)) : 5 * 60 * 1000;
+  const now = Date.now();
+  const requestedExpiry = Number.isFinite(options.expiresAt) ? options.expiresAt
+    : Number.isFinite(options.ttlMs) ? now + Math.max(0, options.ttlMs) : undefined;
+  const expiresAt = notificationExpiresAt(options.event, now, requestedExpiry);
+  const ttl = Math.max(0, Math.floor(expiresAt - now));
   let data = event ? { event: JSON.stringify(event), eventId: event.eventId, type, kind: event.kind,
     ...(compatibleType ? { canonicalType } : {}),
     ...(event.matchId ? { matchId: event.matchId } : {}), provider: event.provider, emittedAt: String(event.emittedAt),
@@ -161,7 +168,7 @@ function buildPushMessage(token, title, body, options = {}) {
       ...(sound ? { defaultSound: true } : {}), ...(vibration ? { defaultVibrateTimings: true } : {})
     } },
     apns: { headers: { 'apns-priority': '10', 'apns-push-type': 'alert',
-      'apns-expiration': String(Math.floor((Date.now() + ttl) / 1000)),
+      'apns-expiration': String(Math.floor(expiresAt / 1000)),
       ...(notificationTag ? { 'apns-collapse-id': notificationTag.slice(0, 64) } : {}) },
       payload: { aps: { ...(sound ? { sound: 'default' } : {}), threadId: event?.matchId || 'system' } } }
   };
@@ -171,8 +178,7 @@ async function sendPushNotification(token, title, body, options = {}) {
   if (!token) return { sent: false };
   if (options.event?.matchId && (options.preferences?.hideScores === true ||
       !eventCategoryEnabled(options.event.type, options.preferences))) return { sent: false, suppressed: true };
-  const kickoff = Date.parse(normalizeProviderTimestamp(options.event?.utcDate) || '');
-  if (options.event?.type === 'matchReminder' && Number.isFinite(kickoff) && kickoff <= Date.now()) {
+  if (notificationExpiresAt(options.event, Date.now(), options.expiresAt) <= Date.now()) {
     return { sent: false, expired: true };
   }
   try {

@@ -297,7 +297,9 @@ function normalizeBsdLineups(raw, match) {
 }
 function normalizeIncident(raw) {
   if (!raw || typeof raw.type !== 'string' || !raw.type.trim()) return null;
-  const card = String(raw.card_type || '').toLowerCase(), type = raw.type === 'card' ? (card.includes('red') ? 'red_card' : card === 'yellow' ? 'yellow_card' : 'card') : raw.type;
+  const card = typeof raw.card_type === 'string' ? raw.card_type.trim().toLowerCase().replace(/[\s-]+/g, '_') : '';
+  const redCards = new Set(['red', 'red_card', 'second_yellow', 'second_yellow_card', 'yellow_red', 'yellow_red_card']);
+  const type = raw.type === 'card' ? (redCards.has(card) ? 'red_card' : card === 'yellow' || card === 'yellow_card' ? 'yellow_card' : 'card') : raw.type;
   const playerId = positiveId(raw.player_id ?? raw.player_in_id ?? raw.player?.id);
   const nestedPlayerId = positiveId(raw.player?.id);
   const nestedPhotoCompatible = !nestedPlayerId || nestedPlayerId === playerId;
@@ -312,7 +314,7 @@ function normalizeIncident(raw) {
     ? null : explicitAssist ?? (sequenceIds.length === 1 ? sequenceIds[0] : null);
   const name = value => typeof value === 'string' ? value : typeof value?.name === 'string' ? value.name : '';
   const assistName = name(raw.assist) || (sequenceIds.length === 1 ? name(sequenceAssists[0].player) : '');
-  return { id: positiveId(raw.id) ? 'bsd_inc_' + raw.id : null, minute: integer(raw.minute), addedTime: integer(raw.added_time), period: raw.period || '', periodSecond: integer(raw.period_second), ...(typeof raw.is_live === 'boolean' ? { isLive: raw.is_live } : {}), type, icon: { goal: '⚽', red_card: '🟥', yellow_card: '🟨', substitution: '🔄' }[type] || '', label: raw.text || raw.type, text: typeof raw.text === 'string' ? raw.text : '', side: raw.is_home === true ? 'home' : raw.is_home === false ? 'away' : null, player: name(raw.player) || name(raw.player_in), playerId: playerId ? 'bsd_p_' + playerId : null, playerImage: safeImage(raw.player_image) || (nestedPhotoCompatible ? safeImage(raw.player?.photo) : '') || imageUrl('player', playerId), assist: assistName || null, assistId: assistId ? 'bsd_p_' + assistId : null, assistImage: assistId ? imageUrl('player', assistId) : '', playerOut: raw.player_out || null, playerOutId: positiveId(raw.player_out_id) ? 'bsd_p_' + raw.player_out_id : null, reason: raw.reason || '', goalType: raw.goal_type || null, rescinded: raw.rescinded === true || raw.is_rescinded === true, score: { home: integer(raw.home_score), away: integer(raw.away_score) }, source: 'bsd', provider: 'bsd' };
+  return { id: positiveId(raw.id) ? 'bsd_inc_' + raw.id : null, minute: integer(raw.minute), addedTime: integer(raw.added_time), period: raw.period || '', periodSecond: integer(raw.period_second), ...(typeof raw.is_live === 'boolean' ? { isLive: raw.is_live } : {}), type, icon: { goal: '⚽', red_card: '🟥', yellow_card: '🟨', substitution: '🔄' }[type] || '', label: raw.text || raw.type, text: typeof raw.text === 'string' ? raw.text : '', side: raw.is_home === true ? 'home' : raw.is_home === false ? 'away' : null, player: name(raw.player) || name(raw.player_in), playerId: playerId ? 'bsd_p_' + playerId : null, playerImage: safeImage(raw.player_image) || (nestedPhotoCompatible ? safeImage(raw.player?.photo) : '') || imageUrl('player', playerId), assist: assistName || null, assistId: assistId ? 'bsd_p_' + assistId : null, assistImage: assistId ? imageUrl('player', assistId) : '', playerOut: raw.player_out || null, playerOutId: positiveId(raw.player_out_id) ? 'bsd_p_' + raw.player_out_id : null, reason: raw.reason || '', goalType: raw.goal_type || null, rescinded: raw.rescinded === true || raw.is_rescinded === true, deleted: raw.deleted === true || raw.is_deleted === true || raw.isDeleted === true, score: { home: integer(raw.home_score), away: integer(raw.away_score) }, source: 'bsd', provider: 'bsd' };
 }
 function normalizeXg(raw) {
   const side = name => raw?.stats?.[name]?.xg;
@@ -450,7 +452,7 @@ exports.getMatchAlertDetails = async (matchId, options = {}) => {
   const lineups = normalizeBsdLineups(lineupData, match);
   return { ...match,
     ...(Array.isArray(incidentData?.incidents) ? {
-      timeline: incidentData.incidents.map(normalizeIncident).filter(Boolean),
+      timeline: incidentRows(incidentData, id),
     } : {}),
     ...(lineups ? { lineups } : {}),
   };

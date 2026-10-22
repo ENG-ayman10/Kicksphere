@@ -1,6 +1,7 @@
 const { createHash, randomUUID } = require('node:crypto');
 const { validatedProviderIdentities } = require('./matchProviderIdentities');
 const { isEventAllowed } = require('./competitionScope');
+const { notificationObservedAt } = require('./notificationExpiry');
 
 const timestampMs = value => value?.toMillis ? value.toMillis() : new Date(value || 0).getTime();
 const recordKey = key => createHash('sha256').update(key).digest('hex');
@@ -17,7 +18,7 @@ function storedEvent(event) {
     'homeTeam', 'awayTeam', 'homeTeamId', 'awayTeamId', 'team', 'against', 'teamId',
     'againstTeamId', 'side', 'score', 'scoreValues', 'previousScore', 'player',
     'assist', 'playerOut', 'penaltyType', 'minute', 'cardType', 'tournament', 'createdAt', 'emittedAt',
-    'lastUpdated', 'providerIdentities', 'utcDate', 'competitionCode', 'competition',
+    'lastUpdated', 'providerIdentities', 'utcDate', 'competitionCode', 'competition', 'scoreRevision',
     'reminderMinutes', 'phase', 'lineupConfirmed', 'incidentId', 'isDetailed',
     'title', 'message']) {
     if (event[field] !== undefined) safe[field] = event[field];
@@ -61,6 +62,7 @@ function storedEvent(event) {
     if (identities.length >= 2) safe.providerIdentities = identities;
     else delete safe.providerIdentities;
   }
+  if (!Number.isSafeInteger(safe.scoreRevision) || safe.scoreRevision < 0) delete safe.scoreRevision;
   if (safe.createdAt?.toMillis) safe.createdAt = new Date(safe.createdAt.toMillis()).toISOString();
   const serialized = JSON.stringify(safe, (_, value) =>
     value?.toMillis ? new Date(value.toMillis()).toISOString() : value);
@@ -88,7 +90,7 @@ function createPushDeliveryLedger(database, { now = Date.now, recipientAllowed =
     const headRef = scoreEvent(event) ? heads.doc(recordKey(JSON.stringify([
       device.userId, device.deviceId, event.matchId,
     ]))) : null;
-    const observedAt = timestampMs(event.createdAt || event.emittedAt);
+    const observedAt = notificationObservedAt(event, NaN);
     return database.runTransaction(async transaction => {
       const [snapshot, headSnapshot] = await Promise.all([
         transaction.get(ref), headRef ? transaction.get(headRef) : null,
@@ -97,17 +99,25 @@ function createPushDeliveryLedger(database, { now = Date.now, recipientAllowed =
       if (!isEventAllowed(event)) return { status: 'excluded' };
       const head = headSnapshot?.exists ? headSnapshot.data() : null;
       const time = now();
+      if (expiresAt <= time) return { status: 'expired' };
       if (record?.status === 'accepted' && timestampMs(record.expiresAt) > time) {
         return { status: 'accepted' };
       }
       const headObservedAt = timestampMs(head?.observedAt);
+      const scoreRevision = Number.isSafeInteger(event.scoreRevision) && event.scoreRevision >= 0
+        ? event.scoreRevision : null;
+      const headRevision = Number.isSafeInteger(head?.scoreRevision) && head.scoreRevision >= 0
+        ? head.scoreRevision : null;
       // Two observed score changes can share the same millisecond. A previously
       // queued occurrence must not replace a later correction at that clock;
       // a new occurrence with no pending record still establishes the next head.
       const supersededAtSameClock = record?.status === 'pending' && head?.eventId &&
         head.eventId !== event.eventId && observedAt === headObservedAt;
+      const olderRevisionAtSameClock = observedAt === headObservedAt && scoreRevision !== null &&
+        headRevision !== null && scoreRevision < headRevision;
       if (head && Number.isFinite(observedAt) && observedAt > 0 &&
-          (observedAt < headObservedAt || supersededAtSameClock) && timestampMs(head.expiresAt) > time) {
+          (observedAt < headObservedAt || supersededAtSameClock || olderRevisionAtSameClock) &&
+          timestampMs(head.expiresAt) > time) {
         return { status: 'obsolete' };
       }
       if (record?.status === 'pending' && timestampMs(record.expiresAt) > time &&
@@ -118,26 +128,51 @@ function createPushDeliveryLedger(database, { now = Date.now, recipientAllowed =
         status: 'pending', device: { userId: device.userId, deviceId: device.deviceId },
         event: publicEvent, retryIndex: record?.retryIndex || 0,
         nextAt: new Date(time), expiresAt: new Date(expiresAt),
-        leaseOwner: owner, leaseUntil: new Date(time + LEASE_MS),
+        leaseOwner: owner, leaseUntil: new Date(Math.min(time + LEASE_MS, expiresAt)),
         updatedAt: new Date(time),
       });
       if (headRef && Number.isFinite(observedAt) && observedAt > 0) {
         transaction.set(headRef, {
           device: { userId: device.userId, deviceId: device.deviceId },
           eventId: event.eventId,
+          ...(scoreRevision !== null ? { scoreRevision } : {}),
           observedAt: new Date(observedAt), expiresAt: new Date(time + ACCEPTED_TTL_MS),
         });
       }
-      return { status: 'claimed' };
+      return { status: 'claimed', leaseUntil: Math.min(time + LEASE_MS, expiresAt) };
     });
   }
 
   async function accepted(key, device) {
-    await collection.doc(recordKey(key)).set({
-      status: 'accepted', acceptedAt: new Date(now()),
-      device: { userId: device.userId, deviceId: device.deviceId },
-      expiresAt: new Date(now() + ACCEPTED_TTL_MS),
-      leaseUntil: null, leaseOwner: null,
+    const ref = collection.doc(recordKey(key));
+    return database.runTransaction(async transaction => {
+      const snapshot = await transaction.get(ref);
+      const current = snapshot.exists ? snapshot.data() : null;
+      if (current?.status === 'accepted' && timestampMs(current.expiresAt) > now()) return true;
+      // A late result/receipt retry from an old sender cannot replace a claim
+      // acquired by another worker, even if that newer lease has since expired.
+      if (current?.leaseOwner && current.leaseOwner !== owner) return false;
+      transaction.set(ref, {
+        status: 'accepted', acceptedAt: new Date(now()),
+        device: { userId: device.userId, deviceId: device.deviceId },
+        expiresAt: new Date(now() + ACCEPTED_TTL_MS),
+        leaseUntil: null, leaseOwner: null,
+      });
+      return true;
+    });
+  }
+
+  async function renew(key) {
+    const ref = collection.doc(recordKey(key));
+    return database.runTransaction(async transaction => {
+      const snapshot = await transaction.get(ref);
+      const current = snapshot.exists ? snapshot.data() : null;
+      const time = now();
+      if (current?.status !== 'pending' || current.leaseOwner !== owner ||
+          timestampMs(current.expiresAt) <= time || timestampMs(current.leaseUntil) <= time) return false;
+      transaction.set(ref, { leaseUntil: new Date(Math.min(time + LEASE_MS, timestampMs(current.expiresAt))),
+        updatedAt: new Date(time) }, { merge: true });
+      return true;
     });
   }
 
@@ -150,7 +185,7 @@ function createPushDeliveryLedger(database, { now = Date.now, recipientAllowed =
       const snapshot = await transaction.get(ref);
       const current = snapshot.exists ? snapshot.data() : null;
       if (current?.status === 'accepted' && timestampMs(current.expiresAt) > now()) return;
-      if (current?.leaseOwner && current.leaseOwner !== owner && timestampMs(current.leaseUntil) > now()) return;
+      if (current?.leaseOwner && current.leaseOwner !== owner) return;
       if (!isEventAllowed(entry.event)) { transaction.delete(ref); return; }
       transaction.set(ref, {
         status: 'pending', device: entry.device, event: publicEvent,
@@ -167,7 +202,7 @@ function createPushDeliveryLedger(database, { now = Date.now, recipientAllowed =
       const snapshot = await transaction.get(ref);
       const current = snapshot.exists ? snapshot.data() : null;
       if (current?.status === 'accepted' && timestampMs(current.expiresAt) > now()) return;
-      if (current?.leaseOwner && current.leaseOwner !== owner && timestampMs(current.leaseUntil) > now()) return;
+      if (current?.leaseOwner && current.leaseOwner !== owner) return;
       transaction.delete(ref);
     });
   }
@@ -223,7 +258,7 @@ function createPushDeliveryLedger(database, { now = Date.now, recipientAllowed =
     return entries.filter(([, entry]) => isEventAllowed(entry.event));
   }
 
-  return { claim, accepted, queued, remove, restore };
+  return { claim, accepted, renew, queued, remove, restore };
 }
 
 module.exports = { createPushDeliveryLedger, storedEvent };

@@ -240,7 +240,7 @@ test('expired reminders and predicted lineups never create a user-visible delive
     reminderMinutes: 15, utcDate: new Date(initialTime + 20000).toISOString() }));
   assert.equal(calls, 1);
   f.advance(30000);
-  assert.deepEqual(await f.create().flushRetries(), { attempted: 1, queued: 0 });
+  assert.deepEqual(await f.create().flushRetries(), { attempted: 0, queued: 0 });
   assert.equal(calls, 1);
   assert.equal((await f.service.deliver(device, goal(f.now(), { type: 'lineup',
     eventId: 'predicted-a', lineupConfirmed: false }))).suppressed, true);
@@ -339,4 +339,191 @@ test('accepted receipts and score heads expire with bounded cleanup', async () =
   await f.create().flushRetries();
   assert.equal([...f.records.keys()].filter(key => key.startsWith('notificationDeliveries/')).length, 0);
   assert.equal([...f.records.keys()].filter(key => key.startsWith('notificationScoreDeliveryHeads/')).length, 0);
+});
+
+test('initial delivery respects source-age expiry and forwards only the remaining lifetime', async () => {
+  const sends = [];
+  const f = harness(async (_, __, ___, options) => { sends.push(options); return { sent: true }; });
+  await f.service.register('u1', 'install_1', registration());
+  f.advance(299000);
+  assert.equal((await f.service.deliver(f.getDevice(), goal())).sent, true);
+  assert.equal(sends[0].ttlMs, 1000);
+  assert.equal(sends[0].expiresAt, initialTime + 300000);
+  f.advance(1001);
+  assert.deepEqual(await f.service.deliver(f.getDevice(), goal(initialTime, { eventId: 'stale-initial' })),
+    { sent: false, expired: true });
+  assert.equal(sends.length, 1);
+});
+
+test('a delayed claim and a delayed registration read cannot send an expired initial event', async () => {
+  for (const delayed of ['claim', 'registration']) {
+    const f = harness();
+    await f.service.register('u1', 'install_1', registration());
+    const device = f.getDevice();
+    let service = f.service;
+    if (delayed === 'claim') {
+      const ledger = createPushDeliveryLedger(f.database, { now: f.now });
+      service = f.create({ deliveryLedger: { ...ledger, claim: async (...args) => {
+        const result = await ledger.claim(...args); f.advance(300001); return result;
+      } } });
+    } else {
+      const originalCollection = f.database.collection;
+      f.database.collection = name => {
+        const collection = originalCollection(name);
+        return name !== 'notificationDevices' ? collection : { ...collection, doc: id => {
+          const ref = collection.doc(id);
+          return { ...ref, get: async () => { const result = await ref.get(); f.advance(300001); return result; } };
+        } };
+      };
+      service = f.create();
+    }
+    assert.equal((await service.deliver(device, goal())).expired, true, delayed);
+    assert.equal(f.calls.length, 0, delayed);
+  }
+});
+
+test('reminder first send and persisted retry expire exactly at kickoff', async () => {
+  const sends = [];
+  const f = harness(async (_, __, ___, options) => {
+    sends.push(options); return { sent: false, retryable: true };
+  });
+  await f.service.register('u1', 'install_1', registration());
+  const reminder = goal(initialTime, { type: 'matchReminder', eventId: 'kickoff-boundary',
+    utcDate: new Date(initialTime + 40000).toISOString() });
+  await f.service.deliver(f.getDevice(), reminder);
+  assert.equal(sends[0].ttlMs, 40000);
+  assert.equal(sends[0].expiresAt, initialTime + 40000);
+  f.advance(40000);
+  assert.deepEqual(await f.create().flushRetries(), { attempted: 0, queued: 0 });
+  assert.equal(sends.length, 1);
+});
+
+test('an active FCM submission renews its lease across workers and stops renewal after completion', async context => {
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const started = deferred(), finish = deferred();
+  let pulse = deferred(), renewals = 0, sends = 0;
+  const f = harness(async () => { sends++; started.resolve(); return finish.promise; });
+  await f.service.register('u1', 'install_1', registration());
+  const ledger = createPushDeliveryLedger(f.database, { now: f.now });
+  const service = f.create({ deliveryLedger: { ...ledger, renew: async key => {
+    const result = await ledger.renew(key); renewals++; pulse.resolve(); return result;
+  } } });
+  const submission = service.deliver(f.getDevice(), goal());
+  await started.promise;
+  for (let i = 0; i < 4; i++) {
+    f.advance(10000); context.mock.timers.tick(10000); await pulse.promise;
+    await new Promise(resolve => setImmediate(resolve)); pulse = deferred();
+  }
+  assert.equal(renewals, 4);
+  assert.deepEqual(await f.create().deliver(f.getDevice(), goal()), { sent: false, pending: true });
+  assert.equal(sends, 1);
+  finish.resolve({ sent: true }); await submission;
+  f.advance(30000); context.mock.timers.tick(30000); await Promise.resolve();
+  assert.equal(renewals, 4);
+  assert.equal((await f.create().deliver(f.getDevice(), goal())).duplicate, true);
+});
+
+test('a late former owner cannot renew or replace another worker claim with an accepted receipt', async () => {
+  const f = harness();
+  await f.service.register('u1', 'install_1', registration());
+  const first = createPushDeliveryLedger(f.database, { now: f.now });
+  const second = createPushDeliveryLedger(f.database, { now: f.now });
+  const device = f.getDevice(), item = goal(), key = f.keyFor(device, item);
+  assert.equal((await first.claim(key, device, item, initialTime + 300000)).status, 'claimed');
+  f.advance(30001);
+  assert.equal((await second.claim(key, device, item, initialTime + 300000)).status, 'claimed');
+  const recordKey = [...f.records.keys()].find(key => key.startsWith('notificationDeliveries/'));
+  const newOwner = f.records.get(recordKey).leaseOwner;
+  f.advance(30001);
+  assert.equal(await first.renew(key), false);
+  assert.equal(await first.accepted(key, device), false);
+  await first.queued(key, { device, event: item, retryIndex: 1, nextAt: f.now(), expiresAt: initialTime + 300000 });
+  await first.remove(key);
+  assert.equal(f.records.get(recordKey).leaseOwner, newOwner);
+  assert.equal(f.records.get(recordKey).status, 'pending');
+  assert.equal(await second.accepted(key, device), true);
+  assert.equal((await first.claim(key, device, item, initialTime + 300000)).status, 'accepted');
+});
+
+test('a sender losing its lease during a registry wait cannot submit after another worker claimed it', async context => {
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = harness();
+  await f.service.register('u1', 'install_1', registration());
+  const device = f.getDevice(), registryStarted = deferred(), registryReleased = deferred(), renewal = deferred();
+  const originalCollection = f.database.collection;
+  f.database.collection = name => {
+    const collection = originalCollection(name);
+    return name !== 'notificationDevices' ? collection : { ...collection, doc: id => {
+      const ref = collection.doc(id);
+      return { ...ref, get: async () => {
+        registryStarted.resolve(); await registryReleased.promise; return ref.get();
+      } };
+    } };
+  };
+  const first = createPushDeliveryLedger(f.database, { now: f.now });
+  const second = createPushDeliveryLedger(f.database, { now: f.now });
+  const service = f.create({ deliveryLedger: { ...first, renew: async key => {
+    const result = await first.renew(key); renewal.resolve(); return result;
+  } } });
+  const submitting = service.deliver(device, goal());
+  await registryStarted.promise;
+  f.advance(30001); context.mock.timers.tick(30001); await renewal.promise;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await second.claim(f.keyFor(device, goal()), device, goal(), initialTime + 300000)).status, 'claimed');
+  registryReleased.resolve();
+  assert.deepEqual(await submitting, { sent: false, pending: true });
+  assert.equal(f.calls.length, 0);
+  assert.equal((await second.claim(f.keyFor(device, goal()), device, goal(), initialTime + 300000)).status, 'pending');
+});
+
+test('same-clock score revisions suppress a late initial goal while preserving a genuinely newer goal', async () => {
+  const f = harness();
+  await f.service.register('u1', 'install_1', registration());
+  const device = f.getDevice();
+  const correction = goal(initialTime, { eventId: 'cancel-rev-2', type: 'goalCancelled',
+    score: '0-0', scoreRevision: 2 });
+  assert.equal((await f.service.deliver(device, correction)).sent, true);
+  assert.deepEqual(await f.create().deliver(device, goal(initialTime, { scoreRevision: 1 })),
+    { sent: false, obsolete: true });
+  assert.equal(f.calls.length, 1);
+  assert.equal((await f.create().deliver(device, goal(initialTime, { eventId: 'goal-rev-3', scoreRevision: 3 }))).sent, true);
+  assert.deepEqual(f.calls.map(({ event }) => event.eventId), ['cancel-rev-2', 'goal-rev-3']);
+});
+
+test('score revision cannot overrule a newer emission clock or suppress a legacy initial same-clock event', async () => {
+  const f = harness();
+  await f.service.register('u1', 'install_1', registration());
+  const device = f.getDevice();
+  await f.service.deliver(device, goal(initialTime, { eventId: 'prior-process', scoreRevision: 999 }));
+  f.advance(1);
+  assert.equal((await f.create().deliver(device, goal(f.now(), { eventId: 'new-process', scoreRevision: 0 }))).sent, true);
+  assert.equal((await f.create().deliver(device, goal(f.now(), { eventId: 'legacy-same-clock' }))).sent, true);
+  assert.equal(f.calls.length, 3);
+});
+
+test('malformed createdAt cannot bypass a newer durable score head when emittedAt is available', async () => {
+  const f = harness();
+  await f.service.register('u1', 'install_1', registration());
+  const device = f.getDevice();
+  await f.service.deliver(device, goal(initialTime, { eventId: 'latest-correction', type: 'goalCancelled', score: '0-0' }));
+  const stale = goal(initialTime, { eventId: 'old-delayed-goal', createdAt: 'invalid-date', emittedAt: initialTime - 1 });
+  assert.deepEqual(await f.create().deliver(device, stale), { sent: false, obsolete: true });
+  assert.deepEqual(f.calls.map(({ event }) => event.eventId), ['latest-correction']);
+});
+
+test('a delayed claim response cannot submit after its lease expired and another worker acquired it', async () => {
+  const f = harness();
+  await f.service.register('u1', 'install_1', registration());
+  const device = f.getDevice(), item = goal(), key = f.keyFor(device, item);
+  const first = createPushDeliveryLedger(f.database, { now: f.now });
+  const second = createPushDeliveryLedger(f.database, { now: f.now });
+  const service = f.create({ deliveryLedger: { ...first, claim: async (...args) => {
+    const result = await first.claim(...args);
+    f.advance(30001);
+    assert.equal((await second.claim(key, device, item, initialTime + 300000)).status, 'claimed');
+    return result;
+  } } });
+  assert.deepEqual(await service.deliver(device, item), { sent: false, pending: true });
+  assert.equal(f.calls.length, 0);
+  assert.equal((await second.claim(key, device, item, initialTime + 300000)).status, 'pending');
 });

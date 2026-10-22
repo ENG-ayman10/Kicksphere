@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const { createLiveRecipientPolicy } = require('../utils/liveDeliveryScope');
 const { matchIdentityIds, teamIdentityIds } = require('../utils/matchProviderIdentities');
 const { createPushDeliveryLedger } = require('../utils/pushDeliveryLedger');
+const { notificationExpiresAt } = require('../utils/notificationExpiry');
 const { isEventAllowed, isMatchAllowed } = require('../utils/competitionScope');
 const { MAX_DEVICES_PER_USER, DEVICE_TTL_MS, validationError, normalizeDeviceId,
   normalizeDeviceRegistration, eventMatchesPreferences } = require('../utils/notificationContracts');
@@ -56,8 +57,33 @@ function createNotificationDeviceService(database, options = {}) {
     } finally { clearTimeout(timer); }
   }
   async function persist(operation) {
-    try { await ledgerWork(operation); return true; }
+    try { return (await ledgerWork(operation)) !== false; }
     catch (_) { logger.warn('Push delivery ledger is temporarily unavailable.'); return false; }
+  }
+  function maintainLease(key, claim) {
+    if (!key || claim?.status !== 'claimed') return () => {};
+    let stopped = false;
+    let lost = false;
+    // A transaction can complete long before its response reaches this worker.
+    // Never grant another thirty seconds locally to an already-expired claim.
+    let leaseUntil = Number.isFinite(claim.leaseUntil) ? claim.leaseUntil : now() + 30000;
+    let timer;
+    const schedule = () => {
+      timer = setTimeout(async () => {
+        if (stopped) return;
+        try {
+          const renewalStartedAt = now();
+          if (await ledgerWork(() => ledger.renew(key)) === false) { lost = true; stopped = true; return; }
+          leaseUntil = renewalStartedAt + 30000;
+        } catch (_) { logger.warn('Push delivery lease could not be refreshed yet.'); }
+        if (!stopped) schedule();
+      }, 10000);
+      timer.unref?.();
+    };
+    if (typeof ledger.renew === 'function') schedule();
+    const stop = () => { stopped = true; clearTimeout(timer); };
+    stop.lost = () => lost || now() >= leaseUntil;
+    return stop;
   }
   async function markAccepted(key, device) {
     if (!key) return;
@@ -78,9 +104,7 @@ function createNotificationDeviceService(database, options = {}) {
     const key = retryKey(device, event);
     if (!isEventAllowed(event)) { await removeQueued(key); return; }
     if (!key || retryQueue.has(key) || accepted.has(key)) return;
-    const observedAt = timestampMs(event.createdAt || event.emittedAt);
-    const expiresAt = Number.isFinite(observedAt) && observedAt > 0
-      ? Math.min(now() + RETRY_TTL, observedAt + RETRY_TTL) : now() + RETRY_TTL;
+    const expiresAt = notificationExpiresAt(event, now());
     const quota = /quota|rate-exceeded/.test(result.errorCode || '');
     const nextAt = now() + (quota ? 60000 : RETRY_DELAYS[0]);
     if (nextAt >= expiresAt) { await removeQueued(key); return; }
@@ -156,7 +180,7 @@ function createNotificationDeviceService(database, options = {}) {
     return removed;
   }
 
-  async function findRecipients(events) {
+  async function findRecipients(events, { onRecipients } = {}) {
     const recipients = new Map();
     const indexedEvents = new Map();
     const addFilter = (field, value, event) => {
@@ -183,14 +207,27 @@ function createNotificationDeviceService(database, options = {}) {
         while (true) {
           if (![...filter.events.values()].some(isEventAllowed)) break;
           const snapshot = await page.get();
+          const additions = new Map();
           for (const document of snapshot.docs) {
             const device = document.data();
             if (!device.userId || !recipientAllowed(device.userId) || !device.token || !isFresh(device, now())) continue;
             const recipient = recipients.get(document.id) || { ...device, key: document.id, events: new Map() };
+            const newEvents = new Map();
             for (const event of filter.events.values()) {
-              if (isEventAllowed(event) && eventMatchesPreferences(event, device.preferences)) recipient.events.set(event.eventId, event);
+              if (isEventAllowed(event) && eventMatchesPreferences(event, device.preferences) && !recipient.events.has(event.eventId)) {
+                recipient.events.set(event.eventId, event);
+                newEvents.set(event.eventId, event);
+              }
             }
             if (recipient.events.size) recipients.set(document.id, recipient);
+            if (newEvents.size) additions.set(document.id, { ...recipient, events: newEvents });
+          }
+          // Offer each discovered device/event pair exactly once across all
+          // concurrent filters. Awaiting a bounded consumer provides backpressure
+          // without making the first page wait for the remaining audience.
+          if (additions.size && typeof onRecipients === 'function') {
+            try { await onRecipients(additions); }
+            catch (_) { logger.warn('Push audience page consumer failed; discovery will continue.'); }
           }
           if (snapshot.docs.length < PAGE_SIZE) break;
           page = query.startAfter(snapshot.docs[snapshot.docs.length - 1]);
@@ -264,26 +301,25 @@ function createNotificationDeviceService(database, options = {}) {
     return new Set(ids);
   }
 
-  async function attemptDelivery(device, event, expiresAt) {
+  async function attemptDelivery(device, event, expiresAt, leaseLost = () => false) {
     if (!isEventAllowed(event)) return { sent: false, suppressed: true, excluded: true };
     if (!recipientAllowed(device.userId)) return { sent: false, suppressed: true };
     if (event.type === 'lineup' && event.lineupConfirmed === false) return { sent: false, suppressed: true };
-    const kickoff = event.type === 'matchReminder' ? timestampMs(event.utcDate) : null;
-    if (kickoff !== null && Number.isFinite(kickoff) && kickoff > 0 && now() >= kickoff) {
-      return { sent: false, expired: true };
-    }
+    expiresAt = notificationExpiresAt(event, now(), expiresAt);
+    if (now() >= expiresAt) return { sent: false, expired: true };
     const snapshot = await devices.doc(deviceKey(device.userId, device.deviceId)).get();
     if (!isEventAllowed(event)) return { sent: false, suppressed: true, excluded: true };
     if (!snapshot.exists) return { sent: false, revoked: true };
     const current = snapshot.data();
     if (!recipientAllowed(current.userId) || current.userId !== device.userId || current.deviceId !== device.deviceId || !isFresh(current, now()) ||
         !eventMatchesPreferences(event, current.preferences)) return { sent: false, suppressed: true };
-    const ttlMs = expiresAt ? expiresAt - now() : null;
-    if (ttlMs !== null && ttlMs <= 0) return { sent: false, expired: true };
+    const ttlMs = expiresAt - now();
+    if (ttlMs <= 0) return { sent: false, expired: true };
+    if (leaseLost()) return { sent: false, pending: true };
     const notification = buildEventNotification(event, current.language);
     const result = await send(current.token, notification.title, notification.message,
       { event, preferences: current.preferences, language: current.language, recipientUserId: current.userId,
-        supportsExtendedAlerts: current.supportsExtendedAlerts === true, ...(ttlMs ? { ttlMs } : {}) });
+        supportsExtendedAlerts: current.supportsExtendedAlerts === true, ttlMs, expiresAt });
     if (result?.invalidToken) {
       try { await revoke(current.userId, current.deviceId, current.token); }
       catch (error) { logger.warn('Invalid installation token cleanup failed.'); }
@@ -312,9 +348,11 @@ function createNotificationDeviceService(database, options = {}) {
         await removeQueued(key);
         return { sent: false, suppressed: true, excluded: true };
       }
+      const expiresAt = notificationExpiresAt(event, now());
+      if (expiresAt <= now()) return { sent: false, expired: true };
+      let claim;
       if (key) {
-        let claim;
-        try { claim = await ledgerWork(() => ledger.claim(key, device, event, now() + RETRY_TTL)); }
+        try { claim = await ledgerWork(() => ledger.claim(key, device, event, expiresAt)); }
         catch (_) { logger.warn('Push delivery ledger is temporarily unavailable.'); }
         if (!isEventAllowed(event) || claim?.status === 'excluded') {
           await removeQueued(key);
@@ -325,14 +363,18 @@ function createNotificationDeviceService(database, options = {}) {
           return { sent: true, duplicate: true };
         }
         if (claim?.status === 'pending') return { sent: false, pending: true };
+        if (claim?.status === 'expired') return { sent: false, expired: true };
         if (claim?.status === 'obsolete') {
           await removeQueued(key);
           return { sent: false, obsolete: true };
         }
       }
       let result;
-      try { result = await attemptDelivery(device, event); }
+      const stopLease = maintainLease(key, claim);
+      try { result = await attemptDelivery(device, event, expiresAt, stopLease.lost); }
       catch (_) { result = { sent: false, retryable: true }; }
+      finally { stopLease(); }
+      if (result?.pending) return result;
       if (result?.sent) await markAccepted(key, device);
       else if (result?.retryable && !result.invalidToken) await enqueue(device, event, result);
       else await removeQueued(key);
@@ -350,6 +392,7 @@ function createNotificationDeviceService(database, options = {}) {
       // records. Accepted receipt recovery writes do not retransmit to FCM.
       try {
         for (const [key, entry] of await ledgerWork(() => ledger.restore(retryKey))) {
+          entry.expiresAt = notificationExpiresAt(entry.event, now(), entry.expiresAt);
           if (!isEventAllowed(entry.event)) { await removeQueued(key); continue; }
           if (!retryQueue.has(key) && !accepted.has(key) && retryQueue.size < retryLimit) retryQueue.set(key, entry);
         }
@@ -358,7 +401,10 @@ function createNotificationDeviceService(database, options = {}) {
         if (await persist(() => ledger.accepted(key, device))) acceptedReceipts.delete(key);
       }));
       for (const [key, recordedAt] of accepted) if (time - recordedAt > RETRY_TTL) accepted.delete(key);
-      for (const [key, entry] of retryQueue) if (!isEventAllowed(entry.event) || time >= entry.expiresAt) await removeQueued(key);
+      for (const [key, entry] of retryQueue) {
+        entry.expiresAt = notificationExpiresAt(entry.event, time, entry.expiresAt);
+        if (!isEventAllowed(entry.event) || time >= entry.expiresAt) await removeQueued(key);
+      }
       const due = [...retryQueue].filter(([, entry]) => entry.nextAt <= time).slice(0, 100);
       let cursor = 0;
       await Promise.all(Array.from({ length: Math.min(4, due.length) }, async () => {
@@ -378,10 +424,14 @@ function createNotificationDeviceService(database, options = {}) {
                 accepted.set(key, now()); retryQueue.delete(key); return;
               }
               if (claim?.status === 'pending') return;
+              if (claim?.status === 'expired') { await removeQueued(key); return; }
               if (claim?.status === 'obsolete') { await removeQueued(key); return; }
               let result;
-              try { result = await attemptDelivery(entry.device, entry.event, entry.expiresAt); }
+              const stopLease = maintainLease(key, claim);
+              try { result = await attemptDelivery(entry.device, entry.event, entry.expiresAt, stopLease.lost); }
               catch (error) { result = { sent: false, retryable: true }; }
+              finally { stopLease(); }
+              if (result?.pending) return;
               if (result?.sent) { await markAccepted(key, entry.device); return; }
               if (!result?.retryable || result.invalidToken || ++entry.retryIndex >= RETRY_DELAYS.length) {
                 await removeQueued(key); return;

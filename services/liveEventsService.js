@@ -21,6 +21,7 @@ const { validatedProviderIdentities, matchIdentityIds, teamIdentityIds } = requi
 const { reminderDue, upcomingAlertCandidate, kickoffNotificationFresh, lineupNotificationRelevant, matchPhase, PHASE_EVENTS, PHASE_ORDER,
   lineupState, incidentKey, incidentAlert, incidentFields } = require('../utils/notificationEventTransitions');
 const { eventCategoryEnabled } = require('../utils/notificationContracts');
+const { createNotificationDispatchQueue } = require('../utils/notificationDispatchQueue');
 const { isMatchAllowed, competitionScopeEnabled } = require('../utils/competitionScope');
 
 const MAX_TRACKED_MATCHES = 500;
@@ -89,6 +90,10 @@ function createLiveEventsEmitter(options = {}) {
   const streamLeaseMs = 60000;
   const nonBlockingDetails = options.nonBlockingDetails === true;
   const asynchronousDelivery = options.asynchronousDelivery === true;
+  const installationDispatch = createNotificationDispatchQueue({
+    concurrency: 8, maxPending: 400,
+    onError: () => { logger.warn('One installation delivery failed.'); }
+  });
 
   const snapshotRows = snapshot => Array.isArray(snapshot) ? snapshot : snapshot?.success === true &&
     snapshot.coverage?.available !== false && snapshot.source !== 'unavailable' && Array.isArray(snapshot.data)
@@ -518,7 +523,7 @@ function createLiveEventsEmitter(options = {}) {
               const singleCancellation = phase !== 'PENALTIES' && previous.phase !== 'PENALTIES' &&
                 (homeDelta === -1 && awayDelta === 0 || awayDelta === -1 && homeDelta === 0);
               const side = singleCancellation ? homeDelta === -1 ? 'home' : 'away' : '';
-              record({ ...base, type: singleCancellation ? 'goalCancelled' : 'scoreCorrection', side,
+              record({ ...base, type: singleCancellation ? 'goalCancelled' : 'scoreCorrection', side, scoreRevision,
                 previousScore: { home: previous.home, away: previous.away } },
               `${id}:correction:${previous.home}:${previous.away}:${home}:${away}:${occurrence}`);
             } else if (phase !== 'PENALTIES' && previous.phase !== 'PENALTIES') {
@@ -535,7 +540,7 @@ function createLiveEventsEmitter(options = {}) {
                   scoreValue(item.score?.home) === home && scoreValue(item.score?.away) === away &&
                   previousIncidents.has(id) && !previousIncidents.get(id).has(incidentKey(item))) : null);
                 record({ ...base, ...(side === 'away' ? { team: awayTeam, against: homeTeam,
-                  teamId: awayId, againstTeamId: homeId } : {}), type: 'goal', side,
+                  teamId: awayId, againstTeamId: homeId } : {}), type: 'goal', side, scoreRevision,
                   ...(incident ? incidentFields(incident) : { player: '' }) },
                 `${id}:goal:${side}:${previous.home}:${previous.away}:${home}:${away}:${incident?.id || occurrence}`);
               }
@@ -599,17 +604,38 @@ function createLiveEventsEmitter(options = {}) {
       const deliverEvents = async () => {
         // Installation discovery and FCM start immediately. They do not depend
         // on global event writes, legacy fan pagination or an inbox transaction.
-        const deviceRecipientsRead = Promise.resolve().then(() => deviceService.findRecipients(events))
+        const scheduledPairs = new Set();
+        const deliveryCompletions = [];
+        const scheduleRecipients = async devices => {
+          if (!(devices instanceof Map)) return;
+          for (const [mapKey, device] of devices) {
+            if (!recipientAllowed(device.userId)) continue;
+            // The stored key survives token rotation. Older service adapters may
+            // only expose the Map key or token; keep their installations stable.
+            const key = device.userId && device.deviceId
+              ? JSON.stringify([device.userId, device.deviceId])
+              : String(device.key || mapKey || createHash('sha256').update(String(device.token || device.userId)).digest('hex'));
+            for (const event of device.events.values()) {
+              const pair = JSON.stringify([key, event.eventId]);
+              if (scheduledPairs.has(pair)) continue;
+              scheduledPairs.add(pair);
+              // Await admission, not FCM: pagination slows only at the bounded
+              // queue limit, while other live cycles keep observing transitions.
+              const ticket = await installationDispatch.enqueue(key, () => deviceService.deliver(device, event));
+              deliveryCompletions.push(ticket.done);
+            }
+          }
+        };
+        const deviceRecipientsRead = Promise.resolve().then(() => deviceService.findRecipients(events, {
+          onRecipients: scheduleRecipients
+        }))
           .catch(() => { logger.warn('Push installation audience unavailable.'); return new Map(); });
         const fastPushTask = deviceRecipientsRead.then(async devices => {
-          await mapConcurrent([...devices.values()], 8, async device => {
-            if (!recipientAllowed(device.userId)) return;
-            for (const event of device.events.values()) {
-              try { await deviceService.deliver(device, event); }
-              catch (error) { logger.warn('One installation delivery failed.'); }
-            }
-          });
-        });
+          // Older adapters return a final Map without page callbacks. Reconcile
+          // it as well, deduplicating pairs already offered by streaming readers.
+          await scheduleRecipients(devices);
+          await Promise.all(deliveryCompletions);
+        }).catch(() => { logger.warn('Push installation dispatch failed.'); });
 
         const eventRooms = event => [...new Set([
           ...matchIdentityIds(event).flatMap(id => [matchRoom(id), `matchAlerts_${id}`]),

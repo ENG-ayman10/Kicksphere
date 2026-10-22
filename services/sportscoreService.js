@@ -1071,18 +1071,28 @@ function normalizeSportScoreMatchDetail(m, slug) {
   const lineupPortraits = new Map(['home_xi', 'away_xi', 'home_subs', 'away_subs'].flatMap(key =>
     Array.isArray(m.lineups?.[key]) ? m.lineups[key] : []).map(player => [incidentIdentity(player.slug ?? player.id),
       firstPlayerImage(player.logo, player.image, player.photo, player.player_logo)]).filter(([id]) => id));
+  const redCards = new Set(['red', 'red_card', 'second_yellow', 'second_yellow_card', 'yellow_red', 'yellow_red_card']);
+  const penaltyTypes = new Set(['penalty', 'penalty_awarded', 'penalty_missed', 'penalty_saved']);
   const timeline = (m.incidents || []).map(inc => {
     let type = 'incident';
     let icon = '⚡';
-    const typeStr = (inc.type || '').toLowerCase();
+    const typeStr = typeof inc.type === 'string' ? inc.type.trim().toLowerCase().replace(/[\s-]+/g, '_') : '';
+    const cardType = typeof (inc.card_type ?? inc.cardType) === 'string'
+      ? (inc.card_type ?? inc.cardType).trim().toLowerCase().replace(/[\s-]+/g, '_') : '';
 
-    if (inc.is_goal || typeStr.includes('goal')) {
-      type = 'goal';
-      icon = '⚽';
-    } else if (typeStr.includes('red')) {
+    if (redCards.has(typeStr) || (typeStr === 'card' && redCards.has(cardType))) {
       type = 'red_card';
       icon = '\uD83D\uDFE5';
-    } else if (inc.is_card || typeStr.includes('yellow')) {
+    } else if (penaltyTypes.has(typeStr) || typeStr === 'var') {
+      type = typeStr;
+    } else if (inc.is_goal === true || typeStr.includes('goal')) {
+      type = 'goal';
+      icon = '⚽';
+    } else if (typeStr === 'card' && cardType && !['yellow', 'yellow_card'].includes(cardType)) {
+      // An unpublished/unknown colour cannot establish a yellow or red card.
+      type = 'card';
+    } else if (inc.is_card === true || typeStr.includes('yellow') ||
+        (typeStr === 'card' && ['yellow', 'yellow_card'].includes(cardType))) {
       type = 'yellow_card';
       icon = '\uD83D\uDFE8';
     } else if (typeStr.includes('sub')) {
@@ -1092,9 +1102,19 @@ function normalizeSportScoreMatchDetail(m, slug) {
 
     const scorer = incidentPerson([inc.player_id, inc.playerId, inc.player?.slug, inc.player?.id], inc.player);
     const assistant = incidentPerson([inc.assist_id, inc.assistId, inc.assist_player_id, inc.assist?.slug, inc.assist?.id], inc.assist);
+    const outgoing = inc.player_out ?? inc.playerOut;
+    const substituted = incidentPerson([inc.player_out_id, inc.playerOutId, outgoing?.slug, outgoing?.id], outgoing);
     const playerId = scorer.id, assistId = assistant.id;
+    // Stable source identity and explicit invalidation survive enrichment.
+    // Truthy strings/numbers never establish rescission or deletion.
     return {
-      minute: inc.time ?? null,
+      id: incidentIdentity(inc.id ?? inc.incident_id),
+      minute: inc.time ?? inc.minute ?? null,
+      addedTime: countOrNull(inc.added_time ?? inc.addedTime),
+      period: typeof inc.period === 'string' ? inc.period : '',
+      periodSecond: countOrNull(inc.period_second ?? inc.periodSecond),
+      ...(typeof inc.is_live === 'boolean' ? { isLive: inc.is_live } :
+        typeof inc.isLive === 'boolean' ? { isLive: inc.isLive } : {}),
       type,
       icon,
       label: inc.type || 'Event',
@@ -1107,7 +1127,11 @@ function normalizeSportScoreMatchDetail(m, slug) {
       assistImage: assistant.conflict ? '' : firstPlayerImage(inc.assist_image, inc.assist_logo,
         assistant.nestedCompatible ? inc.assist?.photo : '', assistant.nestedCompatible ? inc.assist?.image : '',
         assistId ? lineupPortraits.get(assistId) : ''),
-      playerOut: inc.player_out || inc.playerOut || null,
+      playerOut: incidentName(outgoing) || null,
+      playerOutId: substituted.id,
+      rescinded: inc.rescinded === true || inc.is_rescinded === true,
+      deleted: inc.deleted === true || inc.is_deleted === true || inc.isDeleted === true,
+      score: { home: countOrNull(inc.home_score ?? inc.score?.home), away: countOrNull(inc.away_score ?? inc.score?.away) },
       source: 'sportscore', provider: 'sportscore'
     };
   });

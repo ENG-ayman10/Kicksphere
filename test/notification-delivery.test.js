@@ -9,7 +9,7 @@ const registration = (n, preferences = {}) => ({ token: token(n), platform: 'and
 const event = { eventId: 'evt_offline_goal', matchId: 'bsd_123', type: 'goal', provider: 'bsd',
   homeTeam: { id: 'bsd_t_57', name: 'Home' }, awayTeam: { id: 'bsd_t_44', name: 'Away' },
   team: 'Away', against: 'Home', teamId: 'bsd_t_44', againstTeamId: 'bsd_t_57', side: 'away',
-  scoreValues: { home: 1, away: 2 }, score: '1 - 2', minute: 70, player: '', createdAt: new Date('2026-10-01T12:00:00Z') };
+  scoreValues: { home: 1, away: 2 }, score: '1 - 2', minute: 70, player: '', createdAt: new Date('2026-10-02T12:00:00Z') };
 
 test('penalty outcomes and substitution participants survive the bounded bilingual FCM envelope', () => {
   const push = load('../services/pushNotificationService', { '../utils/logger': logger });
@@ -54,7 +54,7 @@ function load(file, mocks) {
   try { return require(file); } finally { Module._load = original; }
 }
 
-function store() {
+function store(options = {}) {
   const records = new Map();
   let queue = Promise.resolve();
   let peakReads = 0; let activeReads = 0;
@@ -70,6 +70,7 @@ function store() {
     limit(value) { return query(name, filters, value, after); },
     startAfter(document) { return query(name, filters, maximum, document.id); },
     async get() {
+      await options.beforeQuery?.({ name, filters, maximum, after });
       peakReads = Math.max(peakReads, ++activeReads);
       await new Promise(resolve => setImmediate(resolve)); activeReads--;
       const docs = [...records].filter(([key, data]) => key.startsWith(`${name}/`) && key.split('/').length === 2 &&
@@ -100,7 +101,7 @@ function store() {
 }
 
 function harness(send, options = {}) {
-  const f = store(); const sent = [];
+  const f = store(options.storeOptions); const sent = [];
   const push = load('../services/pushNotificationService', {
     'firebase-admin/messaging': { getMessaging: () => ({ send: async message => sent.push(message) }) },
     '../utils/logger': logger
@@ -175,9 +176,10 @@ test('FCM invalid token errors are classified without logging token-bearing serv
         : `Invalid payload containing private token ${token(1)}`), { code: 'messaging/invalid-argument' });
     } }) }, '../utils/logger': { warn: message => logs.push(message) }
   });
-  assert.equal((await push.sendPushNotification(token(1), 'Test', 'Body', { event })).invalidToken, true);
+  const currentEvent = { ...event, createdAt: new Date() };
+  assert.equal((await push.sendPushNotification(token(1), 'Test', 'Body', { event: currentEvent })).invalidToken, true);
   invalidToken = false;
-  assert.equal((await push.sendPushNotification(token(1), 'Test', 'Body', { event })).invalidToken, false);
+  assert.equal((await push.sendPushNotification(token(1), 'Test', 'Body', { event: currentEvent })).invalidToken, false);
   assert.equal(logs.some(message => message.includes(token(1))), false);
 });
 
@@ -605,4 +607,107 @@ test('a followed club requests alert details while a hidden or disabled installa
   assert.deepEqual([...(await f.service.getAlertMatchIds(matches))], ['bsd_123']);
   await f.service.revoke('u1', 'install_1');
   assert.equal((await f.service.getAlertMatchIds(matches)).size, 0, 'Revocation invalidates cached audience immediately');
+});
+
+test('FCM and APNs share source-age and kickoff expiry without a minimum-one-second extension', async context => {
+  const time = Date.parse('2026-10-17T12:00:00Z');
+  context.mock.method(Date, 'now', () => time);
+  const messages = [];
+  const push = load('../services/pushNotificationService', {
+    'firebase-admin/messaging': { getMessaging: () => ({ send: async message => messages.push(message) }) },
+    '../utils/logger': logger,
+  });
+  const aging = { ...event, createdAt: new Date(time - 299500) };
+  const agedMessage = push.buildPushMessage(token(1), 'Goal', 'Body', { event: aging });
+  assert.equal(agedMessage.android.ttl, 500);
+  assert.equal(agedMessage.apns.headers['apns-expiration'], String(Math.floor((time + 500) / 1000)));
+  const reminder = { ...event, type: 'matchReminder', createdAt: new Date(time),
+    utcDate: new Date(time + 750).toISOString() };
+  const reminderMessage = push.buildPushMessage(token(1), 'Reminder', 'Body', { event: reminder, ttlMs: 300000 });
+  assert.equal(reminderMessage.android.ttl, 750);
+  assert.equal(reminderMessage.apns.headers['apns-expiration'], String(Math.floor((time + 750) / 1000)));
+  assert.equal((await push.sendPushNotification(token(1), 'Old goal', 'Body', {
+    event: { ...event, createdAt: new Date(time - 300001) },
+  })).expired, true);
+  assert.equal((await push.sendPushNotification(token(1), 'Late reminder', 'Body', {
+    event: { ...reminder, utcDate: new Date(time).toISOString() },
+  })).expired, true);
+  assert.equal(messages.length, 0);
+});
+
+test('score occurrence revision survives FCM compact and legacy envelopes without accepting invalid counters', () => {
+  const { storedEvent } = require('../utils/pushDeliveryLedger');
+  const push = load('../services/pushNotificationService', { '../utils/logger': logger });
+  for (const supportsExtendedAlerts of [true, false]) {
+    const revised = { ...event, type: 'goalCancelled', scoreRevision: 3 };
+    const message = push.buildPushMessage(token(1), 'Score', 'Body', { event: revised, supportsExtendedAlerts });
+    assert.equal(JSON.parse(message.data.event).scoreRevision, 3);
+    assert.equal(storedEvent(revised).scoreRevision, 3);
+  }
+  for (const scoreRevision of [-1, '3', 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+    const message = push.buildPushMessage(token(1), 'Score', 'Body', { event: { ...event, scoreRevision } });
+    assert.equal(Object.hasOwn(JSON.parse(message.data.event), 'scoreRevision'), false);
+    assert.equal(Object.hasOwn(storedEvent({ ...event, scoreRevision }), 'scoreRevision'), false);
+  }
+});
+
+test('an emittedAt-only or malformed-createdAt envelope keeps its original FCM ordering clock', context => {
+  const time = Date.parse('2026-10-22T12:00:00Z');
+  context.mock.method(Date, 'now', () => time);
+  const push = load('../services/pushNotificationService', { '../utils/logger': logger });
+  for (const createdAt of [undefined, 'invalid-date', new Date(NaN)]) {
+    const message = push.buildPushMessage(token(1), 'Goal', 'Body', { event: {
+      ...event, createdAt, emittedAt: time - 1000,
+    } });
+    assert.equal(JSON.parse(message.data.event).emittedAt, time - 1000);
+    assert.equal(message.data.emittedAt, String(time - 1000));
+    assert.equal(message.android.ttl, 299000);
+  }
+});
+
+test('audience pages stream before discovery finishes and overlapping filters emit each device event once', async () => {
+  let secondPageStarted, releaseSecondPage;
+  const secondPage = new Promise(resolve => { secondPageStarted = resolve; });
+  const release = new Promise(resolve => { releaseSecondPage = resolve; });
+  const f = harness(undefined, { storeOptions: { beforeQuery: async ({ name, after }) => {
+    if (name === 'notificationDevices' && after) { secondPageStarted(); await release; }
+  } } });
+  for (let i = 0; i < 201; i++) {
+    const userId = `fan_${i}`, deviceId = `install_${i}`, key = f.deviceKey(userId, deviceId);
+    f.records.set(`notificationDevices/${key}`, { userId, deviceId, token: token(i),
+      lastSeenAt: new Date('2026-10-02T12:00:00Z'), preferences: {
+        matchIds: ['bsd_123'], teamIds: ['bsd_t_57', 'bsd_t_44'],
+      } });
+  }
+  const pairs = new Set(); let offered = 0, finished = false;
+  const discovery = f.service.findRecipients([event, event], { onRecipients: async page => {
+    assert.ok(page instanceof Map);
+    for (const [deviceId, recipient] of page) for (const id of recipient.events.keys()) {
+      const pair = `${deviceId}:${id}`;
+      assert.equal(pairs.has(pair), false); pairs.add(pair); offered++;
+    }
+  } }).then(value => { finished = true; return value; });
+  await secondPage;
+  assert.equal(finished, false);
+  assert.equal(offered, 200, 'The first audience page is offered while the next remains blocked');
+  releaseSecondPage();
+  const complete = await discovery;
+  assert.equal(complete.size, 201);
+  assert.equal(offered, 201);
+  assert.ok([...complete.values()].every(recipient => recipient.events.size === 1));
+});
+
+test('a failing audience page consumer cannot discard later pages or the compatibility recipient map', async () => {
+  const f = harness();
+  for (let i = 0; i < 201; i++) {
+    const userId = `fan_${i}`, deviceId = `install_${i}`, key = f.deviceKey(userId, deviceId);
+    f.records.set(`notificationDevices/${key}`, { userId, deviceId, token: token(i),
+      lastSeenAt: new Date('2026-10-02T12:00:00Z'), preferences: { matchIds: ['bsd_123'] } });
+  }
+  let pages = 0;
+  const result = await f.service.findRecipients([event], { onRecipients: async () => {
+    pages++; if (pages === 1) throw new Error('Local consumer failed');
+  } });
+  assert.equal(pages, 2);
+  assert.equal(result.size, 201);
 });
