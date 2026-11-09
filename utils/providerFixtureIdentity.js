@@ -14,6 +14,7 @@ const country = value => {
     ['es', 'esp', 'spain'].includes(name) ? 'spain' :
     ['ar', 'arg', 'argentina'].includes(name) ? 'argentina' :
     ['bf', 'bfa', 'burkina faso'].includes(name) ? 'burkina faso' :
+    ['tr', 'tur', 'turkey', 'turkiye'].includes(name) ? 'turkey' :
     ['mx', 'mex', 'mexico'].includes(name) ? 'mexico' : name;
 };
 const sameCountry = (a, b) => !country(a) || !country(b) || country(a) === country(b);
@@ -28,6 +29,12 @@ const VERIFIED_CLUB_TEAMS = Object.freeze({
   'sc_t_seattle-sounders': { club: 'seattle-sounders', provider: 'sportscore', name: 'Seattle Sounders', competition: 'MLS', country: 'USA' },
   bsd_t_299: { club: 'sporting-kansas-city', provider: 'bsd', name: 'Sporting Kansas City', competition: 'MLS', country: 'USA' },
   'sc_t_sporting-kansas-city': { club: 'sporting-kansas-city', provider: 'sportscore', name: 'Sporting Kansas City', competition: 'MLS', country: 'USA' },
+  // Only these two senior TSL clubs were cross-checked in both catalogs on
+  // 2026-11-09. No other Turkish club receives a suffix/name alias.
+  bsd_t_196: { club: 'besiktas', provider: 'bsd', name: 'Beşiktaş JK', competition: 'TSL', country: 'Turkey' },
+  'sc_t_besiktas-jk': { club: 'besiktas', provider: 'sportscore', name: 'Besiktas JK', competition: 'TSL', country: 'Turkey' },
+  bsd_t_194: { club: 'basaksehir', provider: 'bsd', name: 'Başakşehir FK', competition: 'TSL', country: 'Turkey' },
+  'sc_t_basaksehir-futbol-kulubu': { club: 'basaksehir', provider: 'sportscore', name: 'Başakşehir Futbol Kulübü', competition: 'TSL', country: 'Turkey' },
   bsd_t_1259: { club: 'malaga', provider: 'bsd', name: 'Málaga CF', competition: 'PD', country: 'Spain' },
   sc_t_malaga: { club: 'malaga', provider: 'sportscore', name: 'Malaga', competition: 'PD', country: 'Spain' },
   bsd_t_53: { club: 'espanyol', provider: 'bsd', name: 'Espanyol', competition: 'PD', country: 'Spain' },

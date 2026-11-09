@@ -1,0 +1,74 @@
+{
+  "verifiedAt": "2026-11-09T15:09:16.999Z",
+  "competitionCode": "TSL",
+  "evidence": {
+    "bsd": {
+      "endpoint": "/api/v2/teams/",
+      "query": {
+        "league_id": 11,
+        "limit": 200,
+        "is_women": false
+      },
+      "coverage": {
+        "source": "bsd",
+        "available": true,
+        "complete": true,
+        "partial": false,
+        "possiblyTruncated": false,
+        "reportedTotal": 67,
+        "pages": 1,
+        "duplicateRows": 0,
+        "reason": null,
+        "invalidRows": 0,
+        "rejectedRows": 0
+      },
+      "totalCatalogRows": 67
+    },
+    "sportscore": {
+      "endpoint": "/api/widget/standings/",
+      "query": {
+        "slug": "turkish-super-league"
+      },
+      "totalCatalogRows": 18
+    },
+    "note": "Exact public provider IDs and names selected from independent catalogs. The BSD catalog includes historical clubs; no positional or whole-league matching is authorized. Only these two senior clubs are mapped, and fixture joins still require the same oriented pair, TSL scope and exact zoned kickoff instant. This file records team-catalog evidence, not a newly captured live fixture or score."
+  },
+  "bsdTeams": [
+    {
+      "id": "bsd_t_196",
+      "rawId": 196,
+      "provider": "bsd",
+      "source": "bsd",
+      "name": "Beşiktaş JK",
+      "country": "Türkiye",
+      "countryCode": "TR",
+      "type": "team",
+      "slug": "bsd_t_196"
+    },
+    {
+      "id": "bsd_t_194",
+      "rawId": 194,
+      "provider": "bsd",
+      "source": "bsd",
+      "name": "Başakşehir FK",
+      "country": "Türkiye",
+      "countryCode": "TR",
+      "type": "team",
+      "slug": "bsd_t_194"
+    }
+  ],
+  "sportscoreTeams": [
+    {
+      "id": "sc_t_besiktas-jk",
+      "provider": "sportscore",
+      "name": "Besiktas JK",
+      "slug": "besiktas-jk"
+    },
+    {
+      "id": "sc_t_basaksehir-futbol-kulubu",
+      "provider": "sportscore",
+      "name": "Başakşehir Futbol Kulübü",
+      "slug": "basaksehir-futbol-kulubu"
+    }
+  ]
+}
