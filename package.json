@@ -18,6 +18,11 @@
   "engines": {
     "node": ">=22"
   },
+  "overrides": {
+    "@google-cloud/firestore": {
+      "google-gax": "5.0.4"
+    }
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
